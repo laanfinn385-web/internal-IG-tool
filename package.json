@@ -1,0 +1,13 @@
+{
+  "name": "instagram-outreach-tool",
+  "version": "1.0.0",
+  "description": "Internal dashboard for personalized Instagram cold outreach",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

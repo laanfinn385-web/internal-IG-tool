@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Outreach Tool</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+
+  <header class="topbar">
+    <div class="brand">📩 Outreach Tool</div>
+    <nav>
+      <button class="navbtn" data-nav="home">Home</button>
+      <button class="navbtn" data-nav="analytics">Analytics</button>
+    </nav>
+  </header>
+
+  <main>
+
+    <!-- HOME -->
+    <section id="view-home" class="view">
+      <div class="stats-row">
+        <div class="stat-card streak">
+          <div class="stat-value" id="streak-value">–</div>
+          <div class="stat-label">🔥 dagen streak</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="week-value">–</div>
+          <div class="stat-label">reach-outs afgelopen 7 dagen</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Nieuwe sessie starten</h2>
+        <p class="muted">Plak hieronder je Instagram profiel-URL's, één per regel (meestal 15). Je kunt ook rechtstreeks vanuit je sheet plakken, kolomvolgorde: Profiel URL, Username, Volledige naam, Bio, Volgers (selecteer die kolommen in je sheet en kopieer/plak hier).</p>
+        <textarea id="url-input" rows="8" placeholder="https://www.instagram.com/naam1/&#10;https://www.instagram.com/naam2/&#10;..."></textarea>
+        <div class="row-between">
+          <span class="muted" id="url-count">0 profielen</span>
+          <button id="start-session-btn" class="btn-primary">Sessie starten →</button>
+        </div>
+      </div>
+
+      <div class="card settings-card">
+        <h3>Instellingen</h3>
+        <label class="settings-label">
+          Weergaven-drempel voor "vastzit onder X weergaven"-template
+          <input type="number" id="views-threshold" min="0" step="50">
+        </label>
+      </div>
+    </section>
+
+    <!-- DASHBOARD -->
+    <section id="view-dashboard" class="view hidden">
+      <div class="progress-wrap">
+        <div class="progress-label"><span id="progress-current">1</span> / <span id="progress-total">15</span></div>
+        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+      </div>
+
+      <div class="dash-nav">
+        <button id="prev-btn" class="icon-btn" title="Vorige profiel">←</button>
+        <a id="profile-link" href="#" target="ig_preview" rel="noopener" class="profile-link-btn">Open profiel op Instagram ↗</a>
+        <button id="next-btn" class="icon-btn" title="Volgende profiel">→</button>
+      </div>
+
+      <div class="dashboard-grid">
+
+        <div class="card profile-card">
+          <h2>Profiel</h2>
+          <label>Volledige naam
+            <input type="text" id="f-fullname" placeholder="Bijv. Jan Jansen">
+          </label>
+          <label>Gebruikersnaam
+            <input type="text" id="f-username" placeholder="gebruikersnaam">
+          </label>
+          <label>Bio
+            <textarea id="f-bio" rows="3" placeholder="Bio tekst..."></textarea>
+          </label>
+        </div>
+
+        <div class="card stats-card">
+          <h2>Statistieken</h2>
+          <label>Aantal volgers
+            <input type="number" id="f-followers" min="0" placeholder="Bijv. 3200">
+          </label>
+          <label>Laatste post — hoeveel weken geleden?
+            <input type="number" id="f-lastpost" min="0" step="0.5" placeholder="Bijv. 2">
+          </label>
+          <label>Gem. aantal posts per week (deze maand)
+            <input type="number" id="f-postsperweek" min="0" step="0.1" placeholder="Bijv. 1.5">
+          </label>
+          <label>Gem. aantal weergaven (optioneel)
+            <input type="number" id="f-avgviews" min="0" placeholder="Bijv. 800">
+          </label>
+        </div>
+
+        <div class="card message-card">
+          <h2>Bericht</h2>
+          <label>Gekozen template
+            <select id="f-template"></select>
+          </label>
+          <div class="suggestion-reason muted" id="suggestion-reason"></div>
+          <label>Bericht (bewerkbaar)
+            <textarea id="f-message" rows="7"></textarea>
+          </label>
+          <div class="message-actions">
+            <button id="copy-btn" class="btn-secondary">📋 Kopieer bericht</button>
+            <a id="dm-link" href="#" target="_blank" rel="noopener" class="btn-secondary">💬 Open Instagram DM ↗</a>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="decision-row">
+        <button id="reject-btn" class="btn-reject">✕ Niet gekwalificeerd</button>
+        <button id="accept-btn" class="btn-accept">✓ Verstuurd</button>
+      </div>
+    </section>
+
+    <!-- END SCREEN -->
+    <section id="view-end" class="view hidden">
+      <div class="end-hero">
+        <div class="end-emoji">🎉</div>
+        <h1>Goed gedaan!</h1>
+        <p class="end-sub" id="end-summary-line"></p>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-value" id="end-sent-count">0</div>
+          <div class="stat-label">berichten verstuurd</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="end-rejected-count">0</div>
+          <div class="stat-label">niet gekwalificeerd</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>✓ Verstuurd</h3>
+        <ul class="result-list" id="end-sent-list"></ul>
+      </div>
+      <div class="card">
+        <h3>✕ Niet gekwalificeerd</h3>
+        <ul class="result-list" id="end-rejected-list"></ul>
+      </div>
+
+      <button id="back-home-btn" class="btn-primary">← Terug naar home</button>
+    </section>
+
+    <!-- ANALYTICS -->
+    <section id="view-analytics" class="view hidden">
+      <h1>Analytics</h1>
+      <div class="range-tabs" id="range-tabs">
+        <button data-range="today" class="range-tab active">Vandaag</button>
+        <button data-range="week" class="range-tab">Deze week</button>
+        <button data-range="month" class="range-tab">Deze maand</button>
+        <button data-range="3months" class="range-tab">3 maanden</button>
+        <button data-range="year" class="range-tab">Dit jaar</button>
+        <button data-range="all" class="range-tab">Alles</button>
+      </div>
+
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-value" id="an-total">–</div>
+          <div class="stat-label">reach-outs</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="an-change">–</div>
+          <div class="stat-label" id="an-change-label">vs vorige periode</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <svg id="an-chart" viewBox="0 0 800 300" preserveAspectRatio="none"></svg>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="templates.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
