@@ -37,6 +37,29 @@ function clearSession() {
 function $(sel) { return document.querySelector(sel); }
 function $all(sel) { return Array.from(document.querySelectorAll(sel)); }
 
+// Fetches JSON, applies a timeout, and throws a readable Error on any
+// network failure, timeout, or non-2xx response (using the server's
+// { error } message when present) instead of failing silently.
+async function fetchJson(url, options, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res;
+  try {
+    res = await fetch(url, { ...(options || {}), signal: controller.signal });
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('Request timed out. Check your connection and try again.');
+    throw new Error('Network error — check your connection and try again.');
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try { data = await res.json(); } catch (_) { /* empty or non-JSON body */ }
+  if (!res.ok) {
+    throw new Error((data && data.error) || `Server error (${res.status})`);
+  }
+  return data;
+}
+
 function showView(name) {
   $all('.view').forEach(v => v.classList.add('hidden'));
   $(`#view-${name}`).classList.remove('hidden');
@@ -53,13 +76,14 @@ $all('.navbtn').forEach(btn => {
 // ---------- HOME ----------
 async function loadHome() {
   try {
-    const res = await fetch('/api/home');
-    const data = await res.json();
+    const data = await fetchJson('/api/home');
     $('#streak-value').textContent = data.streak;
     $('#week-value').textContent = data.last7Days;
+    $('#available-leads-value').textContent = data.availableLeads;
   } catch (e) {
     $('#streak-value').textContent = '–';
     $('#week-value').textContent = '–';
+    $('#available-leads-value').textContent = '–';
   }
 }
 
@@ -69,15 +93,11 @@ $('#views-threshold').addEventListener('input', e => {
   localStorage.setItem('viewsThreshold', state.viewsThreshold);
 });
 
-$('#url-input').addEventListener('input', () => {
-  const n = parseProfilesInput($('#url-input').value).length;
-  $('#url-count').textContent = `${n} profile${n === 1 ? '' : 's'}`;
-});
-
 // Tab-delimited tokenizer that understands spreadsheet-style quoting: a cell
 // wrapped in "..." can contain literal tabs/newlines (e.g. a multi-line bio),
 // and "" inside a quoted cell is an escaped literal quote. Without this, a
-// bio with line breaks would get sliced into several bogus rows.
+// bio with line breaks would get sliced into several bogus rows. Shared with
+// leads.js for CSV parsing.
 function parseDelimitedRows(text, delimiter) {
   const rows = [];
   let row = [];
@@ -104,56 +124,68 @@ function parseDelimitedRows(text, delimiter) {
   return rows;
 }
 
-// Accepts either one URL per line, or rows pasted straight out of a
-// spreadsheet in the order: Profile URL, Username, Full Name, Bio, Followers
-// (select those columns in your sheet and copy/paste directly in).
-// A header row (first cell reading "url" or similar) is skipped.
-function parseProfilesInput(raw) {
-  const rows = parseDelimitedRows(raw.trim(), '\t')
-    .map(row => row.map(c => c.trim()))
-    .filter(row => row.some(c => c !== ''));
+// ---------- Session start (home "next N" queue + leads-page selection) ----------
 
-  return rows
-    .filter((row, i) => {
-      if (i !== 0) return true;
-      const firstCell = row[0].toLowerCase();
-      const looksLikeHeader = /^(url|username|gebruikersnaam|profiel|naam|name)$/.test(firstCell);
-      return !looksLikeHeader;
-    })
-    .map(cols => {
-      const [urlCol = '', usernameCol = '', fullName = '', bio = '', followersRaw = ''] = cols;
+$all('.preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $all('.preset-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    $('#session-size-input').value = btn.dataset.size;
+  });
+});
+$('#session-size-input').addEventListener('input', () => {
+  const val = $('#session-size-input').value;
+  $all('.preset-btn').forEach(b => b.classList.toggle('active', b.dataset.size === val));
+});
 
-      let username = usernameCol.replace('@', '').trim();
-      if (!username) {
-        const match = urlCol.match(/instagram\.com\/([a-zA-Z0-9._]+)/);
-        username = match ? match[1] : urlCol.replace('@', '').trim();
-      }
-      const profileUrl = urlCol.startsWith('http') ? urlCol : `https://www.instagram.com/${username}/`;
+// The "Leads" mention in the home card's helper text is a real nav link.
+$all('a[data-nav]').forEach(a => {
+  a.addEventListener('click', e => { e.preventDefault(); showView(a.dataset.nav); });
+});
 
-      // Sheets often have "3.2K" / "11,600" style follower counts — normalize what we can.
-      let followers = '';
-      if (followersRaw) {
-        const kMatch = followersRaw.match(/^([\d.,]+)\s*[kK]$/);
-        if (kMatch) {
-          followers = Math.round(parseFloat(kMatch[1].replace(',', '.')) * 1000);
-        } else {
-          const digits = followersRaw.replace(/[^\d]/g, '');
-          followers = digits ? Number(digits) : '';
-        }
-      }
-
-      return { username, profileUrl, fullName, bio, followers };
-    });
+function showHomeError(available, requested) {
+  const el = $('#home-session-error');
+  el.innerHTML = `You only have <strong>${available}</strong> lead${available === 1 ? '' : 's'} ready to contact, but asked for ${requested}. `;
+  const link = document.createElement('button');
+  link.type = 'button';
+  link.className = 'btn-secondary';
+  link.textContent = 'Go to Leads →';
+  link.addEventListener('click', () => showView('leads'));
+  el.appendChild(link);
+  el.classList.remove('hidden');
 }
+function hideHomeError() { $('#home-session-error').classList.add('hidden'); }
 
-$('#start-session-btn').addEventListener('click', () => {
-  const profiles = parseProfilesInput($('#url-input').value);
-  if (profiles.length === 0) {
-    alert('Paste at least one Instagram URL or sheet row.');
-    return;
+$('#start-session-btn').addEventListener('click', async () => {
+  hideHomeError();
+  const count = Math.max(1, Number($('#session-size-input').value) || 15);
+  const btn = $('#start-session-btn');
+  btn.disabled = true;
+  try {
+    const data = await fetchJson(`/api/leads/next?count=${count}`);
+    const leads = data.leads || [];
+    if (leads.length < count) {
+      showHomeError(leads.length, count);
+      return;
+    }
+    beginSessionWithLeads(leads);
+  } catch (e) {
+    alert(`Could not start session: ${e.message}`);
+  } finally {
+    btn.disabled = false;
   }
-  state.profiles = profiles.map(p => ({
-    ...p,
+});
+
+// Shared by the home "next N" flow and the Leads page's "start session with
+// selected" flow — both just need an array of lead objects.
+function beginSessionWithLeads(leads) {
+  state.profiles = leads.map(l => ({
+    leadId: l.id,
+    username: l.username,
+    profileUrl: l.profileUrl,
+    fullName: l.fullName,
+    bio: l.bio,
+    followers: l.followers ?? '',
     lastPostWeeks: '',
     postsPerWeek: '',
     avgViews: '',
@@ -164,13 +196,11 @@ $('#start-session-btn').addEventListener('click', () => {
   }));
   state.index = 0;
   state.results = [];
-  $('#url-input').value = '';
-  $('#url-count').textContent = '0 profiles';
   saveSession();
   showView('dashboard');
   renderProfile();
   openProfileTab(state.profiles[0].profileUrl);
-});
+}
 
 // ---------- DASHBOARD ----------
 function currentProfile() {
@@ -340,6 +370,29 @@ async function decide(status) {
     });
   } catch (e) {
     console.error('Could not save outreach', e);
+  }
+
+  // Keep the underlying lead in sync: sent -> marked contacted (and any
+  // in-session edits saved back); not qualified -> the lead is removed
+  // from the list entirely (soft-deleted, so the leads-page undo toast
+  // still covers it).
+  if (p.leadId) {
+    if (status === 'sent') {
+      fetch(`/api/leads/${p.leadId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profileUrl: p.profileUrl,
+          username: p.username,
+          fullName: p.fullName,
+          bio: p.bio,
+          followers: p.followers,
+          stage: 'contacted'
+        })
+      }).catch(e => console.error('Could not update lead stage', e));
+    } else {
+      deleteLeads([p.leadId]);
+    }
   }
 
   state.results.push({

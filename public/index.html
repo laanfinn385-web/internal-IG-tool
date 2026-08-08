@@ -38,16 +38,32 @@
           <div class="stat-value" id="week-value">–</div>
           <div class="stat-label">reach-outs last 7 days</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-value" id="available-leads-value">–</div>
+          <div class="stat-label">leads ready to contact</div>
+        </div>
       </div>
 
       <div class="card">
         <h2>Start new session</h2>
-        <p class="muted">Paste your Instagram profile URLs below, one per line (usually 15). You can also paste straight from your sheet, column order: Profile URL, Username, Full name, Bio, Followers (select those columns in your sheet and copy/paste here).</p>
-        <textarea id="url-input" rows="8" placeholder="https://www.instagram.com/name1/&#10;https://www.instagram.com/name2/&#10;..."></textarea>
+        <p class="muted">Pulls the next leads from your <a href="#" data-nav="leads" class="inline-link">Leads</a> list that haven't been contacted yet.</p>
+        <div class="session-size-row">
+          <div class="session-size-presets" id="session-size-presets">
+            <button type="button" class="preset-btn" data-size="10">10</button>
+            <button type="button" class="preset-btn active" data-size="15">15</button>
+            <button type="button" class="preset-btn" data-size="25">25</button>
+            <button type="button" class="preset-btn" data-size="50">50</button>
+            <button type="button" class="preset-btn" data-size="100">100</button>
+          </div>
+          <label class="session-size-custom">Leads
+            <input type="number" id="session-size-input" min="1" value="15">
+          </label>
+        </div>
         <div class="row-between">
-          <span class="muted" id="url-count">0 profiles</span>
+          <span class="muted">&nbsp;</span>
           <button id="start-session-btn" class="btn-primary">Start session →</button>
         </div>
+        <div id="home-session-error" class="import-error hidden"></div>
       </div>
 
       <div class="card settings-card">
@@ -176,9 +192,19 @@
         <input type="file" id="leads-file-input" accept=".csv,text/csv" hidden>
       </div>
 
+      <div id="leads-selection-bar" class="leads-selection-bar hidden">
+        <span id="leads-selection-count"></span>
+        <div class="leads-selection-btns">
+          <button id="leads-selection-start" class="btn-primary">Start session →</button>
+          <button id="leads-selection-delete" class="btn-secondary btn-danger-outline">🗑 Delete selected</button>
+          <button id="leads-selection-clear" class="btn-secondary">Clear</button>
+        </div>
+      </div>
+
       <div id="leads-table-wrap" class="hidden">
         <div class="leads-table">
           <div class="leads-row leads-row-head">
+            <div class="lc lc-check"><input type="checkbox" id="leads-select-all"></div>
             <div class="lc lc-num">#</div>
             <div class="lc lc-url">Profile URL</div>
             <div class="lc lc-username">Username</div>
@@ -237,6 +263,9 @@
           </label>
           <label>Followers
             <input type="number" id="add-followers" min="0" placeholder="E.g. 3200">
+          </label>
+          <label>Note (optional)
+            <textarea id="add-notes" rows="2" placeholder="Anything worth remembering about this lead..."></textarea>
           </label>
           <div class="modal-actions">
             <button id="add-cancel-btn" class="btn-secondary">Cancel</button>

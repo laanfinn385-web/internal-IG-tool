@@ -73,7 +73,7 @@ function computeStreak(sentDateSet) {
   return streak;
 }
 
-app.get('/api/home', async (req, res) => {
+app.get('/api/home', asyncRoute(async (req, res) => {
   const data = await loadData();
   const sentDateSet = new Set(
     data.outreaches.filter(o => o.status === 'sent').map(o => o.date)
@@ -83,8 +83,9 @@ app.get('/api/home', async (req, res) => {
   const last7Days = data.outreaches.filter(
     o => o.status === 'sent' && o.date >= sevenDaysAgo
   ).length;
-  res.json({ streak, last7Days });
-});
+  const [{ count }] = await sql`SELECT count(*) FROM leads WHERE deleted_at IS NULL AND stage = 'new'`;
+  res.json({ streak, last7Days, availableLeads: Number(count) });
+}));
 
 app.post('/api/outreach', async (req, res) => {
   const record = {
@@ -238,10 +239,10 @@ function asyncRoute(handler) {
 }
 
 const MAX_BULK_BATCH = 2000;
+const MAX_NEXT_COUNT = 500;
 
-async function loadLeads() {
-  const rows = await sql`SELECT * FROM leads WHERE deleted_at IS NULL ORDER BY seq ASC`;
-  return rows.map(r => ({
+function mapLeadRow(r) {
+  return {
     id: r.id,
     profileUrl: r.profile_url,
     username: r.username,
@@ -249,9 +250,15 @@ async function loadLeads() {
     bio: r.bio,
     followers: r.followers,
     stage: r.stage,
+    notes: r.notes,
     createdAt: r.created_at,
     updatedAt: r.updated_at
-  }));
+  };
+}
+
+async function loadLeads() {
+  const rows = await sql`SELECT * FROM leads WHERE deleted_at IS NULL ORDER BY seq ASC`;
+  return rows.map(mapLeadRow);
 }
 
 app.get('/api/leads', asyncRoute(async (req, res) => {
@@ -259,13 +266,27 @@ app.get('/api/leads', asyncRoute(async (req, res) => {
   res.json({ leads });
 }));
 
+// The outreach queue: the next N leads that haven't been contacted yet, in
+// import order. If fewer than `count` come back, that shortfall *is* the
+// full remaining supply — no separate count query needed.
+app.get('/api/leads/next', asyncRoute(async (req, res) => {
+  const count = Math.max(1, Math.min(MAX_NEXT_COUNT, parseInt(req.query.count, 10) || 15));
+  const rows = await sql`
+    SELECT * FROM leads
+    WHERE deleted_at IS NULL AND stage = 'new'
+    ORDER BY seq ASC
+    LIMIT ${count}
+  `;
+  res.json({ leads: rows.map(mapLeadRow) });
+}));
+
 app.post('/api/leads', asyncRoute(async (req, res) => {
   const b = req.body;
   const id = crypto.randomUUID();
   await sql`
-    INSERT INTO leads (id, profile_url, username, full_name, bio, followers)
+    INSERT INTO leads (id, profile_url, username, full_name, bio, followers, notes)
     VALUES (${id}, ${b.profileUrl || ''}, ${b.username || ''}, ${b.fullName || ''}, ${b.bio || ''},
-      ${b.followers === '' || b.followers == null ? null : Number(b.followers)})
+      ${b.followers === '' || b.followers == null ? null : Number(b.followers)}, ${b.notes || ''})
   `;
   res.json({ ok: true, id });
 }));
@@ -291,20 +312,39 @@ app.post('/api/leads/bulk', asyncRoute(async (req, res) => {
   res.json({ ok: true, inserted: leads.length });
 }));
 
+// Partial update — only columns actually present in the request body are
+// touched, so a caller that only wants to flip `stage` (or just `notes`)
+// can't accidentally blank out the rest of the lead.
+const LEAD_PATCH_FIELDS = {
+  profileUrl: 'profile_url',
+  username: 'username',
+  fullName: 'full_name',
+  bio: 'bio',
+  followers: 'followers',
+  stage: 'stage',
+  notes: 'notes'
+};
+
 app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   const { id } = req.params;
   const b = req.body;
-  await sql`
-    UPDATE leads SET
-      profile_url = ${b.profileUrl ?? ''},
-      username = ${b.username ?? ''},
-      full_name = ${b.fullName ?? ''},
-      bio = ${b.bio ?? ''},
-      followers = ${b.followers === '' || b.followers == null ? null : Number(b.followers)},
-      stage = ${b.stage || 'new'},
-      updated_at = now()
-    WHERE id = ${id} AND deleted_at IS NULL
-  `;
+  const sets = [];
+  const params = [];
+  let i = 1;
+
+  for (const [key, column] of Object.entries(LEAD_PATCH_FIELDS)) {
+    if (!Object.prototype.hasOwnProperty.call(b, key)) continue;
+    let value = b[key];
+    if (key === 'followers') value = (value === '' || value == null) ? null : Number(value);
+    sets.push(`${column} = $${i++}`);
+    params.push(value);
+  }
+
+  if (sets.length === 0) return res.json({ ok: true });
+  sets.push('updated_at = now()');
+  params.push(id);
+
+  await sql.query(`UPDATE leads SET ${sets.join(', ')} WHERE id = $${i} AND deleted_at IS NULL`, params);
   res.json({ ok: true });
 }));
 

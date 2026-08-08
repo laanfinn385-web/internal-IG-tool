@@ -4,35 +4,14 @@ const IMPORT_CHUNK_SIZE = 500;
 const leadsState = {
   leads: [],
   expanded: new Set(),
+  selected: new Set(),
   page: 0
 };
 
 const csvState = { headers: [], rows: [], mapping: {}, leadsToImport: null, importedCount: 0 };
 
 let pendingUndo = null; // { ids, timer }
-
-// Fetches JSON, applies a timeout, and throws a readable Error on any
-// network failure, timeout, or non-2xx response (using the server's
-// { error } message when present) instead of failing silently.
-async function fetchJson(url, options, timeoutMs = 30000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let res;
-  try {
-    res = await fetch(url, { ...(options || {}), signal: controller.signal });
-  } catch (e) {
-    if (e.name === 'AbortError') throw new Error('Request timed out. Check your connection and try again.');
-    throw new Error('Network error — check your connection and try again.');
-  } finally {
-    clearTimeout(timer);
-  }
-  let data = null;
-  try { data = await res.json(); } catch (_) { /* empty or non-JSON body */ }
-  if (!res.ok) {
-    throw new Error((data && data.error) || `Server error (${res.status})`);
-  }
-  return data;
-}
+// fetchJson is defined in app.js (loaded first) and shared globally.
 
 const LEAD_FIELDS = [
   { key: 'profileUrl', label: 'Profile URL', required: true, patterns: [/profile.?url/i, /^url$/i, /link/i] },
@@ -47,8 +26,7 @@ function escapeHtml(str) {
 }
 
 function stageLabel(stage) {
-  if (!stage) return 'New';
-  return stage.charAt(0).toUpperCase() + stage.slice(1);
+  return stage === 'contacted' ? 'Contacted' : 'New';
 }
 
 function normalizeFollowers(raw) {
@@ -74,13 +52,21 @@ async function loadLeads() {
 
 function leadRowHtml(lead, index) {
   const expanded = leadsState.expanded.has(lead.id);
+  const selected = leadsState.selected.has(lead.id);
+  const contacted = lead.stage === 'contacted';
+  const hasNote = !!(lead.notes && lead.notes.trim());
+  const rowClasses = ['leads-row', 'leads-row-body', contacted ? 'contacted' : '', selected ? 'selected' : ''].filter(Boolean).join(' ');
   const row = `
-    <div class="leads-row leads-row-body" data-id="${lead.id}">
+    <div class="${rowClasses}" data-id="${lead.id}">
+      <div class="lc lc-check"><input type="checkbox" class="row-select" ${selected ? 'checked' : ''}></div>
       <div class="lc lc-num">${index + 1}</div>
       <div class="lc lc-url"><input type="text" value="${escapeHtml(lead.profileUrl)}" data-field="profileUrl" placeholder="Profile URL"></div>
-      <div class="lc lc-username"><input type="text" value="${escapeHtml(lead.username)}" data-field="username" placeholder="username"></div>
+      <div class="lc lc-username">
+        <input type="text" value="${escapeHtml(lead.username)}" data-field="username" placeholder="username">
+        ${hasNote ? '<span class="note-dot" title="Has a note"></span>' : ''}
+      </div>
       <div class="lc lc-expand"><button type="button" class="expand-btn${expanded ? ' expanded' : ''}" title="Show details">&rsaquo;</button></div>
-      <div class="lc lc-stage"><span class="stage-badge">${escapeHtml(stageLabel(lead.stage))}</span></div>
+      <div class="lc lc-stage"><span class="stage-badge${contacted ? ' contacted' : ''}">${escapeHtml(stageLabel(lead.stage))}</span></div>
       <div class="lc lc-trash"><button type="button" class="trash-btn" title="Delete lead">🗑</button></div>
     </div>`;
   const detail = `
@@ -91,8 +77,11 @@ function leadRowHtml(lead, index) {
       <label>Followers
         <input type="number" min="0" value="${lead.followers ?? ''}" data-field="followers">
       </label>
-      <label class="lead-detail-bio">Bio
+      <label class="lead-detail-full">Bio
         <textarea rows="2" data-field="bio" class="auto-resize">${escapeHtml(lead.bio)}</textarea>
+      </label>
+      <label class="lead-detail-full">Note
+        <textarea rows="2" data-field="notes" class="auto-resize" placeholder="Anything worth remembering about this lead...">${escapeHtml(lead.notes)}</textarea>
       </label>
     </div>`;
   return row + detail;
@@ -127,6 +116,8 @@ function renderLeadsTable() {
   // Expanded detail rows render visible (not display:none), so their bio
   // textarea can be measured and grown to fit right away.
   $all('.lead-detail:not(.hidden) textarea.auto-resize').forEach(autoResizeTextarea);
+  updateSelectAllCheckbox();
+  updateSelectionBar();
 
   const pagination = $('#leads-pagination');
   if (leadsState.leads.length <= PAGE_SIZE) {
@@ -151,23 +142,33 @@ async function updateLeadField(id, field, value) {
   const previous = lead[field];
   lead[field] = value;
   try {
+    // PATCH is a true partial update server-side, so sending just the one
+    // changed field can't clobber anything else on the lead.
     await fetchJson(`/api/leads/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        profileUrl: lead.profileUrl,
-        username: lead.username,
-        fullName: lead.fullName,
-        bio: lead.bio,
-        followers: lead.followers,
-        stage: lead.stage
-      })
+      body: JSON.stringify({ [field]: value })
     });
+    if (field === 'notes') updateNoteDot(id, !!(value && value.trim()));
   } catch (e) {
     console.error('Could not save lead', e);
     lead[field] = previous;
     alert(`Could not save that change: ${e.message}`);
     renderLeadsTable();
+  }
+}
+
+function updateNoteDot(id, hasNote) {
+  const usernameCell = document.querySelector(`.leads-row-body[data-id="${id}"] .lc-username`);
+  if (!usernameCell) return;
+  let dot = usernameCell.querySelector('.note-dot');
+  if (hasNote && !dot) {
+    dot = document.createElement('span');
+    dot.className = 'note-dot';
+    dot.title = 'Has a note';
+    usernameCell.appendChild(dot);
+  } else if (!hasNote && dot) {
+    dot.remove();
   }
 }
 
@@ -190,6 +191,11 @@ function toggleExpand(id) {
 }
 
 $('#leads-rows').addEventListener('change', (e) => {
+  if (e.target.classList.contains('row-select')) {
+    const id = e.target.closest('.leads-row-body').dataset.id;
+    setLeadSelected(id, e.target.checked);
+    return;
+  }
   const field = e.target.dataset.field;
   if (!field) return;
   const container = e.target.closest('[data-id], [data-detail-id]');
@@ -213,6 +219,71 @@ $('#leads-rows').addEventListener('click', (e) => {
   }
 });
 
+// ---------- Selection ----------
+
+function setLeadSelected(id, selected) {
+  if (selected) leadsState.selected.add(id);
+  else leadsState.selected.delete(id);
+
+  const row = document.querySelector(`.leads-row-body[data-id="${id}"]`);
+  if (row) row.classList.toggle('selected', selected);
+
+  updateSelectAllCheckbox();
+  updateSelectionBar();
+}
+
+// The header checkbox reflects (and toggles) only the leads on the current
+// page — selecting "all" across a paginated 20k-row list would be a trap.
+function updateSelectAllCheckbox() {
+  const start = leadsState.page * PAGE_SIZE;
+  const pageIds = leadsState.leads.slice(start, start + PAGE_SIZE).map(l => l.id);
+  const allSelected = pageIds.length > 0 && pageIds.every(id => leadsState.selected.has(id));
+  $('#leads-select-all').checked = allSelected;
+}
+
+function updateSelectionBar() {
+  const bar = $('#leads-selection-bar');
+  const n = leadsState.selected.size;
+  if (n === 0) {
+    bar.classList.add('hidden');
+    return;
+  }
+  bar.classList.remove('hidden');
+  $('#leads-selection-count').textContent = `${n} lead${n === 1 ? '' : 's'} selected`;
+}
+
+$('#leads-select-all').addEventListener('change', (e) => {
+  const start = leadsState.page * PAGE_SIZE;
+  const pageLeads = leadsState.leads.slice(start, start + PAGE_SIZE);
+  pageLeads.forEach(l => {
+    if (e.target.checked) leadsState.selected.add(l.id);
+    else leadsState.selected.delete(l.id);
+  });
+  renderLeadsTable();
+  updateSelectionBar();
+});
+
+$('#leads-selection-clear').addEventListener('click', () => {
+  leadsState.selected.clear();
+  renderLeadsTable();
+  updateSelectionBar();
+});
+
+$('#leads-selection-delete').addEventListener('click', () => {
+  const ids = Array.from(leadsState.selected);
+  leadsState.selected.clear();
+  updateSelectionBar();
+  deleteLeads(ids);
+});
+
+$('#leads-selection-start').addEventListener('click', () => {
+  const selectedLeads = leadsState.leads.filter(l => leadsState.selected.has(l.id));
+  if (selectedLeads.length === 0) return;
+  leadsState.selected.clear();
+  updateSelectionBar();
+  beginSessionWithLeads(selectedLeads);
+});
+
 // ---------- Delete + undo ----------
 
 function deleteLeads(ids) {
@@ -226,7 +297,7 @@ function deleteLeads(ids) {
 
   setTimeout(async () => {
     leadsState.leads = leadsState.leads.filter(l => !ids.includes(l.id));
-    ids.forEach(id => leadsState.expanded.delete(id));
+    ids.forEach(id => { leadsState.expanded.delete(id); leadsState.selected.delete(id); });
     renderLeadsTable();
 
     try {
@@ -334,7 +405,7 @@ $('#delete-confirm-btn').addEventListener('click', () => {
 // ---------- Add lead modal ----------
 
 $('#leads-add-btn').addEventListener('click', () => {
-  ['profileUrl', 'username', 'fullName', 'bio', 'followers'].forEach(f => {
+  ['profileUrl', 'username', 'fullName', 'bio', 'followers', 'notes'].forEach(f => {
     const el = $(`#add-${f}`);
     if (el) el.value = '';
   });
@@ -356,7 +427,8 @@ $('#add-confirm-btn').addEventListener('click', async () => {
     username: username || (usernameMatch ? usernameMatch[1] : ''),
     fullName: $('#add-fullName').value.trim(),
     bio: $('#add-bio').value,
-    followers: $('#add-followers').value
+    followers: $('#add-followers').value,
+    notes: $('#add-notes').value
   };
   const btn = $('#add-confirm-btn');
   btn.disabled = true;
