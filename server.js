@@ -113,7 +113,7 @@ app.post('/api/outreach', async (req, res) => {
   res.json({ ok: true, record });
 });
 
-app.get('/api/analytics', async (req, res) => {
+app.get('/api/analytics', asyncRoute(async (req, res) => {
   const data = await loadData();
   const range = req.query.range || 'month';
   const sent = data.outreaches.filter(o => o.status === 'sent');
@@ -219,8 +219,33 @@ app.get('/api/analytics', async (req, res) => {
       : Math.round(((total - prevTotal) / prevTotal) * 1000) / 10;
   }
 
-  res.json({ range, total, prevTotal, pctChange, series });
-});
+  const [[{ count: followupsCount }], [{ count: positiveReplyCount }], [{ count: deadCount }], [{ count: appointmentsCount }]] = await Promise.all([
+    sql`SELECT count(*) FROM followup_sends WHERE date >= ${currentStart} AND date <= ${currentEnd}`,
+    sql`SELECT count(*) FROM lead_events WHERE event = 'positive_reply' AND date >= ${currentStart} AND date <= ${currentEnd}`,
+    sql`SELECT count(*) FROM lead_events WHERE event = 'dead' AND date >= ${currentStart} AND date <= ${currentEnd}`,
+    sql`SELECT count(*) FROM lead_events WHERE event = 'call_booked' AND date >= ${currentStart} AND date <= ${currentEnd}`
+  ]);
+
+  const positiveReplies = Number(positiveReplyCount);
+  const appointmentsSet = Number(appointmentsCount);
+  // Replies = Positive Replies + Dead (a "no" is still a reply; going
+  // completely unanswered is not) — see the analytics tracking discussion.
+  const replies = positiveReplies + Number(deadCount);
+  const rate = (num, denom) => (denom > 0 ? Math.round((num / denom) * 1000) / 10 : null);
+
+  const funnel = {
+    totalSends: total,
+    followups: Number(followupsCount),
+    replies,
+    replyRate: rate(replies, total),
+    positiveReplies,
+    prr: rate(positiveReplies, total),
+    appointmentsSet,
+    asr: rate(appointmentsSet, total)
+  };
+
+  res.json({ range, total, prevTotal, pctChange, series, funnel });
+}));
 
 // ---------- LEADS ----------
 
@@ -251,6 +276,10 @@ function mapLeadRow(r) {
     followers: r.followers,
     stage: r.stage,
     notes: r.notes,
+    phaseStep: r.phase_step,
+    phaseStartedAt: r.phase_started_at,
+    everPositiveReply: r.ever_positive_reply,
+    everCallBooked: r.ever_call_booked,
     createdAt: r.created_at,
     updatedAt: r.updated_at
   };
@@ -325,12 +354,40 @@ const LEAD_PATCH_FIELDS = {
   notes: 'notes'
 };
 
+const FOLLOWUP_STAGES = ['phase1', 'phase2', 'phase3'];
+
 app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   const { id } = req.params;
   const b = req.body;
   const sets = [];
   const params = [];
   let i = 1;
+
+  // A stage change into a follow-up phase resets that phase's clock (fresh
+  // day-0) and, the first time a lead reaches phase2 / call_booked, logs a
+  // dated event so period-based analytics (Positive Replies, Appointments
+  // Set) can be computed later, not just read off current state.
+  if (Object.prototype.hasOwnProperty.call(b, 'stage')) {
+    const [current] = await sql`SELECT stage FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
+    if (current && current.stage !== b.stage) {
+      if (FOLLOWUP_STAGES.includes(b.stage)) {
+        sets.push(`phase_step = $${i++}`); params.push(0);
+        sets.push('phase_started_at = now()');
+      }
+      const today = todayStr();
+      if (b.stage === 'phase2') {
+        sets.push('ever_positive_reply = true');
+        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'positive_reply', ${today})`;
+      }
+      if (b.stage === 'call_booked') {
+        sets.push('ever_call_booked = true');
+        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'call_booked', ${today})`;
+      }
+      if (b.stage === 'dead') {
+        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'dead', ${today})`;
+      }
+    }
+  }
 
   for (const [key, column] of Object.entries(LEAD_PATCH_FIELDS)) {
     if (!Object.prototype.hasOwnProperty.call(b, key)) continue;
@@ -365,6 +422,169 @@ app.post('/api/leads/restore', asyncRoute(async (req, res) => {
   const idList = Array.isArray(req.body.ids) ? req.body.ids : [];
   if (idList.length === 0) return res.json({ ok: true });
   await sql`UPDATE leads SET deleted_at = NULL WHERE id = ANY(${idList}::uuid[])`;
+  res.json({ ok: true });
+}));
+
+// ---------- FOLLOW-UP SEQUENCING ----------
+
+const PHASE_MAX_STEP = { 1: 2, 2: 9, 3: 9 };
+
+function firstName(fullName, username) {
+  const base = (fullName || username || '').trim();
+  return base.split(' ')[0] || username;
+}
+
+function renderFollowupMessage(message, lead, calendarLink) {
+  if (!message) return null;
+  return message
+    .replace(/\{naam\}/g, firstName(lead.full_name, lead.username))
+    .replace(/\{link\}/g, calendarLink || '');
+}
+
+async function getCalendarLink() {
+  const rows = await sql`SELECT value FROM app_settings WHERE key = 'calendar_link'`;
+  return rows.length ? rows[0].value : '';
+}
+
+// Which leads have a follow-up due right now, grouped by phase. A lead is
+// "due" once phase_started_at + the next step's day_offset has passed —
+// works for both on-time and overdue (haven't opened the app in days).
+app.get('/api/notifications', asyncRoute(async (req, res) => {
+  const rows = await sql`
+    SELECT
+      CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END AS phase,
+      l.phase_started_at + make_interval(days => ft.day_offset) AS due_at
+    FROM leads l
+    JOIN followup_templates ft
+      ON ft.phase = CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END
+     AND ft.step = l.phase_step + 1
+    WHERE l.deleted_at IS NULL
+      AND l.stage IN ('phase1', 'phase2', 'phase3')
+      AND l.phase_started_at + make_interval(days => ft.day_offset) <= now()
+  `;
+  const byPhase = {};
+  rows.forEach(r => {
+    const p = r.phase;
+    if (!byPhase[p]) byPhase[p] = { phase: p, count: 0, earliestDue: r.due_at };
+    byPhase[p].count++;
+    if (new Date(r.due_at) < new Date(byPhase[p].earliestDue)) byPhase[p].earliestDue = r.due_at;
+  });
+  res.json({ notifications: Object.values(byPhase).sort((a, b) => a.phase - b.phase) });
+}));
+
+// The due leads for one phase, each with its exact next message pre-rendered.
+app.get('/api/followups/due', asyncRoute(async (req, res) => {
+  const phase = Number(req.query.phase);
+  if (![1, 2, 3].includes(phase)) return res.status(400).json({ error: 'phase must be 1, 2, or 3' });
+  const stageVal = 'phase' + phase;
+  const calendarLink = await getCalendarLink();
+
+  const rows = await sql`
+    SELECT l.id, l.username, l.profile_url, l.full_name,
+           ft.step, ft.type, ft.message, ft.media_note,
+           l.phase_started_at + make_interval(days => ft.day_offset) AS due_at
+    FROM leads l
+    JOIN followup_templates ft ON ft.phase = ${phase} AND ft.step = l.phase_step + 1
+    WHERE l.deleted_at IS NULL
+      AND l.stage = ${stageVal}
+      AND l.phase_started_at + make_interval(days => ft.day_offset) <= now()
+    ORDER BY due_at ASC
+  `;
+
+  const leads = rows.map(r => ({
+    id: r.id,
+    username: r.username,
+    profileUrl: r.profile_url,
+    fullName: r.full_name,
+    phase,
+    step: r.step,
+    type: r.type,
+    mediaNote: r.media_note,
+    message: renderFollowupMessage(r.message, r, calendarLink)
+  }));
+  res.json({ leads });
+}));
+
+// Logs the send (for analytics) and advances the lead to that step.
+app.post('/api/leads/:id/followup-sent', asyncRoute(async (req, res) => {
+  const { id } = req.params;
+  const phase = Number(req.body.phase);
+  const step = Number(req.body.step);
+  if (![1, 2, 3].includes(phase) || !step) {
+    return res.status(400).json({ error: 'phase and step are required' });
+  }
+  const [lead] = await sql`SELECT username, profile_url FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
+  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+
+  await sql`
+    INSERT INTO followup_sends (id, lead_id, username, profile_url, phase, step, message, date)
+    VALUES (${crypto.randomUUID()}, ${id}, ${lead.username}, ${lead.profile_url}, ${phase}, ${step}, ${req.body.message || ''}, ${todayStr()})
+  `;
+  await sql`UPDATE leads SET phase_step = ${step}, updated_at = now() WHERE id = ${id} AND deleted_at IS NULL`;
+  res.json({ ok: true });
+}));
+
+// ---------- SETTINGS ----------
+
+app.get('/api/settings/templates', asyncRoute(async (req, res) => {
+  const rows = await sql`SELECT id, label, text FROM message_templates ORDER BY sort_order`;
+  res.json({ templates: rows });
+}));
+
+app.put('/api/settings/templates/:id', asyncRoute(async (req, res) => {
+  const { id } = req.params;
+  const { label, text } = req.body;
+  const sets = []; const params = []; let i = 1;
+  if (label !== undefined) { sets.push(`label = $${i++}`); params.push(label); }
+  if (text !== undefined) { sets.push(`text = $${i++}`); params.push(text); }
+  if (sets.length === 0) return res.json({ ok: true });
+  sets.push('updated_at = now()');
+  params.push(id);
+  await sql.query(`UPDATE message_templates SET ${sets.join(', ')} WHERE id = $${i}`, params);
+  res.json({ ok: true });
+}));
+
+app.get('/api/settings/followups', asyncRoute(async (req, res) => {
+  const rows = await sql`SELECT phase, step, day_offset, type, message, media_note FROM followup_templates ORDER BY phase, step`;
+  res.json({
+    followups: rows.map(r => ({
+      phase: r.phase, step: r.step, dayOffset: r.day_offset,
+      type: r.type, message: r.message, mediaNote: r.media_note
+    }))
+  });
+}));
+
+app.put('/api/settings/followups/:phase/:step', asyncRoute(async (req, res) => {
+  const phase = Number(req.params.phase);
+  const step = Number(req.params.step);
+  const { dayOffset, type, message, mediaNote } = req.body;
+  const sets = []; const params = []; let i = 1;
+  if (dayOffset !== undefined) { sets.push(`day_offset = $${i++}`); params.push(Number(dayOffset)); }
+  if (type !== undefined) { sets.push(`type = $${i++}`); params.push(type); }
+  if (message !== undefined) { sets.push(`message = $${i++}`); params.push(message); }
+  if (mediaNote !== undefined) { sets.push(`media_note = $${i++}`); params.push(mediaNote); }
+  if (sets.length === 0) return res.json({ ok: true });
+  sets.push('updated_at = now()');
+  params.push(phase, step);
+  await sql.query(`UPDATE followup_templates SET ${sets.join(', ')} WHERE phase = $${i++} AND step = $${i}`, params);
+  res.json({ ok: true });
+}));
+
+app.get('/api/settings/app', asyncRoute(async (req, res) => {
+  const rows = await sql`SELECT key, value FROM app_settings`;
+  const settings = {};
+  rows.forEach(r => { settings[r.key] = r.value; });
+  res.json({ settings });
+}));
+
+app.put('/api/settings/app', asyncRoute(async (req, res) => {
+  const { calendarLink } = req.body;
+  if (calendarLink !== undefined) {
+    await sql`
+      INSERT INTO app_settings (key, value) VALUES ('calendar_link', ${calendarLink})
+      ON CONFLICT (key) DO UPDATE SET value = ${calendarLink}
+    `;
+  }
   res.json({ ok: true });
 }));
 

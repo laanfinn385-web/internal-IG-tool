@@ -64,10 +64,13 @@ function showView(name) {
   $all('.view').forEach(v => v.classList.add('hidden'));
   $(`#view-${name}`).classList.remove('hidden');
   $all('.navbtn').forEach(btn => btn.classList.toggle('active', btn.dataset.nav === name));
-  if (name === 'home') loadHome();
-  if (name === 'leads') loadLeads();
+  if (name === 'home') { loadHome(); loadNotifications(); }
+  if (name === 'leads') { loadLeads(); loadNotifications(); }
   if (name === 'analytics') loadAnalytics(currentRange);
+  if (name === 'settings') loadSettingsPage();
 }
+
+$('#settings-btn').addEventListener('click', () => showView('settings'));
 
 $all('.navbtn').forEach(btn => {
   btn.addEventListener('click', () => showView(btn.dataset.nav));
@@ -372,10 +375,10 @@ async function decide(status) {
     console.error('Could not save outreach', e);
   }
 
-  // Keep the underlying lead in sync: sent -> marked contacted (and any
-  // in-session edits saved back); not qualified -> the lead is removed
-  // from the list entirely (soft-deleted, so the leads-page undo toast
-  // still covers it).
+  // Keep the underlying lead in sync: sent -> enters Phase 1 follow-up
+  // tracking (and any in-session edits saved back); not qualified -> the
+  // lead is removed from the list entirely (soft-deleted, so the leads-page
+  // undo toast still covers it).
   if (p.leadId) {
     if (status === 'sent') {
       fetch(`/api/leads/${p.leadId}`, {
@@ -387,9 +390,9 @@ async function decide(status) {
           fullName: p.fullName,
           bio: p.bio,
           followers: p.followers,
-          stage: 'contacted'
+          stage: 'phase1'
         })
-      }).catch(e => console.error('Could not update lead stage', e));
+      }).then(() => loadNotifications()).catch(e => console.error('Could not update lead stage', e));
     } else {
       deleteLeads([p.leadId]);
     }
@@ -485,9 +488,24 @@ async function loadAnalytics(range) {
       $('#an-change').className = 'stat-value ' + (data.pctChange > 0 ? 'positive' : data.pctChange < 0 ? 'negative' : '');
     }
     renderChart(data.series);
+    renderFunnel(data.funnel);
   } catch (e) {
     console.error('Failed to load analytics', e);
   }
+}
+
+function pctText(v) { return v === null || v === undefined ? '—' : `${v}%`; }
+
+function renderFunnel(funnel) {
+  if (!funnel) return;
+  $('#fn-sends').textContent = funnel.totalSends;
+  $('#fn-followups').textContent = funnel.followups;
+  $('#fn-replies').textContent = funnel.replies;
+  $('#fn-rr').textContent = pctText(funnel.replyRate);
+  $('#fn-positive').textContent = funnel.positiveReplies;
+  $('#fn-prr').textContent = pctText(funnel.prr);
+  $('#fn-appts').textContent = funnel.appointmentsSet;
+  $('#fn-asr').textContent = pctText(funnel.asr);
 }
 
 function renderChart(series) {
@@ -535,7 +553,8 @@ function renderChart(series) {
 }
 
 // ---------- INIT ----------
-(function init() {
+(async function init() {
+  await loadTemplatesFromServer();
   const saved = loadSession();
   if (saved && Array.isArray(saved.profiles) && saved.profiles.length > 0 && saved.index < saved.profiles.length) {
     state.profiles = saved.profiles;

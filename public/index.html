@@ -18,11 +18,25 @@
       <span class="brand-icon">📩</span>
       <span class="brand-text">Outreach Tool<span class="brand-sub">A&amp;P Media</span></span>
     </div>
-    <nav>
-      <button class="navbtn active" data-nav="home">Home</button>
-      <button class="navbtn" data-nav="leads">Leads</button>
-      <button class="navbtn" data-nav="analytics">Analytics</button>
-    </nav>
+    <div class="topbar-right">
+      <nav>
+        <button class="navbtn active" data-nav="home">Home</button>
+        <button class="navbtn" data-nav="leads">Leads</button>
+        <button class="navbtn" data-nav="analytics">Analytics</button>
+      </nav>
+      <div class="notif-wrap">
+        <button id="notif-bell" class="icon-btn notif-bell" title="Follow-up notifications">
+          🔔
+          <span class="notif-badge hidden" id="notif-badge">0</span>
+        </button>
+        <div id="notif-dropdown" class="notif-dropdown hidden">
+          <div class="notif-dropdown-header">Follow-ups due</div>
+          <div id="notif-list"></div>
+          <div class="notif-empty hidden" id="notif-empty">You're all caught up 🎉</div>
+        </div>
+      </div>
+      <button id="settings-btn" class="icon-btn" title="Settings" data-nav="settings">⚙️</button>
+    </div>
   </header>
 
   <main>
@@ -329,6 +343,67 @@
       <div class="card">
         <svg id="an-chart" viewBox="0 0 800 300" preserveAspectRatio="none"></svg>
       </div>
+
+      <div class="card">
+        <h3>Funnel</h3>
+        <div class="funnel-grid" id="funnel-grid">
+          <div class="funnel-tile"><div class="funnel-value" id="fn-sends">–</div><div class="funnel-label">Total Sends</div></div>
+          <div class="funnel-tile"><div class="funnel-value" id="fn-followups">–</div><div class="funnel-label">Follow ups</div></div>
+          <div class="funnel-tile"><div class="funnel-value" id="fn-replies">–</div><div class="funnel-label">Replies</div></div>
+          <div class="funnel-tile"><div class="funnel-value" id="fn-rr">–</div><div class="funnel-label">Reply Rate %</div></div>
+          <div class="funnel-tile"><div class="funnel-value" id="fn-positive">–</div><div class="funnel-label">Positive Replies</div></div>
+          <div class="funnel-tile"><div class="funnel-value" id="fn-prr">–</div><div class="funnel-label">PRR %</div></div>
+          <div class="funnel-tile"><div class="funnel-value" id="fn-appts">–</div><div class="funnel-label">Appointments Set</div></div>
+          <div class="funnel-tile"><div class="funnel-value" id="fn-asr">–</div><div class="funnel-label">ASR %</div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FOLLOW-UP SESSION -->
+    <section id="view-followup" class="view hidden">
+      <div class="row-between">
+        <h1 id="followup-title">Follow-ups</h1>
+        <button id="followup-back-btn" class="btn-secondary">← Back</button>
+      </div>
+      <p class="muted" id="followup-sub"></p>
+      <div id="followup-list" class="followup-list"></div>
+      <div id="followup-empty" class="card followup-empty-state hidden">
+        <div class="end-emoji">🎉</div>
+        <h2>All done!</h2>
+        <p class="muted">No more follow-ups due in this batch.</p>
+        <button id="followup-done-btn" class="btn-primary">← Back to home</button>
+      </div>
+    </section>
+
+    <!-- SETTINGS -->
+    <section id="view-settings" class="view hidden">
+      <h1>Settings</h1>
+
+      <div class="card">
+        <h3>Calendar link</h3>
+        <p class="muted">Used to fill in <code>{link}</code> in your Phase 3 follow-ups.</p>
+        <label>Booking link
+          <input type="text" id="settings-calendar-link" placeholder="https://cal.com/yourname">
+        </label>
+        <button id="settings-calendar-save" class="btn-secondary">Save</button>
+      </div>
+
+      <div class="card">
+        <h3>Initial message templates</h3>
+        <p class="muted">These are the 6 opening messages the dashboard suggests based on a profile's stats.</p>
+        <div id="settings-templates"></div>
+      </div>
+
+      <div class="card">
+        <h3>Follow-up sequence</h3>
+        <p class="muted">Timing is days since the phase started. <code>{naam}</code> becomes the lead's first name, <code>{link}</code> your calendar link.</p>
+        <div class="settings-phase-tabs" id="settings-phase-tabs">
+          <button type="button" class="range-tab active" data-phase="1">Phase 1</button>
+          <button type="button" class="range-tab" data-phase="2">Phase 2</button>
+          <button type="button" class="range-tab" data-phase="3">Phase 3</button>
+        </div>
+        <div id="settings-followups"></div>
+      </div>
     </section>
 
   </main>
@@ -345,5 +420,6 @@
 <script src="templates.js"></script>
 <script src="app.js"></script>
 <script src="leads.js"></script>
+<script src="followups.js"></script>
 </body>
 </html>

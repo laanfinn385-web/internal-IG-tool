@@ -25,13 +25,36 @@ function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+const PHASE_MAX_STEP = { 1: 2, 2: 9, 3: 9 };
+
 const STAGE_OPTIONS = [
   { value: 'new', label: 'New' },
-  { value: 'contacted', label: 'Contacted' }
+  { value: 'phase1', label: 'Phase 1' },
+  { value: 'phase2', label: 'Phase 2' },
+  { value: 'phase3', label: 'Phase 3' },
+  { value: 'call_booked', label: 'Call booked' },
+  { value: 'dead', label: 'Dead' }
 ];
 
-function stageLabel(stage) {
-  return stage === 'contacted' ? 'Contacted' : 'New';
+function stageLabel(lead) {
+  const stage = lead.stage;
+  if (stage === 'phase1' || stage === 'phase2' || stage === 'phase3') {
+    const phase = Number(stage.slice(-1));
+    const max = PHASE_MAX_STEP[phase];
+    const step = Math.min(lead.phaseStep || 0, max);
+    return `Phase ${phase} · ${step}/${max}`;
+  }
+  if (stage === 'call_booked') return 'Call booked';
+  if (stage === 'dead') return 'Dead';
+  return 'New';
+}
+
+// Maps a stage to the CSS class that colors its badge / row.
+function stageClass(stage) {
+  if (stage === 'phase1' || stage === 'phase2' || stage === 'phase3') return stage;
+  if (stage === 'call_booked') return 'call-booked';
+  if (stage === 'dead') return 'dead';
+  return '';
 }
 
 function normalizeFollowers(raw) {
@@ -58,9 +81,9 @@ async function loadLeads() {
 function leadRowHtml(lead, index) {
   const expanded = leadsState.expanded.has(lead.id);
   const selected = leadsState.selected.has(lead.id);
-  const contacted = lead.stage === 'contacted';
+  const stageCls = stageClass(lead.stage);
   const hasNote = !!(lead.notes && lead.notes.trim());
-  const rowClasses = ['leads-row', 'leads-row-body', contacted ? 'contacted' : '', selected ? 'selected' : ''].filter(Boolean).join(' ');
+  const rowClasses = ['leads-row', 'leads-row-body', stageCls, selected ? 'selected' : ''].filter(Boolean).join(' ');
   const row = `
     <div class="${rowClasses}" data-id="${lead.id}">
       <div class="lc lc-check"><input type="checkbox" class="row-select" ${selected ? 'checked' : ''}></div>
@@ -72,8 +95,15 @@ function leadRowHtml(lead, index) {
       </div>
       <div class="lc lc-expand"><button type="button" class="expand-btn${expanded ? ' expanded' : ''}" title="Show details">&rsaquo;</button></div>
       <div class="lc lc-stage">
-        <select class="stage-badge${contacted ? ' contacted' : ''}" data-field="stage">
-          ${STAGE_OPTIONS.map(o => `<option value="${o.value}"${lead.stage === o.value ? ' selected' : ''}>${o.label}</option>`).join('')}
+        <select class="stage-badge${stageCls ? ' ' + stageCls : ''}" data-field="stage">
+          ${STAGE_OPTIONS.map(o => {
+            const isSelected = lead.stage === o.value;
+            // The selected option's own text is what a closed <select> shows,
+            // so give it the step-aware label ("Phase 2 · 4/9"); the rest of
+            // the list keeps plain labels.
+            const label = isSelected ? stageLabel(lead) : o.label;
+            return `<option value="${o.value}"${isSelected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+          }).join('')}
         </select>
       </div>
       <div class="lc lc-trash"><button type="button" class="trash-btn" title="Delete lead">🗑</button></div>
@@ -149,7 +179,13 @@ async function updateLeadField(id, field, value) {
   const lead = leadsState.leads.find(l => l.id === id);
   if (!lead) return;
   const previous = lead[field];
+  const previousPhaseStep = lead.phaseStep;
   lead[field] = value;
+  // Mirror the server's reset-on-phase-change so the badge shows "· 0/N"
+  // immediately instead of a stale step count from the old phase.
+  if (field === 'stage' && value !== previous && ['phase1', 'phase2', 'phase3'].includes(value)) {
+    lead.phaseStep = 0;
+  }
   try {
     // PATCH is a true partial update server-side, so sending just the one
     // changed field can't clobber anything else on the lead.
@@ -159,21 +195,30 @@ async function updateLeadField(id, field, value) {
       body: JSON.stringify({ [field]: value })
     });
     if (field === 'notes') updateNoteDot(id, !!(value && value.trim()));
-    if (field === 'stage') updateStageStyling(id, value === 'contacted');
+    if (field === 'stage') { updateStageStyling(id, lead); loadNotifications(); }
   } catch (e) {
     console.error('Could not save lead', e);
     lead[field] = previous;
+    if (field === 'stage') lead.phaseStep = previousPhaseStep;
     alert(`Could not save that change: ${e.message}`);
     renderLeadsTable();
   }
 }
 
-function updateStageStyling(id, contacted) {
+function updateStageStyling(id, lead) {
   const row = document.querySelector(`.leads-row-body[data-id="${id}"]`);
   if (!row) return;
-  row.classList.toggle('contacted', contacted);
+  const stageCls = stageClass(lead.stage);
+  row.className = ['leads-row', 'leads-row-body', stageCls, leadsState.selected.has(id) ? 'selected' : ''].filter(Boolean).join(' ');
+
   const select = row.querySelector('.stage-badge');
-  if (select) select.classList.toggle('contacted', contacted);
+  if (!select) return;
+  select.className = 'stage-badge' + (stageCls ? ` ${stageCls}` : '');
+  select.innerHTML = STAGE_OPTIONS.map(o => {
+    const isSelected = lead.stage === o.value;
+    const label = isSelected ? stageLabel(lead) : o.label;
+    return `<option value="${o.value}"${isSelected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+  }).join('');
 }
 
 function updateNoteDot(id, hasNote) {
