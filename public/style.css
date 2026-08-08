@@ -475,6 +475,7 @@ input:focus, textarea:focus, select:focus {
 }
 .lead-detail label { margin-bottom: 0; }
 .lead-detail .lead-detail-bio { grid-column: 1 / -1; }
+.lead-detail-bio textarea.auto-resize { resize: none; overflow: hidden; }
 
 /* Modals */
 .modal-overlay {

@@ -92,10 +92,16 @@ function leadRowHtml(lead, index) {
         <input type="number" min="0" value="${lead.followers ?? ''}" data-field="followers">
       </label>
       <label class="lead-detail-bio">Bio
-        <textarea rows="2" data-field="bio">${escapeHtml(lead.bio)}</textarea>
+        <textarea rows="2" data-field="bio" class="auto-resize">${escapeHtml(lead.bio)}</textarea>
       </label>
     </div>`;
   return row + detail;
+}
+
+// Grows a textarea to fit its content instead of scrolling internally.
+function autoResizeTextarea(el) {
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight}px`;
 }
 
 function renderLeadsTable() {
@@ -117,6 +123,10 @@ function renderLeadsTable() {
   const start = leadsState.page * PAGE_SIZE;
   const pageLeads = leadsState.leads.slice(start, start + PAGE_SIZE);
   $('#leads-rows').innerHTML = pageLeads.map((lead, i) => leadRowHtml(lead, start + i)).join('');
+
+  // Expanded detail rows render visible (not display:none), so their bio
+  // textarea can be measured and grown to fit right away.
+  $all('.lead-detail:not(.hidden) textarea.auto-resize').forEach(autoResizeTextarea);
 
   const pagination = $('#leads-pagination');
   if (leadsState.leads.length <= PAGE_SIZE) {
@@ -174,6 +184,8 @@ function toggleExpand(id) {
     leadsState.expanded.add(id);
     detail.classList.remove('hidden');
     btn.classList.add('expanded');
+    const bioEl = detail.querySelector('textarea.auto-resize');
+    if (bioEl) autoResizeTextarea(bioEl);
   }
 }
 
@@ -183,6 +195,10 @@ $('#leads-rows').addEventListener('change', (e) => {
   const container = e.target.closest('[data-id], [data-detail-id]');
   const id = container.dataset.id || container.dataset.detailId;
   updateLeadField(id, field, e.target.value);
+});
+
+$('#leads-rows').addEventListener('input', (e) => {
+  if (e.target.classList.contains('auto-resize')) autoResizeTextarea(e.target);
 });
 
 $('#leads-rows').addEventListener('click', (e) => {
