@@ -69,7 +69,7 @@ $('#views-threshold').addEventListener('input', e => {
 
 $('#url-input').addEventListener('input', () => {
   const n = parseProfilesInput($('#url-input').value).length;
-  $('#url-count').textContent = `${n} profiel${n === 1 ? '' : 'en'}`;
+  $('#url-count').textContent = `${n} profile${n === 1 ? '' : 's'}`;
 });
 
 // Tab-delimited tokenizer that understands spreadsheet-style quoting: a cell
@@ -147,7 +147,7 @@ function parseProfilesInput(raw) {
 $('#start-session-btn').addEventListener('click', () => {
   const profiles = parseProfilesInput($('#url-input').value);
   if (profiles.length === 0) {
-    alert('Plak minstens één Instagram URL of sheet-rij.');
+    alert('Paste at least one Instagram URL or sheet row.');
     return;
   }
   state.profiles = profiles.map(p => ({
@@ -163,7 +163,7 @@ $('#start-session-btn').addEventListener('click', () => {
   state.index = 0;
   state.results = [];
   $('#url-input').value = '';
-  $('#url-count').textContent = '0 profielen';
+  $('#url-count').textContent = '0 profiles';
   saveSession();
   showView('dashboard');
   renderProfile();
@@ -224,7 +224,7 @@ function populateTemplateSelect() {
 function buildPlaceholders(p) {
   const naam = (p.fullName || p.username || '').trim().split(' ')[0] || p.username;
   const months = p.lastPostWeeks ? Math.max(1, Math.round(Number(p.lastPostWeeks) / 4.345)) : '[X]';
-  const views = state.viewsThreshold ? state.viewsThreshold.toLocaleString('nl-NL') : '[X]';
+  const views = state.viewsThreshold ? state.viewsThreshold.toLocaleString('en-US') : '[X]';
   return { naam, months, views };
 }
 
@@ -286,7 +286,7 @@ $('#copy-btn').addEventListener('click', async () => {
   await navigator.clipboard.writeText($('#f-message').value);
   const btn = $('#copy-btn');
   const original = btn.textContent;
-  btn.textContent = '✓ Gekopieerd!';
+  btn.textContent = '✓ Copied!';
   setTimeout(() => { btn.textContent = original; }, 1200);
 });
 
@@ -337,7 +337,7 @@ async function decide(status) {
       })
     });
   } catch (e) {
-    console.error('Kon outreach niet opslaan', e);
+    console.error('Could not save outreach', e);
   }
 
   state.results.push({
@@ -370,20 +370,20 @@ function showEndScreen() {
   $('#end-rejected-count').textContent = rejected.length;
 
   const lines = [
-    `Je bent door alle ${state.results.length} profielen heen.`,
-    sent.length > 0 ? `${sent.length} bericht${sent.length === 1 ? '' : 'en'} verstuurd — mooi werk.` : `Vandaag geen berichten verstuurd — soms zit de kwaliteit er gewoon niet in.`
+    `You've made it through all ${state.results.length} profiles.`,
+    sent.length > 0 ? `${sent.length} message${sent.length === 1 ? '' : 's'} sent — nice work.` : `No messages sent today — sometimes the quality just isn't there.`
   ];
   $('#end-summary-line').textContent = lines.join(' ');
 
   const sentList = $('#end-sent-list');
   sentList.innerHTML = sent.length
     ? sent.map(r => `<li><strong>@${r.username}</strong> ${r.fullName ? `(${r.fullName})` : ''} — ${TEMPLATES[r.template]?.label || r.template}</li>`).join('')
-    : '<li class="muted">Geen</li>';
+    : '<li class="muted">None</li>';
 
   const rejList = $('#end-rejected-list');
   rejList.innerHTML = rejected.length
     ? rejected.map(r => `<li><strong>@${r.username}</strong> ${r.fullName ? `(${r.fullName})` : ''}</li>`).join('')
-    : '<li class="muted">Geen</li>';
+    : '<li class="muted">None</li>';
 
   showView('end');
 }
@@ -408,11 +408,11 @@ $all('.range-tab').forEach(tab => {
 });
 
 const RANGE_LABELS = {
-  today: 'vs gisteren',
-  week: 'vs vorige week',
-  month: 'vs vorige maand',
-  '3months': 'vs vorige 3 maanden',
-  year: 'vs vorig jaar',
+  today: 'vs yesterday',
+  week: 'vs last week',
+  month: 'vs last month',
+  '3months': 'vs previous 3 months',
+  year: 'vs last year',
   all: ''
 };
 
@@ -431,7 +431,7 @@ async function loadAnalytics(range) {
     }
     renderChart(data.series);
   } catch (e) {
-    console.error('Analytics laden mislukt', e);
+    console.error('Failed to load analytics', e);
   }
 }
 

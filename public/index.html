@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="nl">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -24,28 +24,28 @@
       <div class="stats-row">
         <div class="stat-card streak">
           <div class="stat-value" id="streak-value">–</div>
-          <div class="stat-label">🔥 dagen streak</div>
+          <div class="stat-label">🔥 day streak</div>
         </div>
         <div class="stat-card">
           <div class="stat-value" id="week-value">–</div>
-          <div class="stat-label">reach-outs afgelopen 7 dagen</div>
+          <div class="stat-label">reach-outs last 7 days</div>
         </div>
       </div>
 
       <div class="card">
-        <h2>Nieuwe sessie starten</h2>
-        <p class="muted">Plak hieronder je Instagram profiel-URL's, één per regel (meestal 15). Je kunt ook rechtstreeks vanuit je sheet plakken, kolomvolgorde: Profiel URL, Username, Volledige naam, Bio, Volgers (selecteer die kolommen in je sheet en kopieer/plak hier).</p>
-        <textarea id="url-input" rows="8" placeholder="https://www.instagram.com/naam1/&#10;https://www.instagram.com/naam2/&#10;..."></textarea>
+        <h2>Start new session</h2>
+        <p class="muted">Paste your Instagram profile URLs below, one per line (usually 15). You can also paste straight from your sheet, column order: Profile URL, Username, Full name, Bio, Followers (select those columns in your sheet and copy/paste here).</p>
+        <textarea id="url-input" rows="8" placeholder="https://www.instagram.com/name1/&#10;https://www.instagram.com/name2/&#10;..."></textarea>
         <div class="row-between">
-          <span class="muted" id="url-count">0 profielen</span>
-          <button id="start-session-btn" class="btn-primary">Sessie starten →</button>
+          <span class="muted" id="url-count">0 profiles</span>
+          <button id="start-session-btn" class="btn-primary">Start session →</button>
         </div>
       </div>
 
       <div class="card settings-card">
-        <h3>Instellingen</h3>
+        <h3>Settings</h3>
         <label class="settings-label">
-          Weergaven-drempel voor "vastzit onder X weergaven"-template
+          Views threshold for the "stuck under X views" template
           <input type="number" id="views-threshold" min="0" step="50">
         </label>
       </div>
@@ -59,53 +59,53 @@
       </div>
 
       <div class="dash-nav">
-        <button id="prev-btn" class="icon-btn" title="Vorige profiel">←</button>
-        <a id="profile-link" href="#" target="ig_preview" rel="noopener" class="profile-link-btn">Open profiel op Instagram ↗</a>
-        <button id="next-btn" class="icon-btn" title="Volgende profiel">→</button>
+        <button id="prev-btn" class="icon-btn" title="Previous profile">←</button>
+        <a id="profile-link" href="#" target="ig_preview" rel="noopener" class="profile-link-btn">Open profile on Instagram ↗</a>
+        <button id="next-btn" class="icon-btn" title="Next profile">→</button>
       </div>
 
       <div class="dashboard-grid">
 
         <div class="card profile-card">
-          <h2>Profiel</h2>
-          <label>Volledige naam
-            <input type="text" id="f-fullname" placeholder="Bijv. Jan Jansen">
+          <h2>Profile</h2>
+          <label>Full name
+            <input type="text" id="f-fullname" placeholder="E.g. John Smith">
           </label>
-          <label>Gebruikersnaam
-            <input type="text" id="f-username" placeholder="gebruikersnaam">
+          <label>Username
+            <input type="text" id="f-username" placeholder="username">
           </label>
           <label>Bio
-            <textarea id="f-bio" rows="3" placeholder="Bio tekst..."></textarea>
+            <textarea id="f-bio" rows="3" placeholder="Bio text..."></textarea>
           </label>
         </div>
 
         <div class="card stats-card">
-          <h2>Statistieken</h2>
-          <label>Aantal volgers
-            <input type="number" id="f-followers" min="0" placeholder="Bijv. 3200">
+          <h2>Stats</h2>
+          <label>Number of followers
+            <input type="number" id="f-followers" min="0" placeholder="E.g. 3200">
           </label>
-          <label>Laatste post — hoeveel weken geleden?
-            <input type="number" id="f-lastpost" min="0" step="0.5" placeholder="Bijv. 2">
+          <label>Last post — how many weeks ago?
+            <input type="number" id="f-lastpost" min="0" step="0.5" placeholder="E.g. 2">
           </label>
-          <label>Gem. aantal posts per week (deze maand)
-            <input type="number" id="f-postsperweek" min="0" step="0.1" placeholder="Bijv. 1.5">
+          <label>Avg. posts per week (this month)
+            <input type="number" id="f-postsperweek" min="0" step="0.1" placeholder="E.g. 1.5">
           </label>
-          <label>Gem. aantal weergaven (optioneel)
-            <input type="number" id="f-avgviews" min="0" placeholder="Bijv. 800">
+          <label>Avg. views (optional)
+            <input type="number" id="f-avgviews" min="0" placeholder="E.g. 800">
           </label>
         </div>
 
         <div class="card message-card">
-          <h2>Bericht</h2>
-          <label>Gekozen template
+          <h2>Message</h2>
+          <label>Selected template
             <select id="f-template"></select>
           </label>
           <div class="suggestion-reason muted" id="suggestion-reason"></div>
-          <label>Bericht (bewerkbaar)
+          <label>Message (editable)
             <textarea id="f-message" rows="7"></textarea>
           </label>
           <div class="message-actions">
-            <button id="copy-btn" class="btn-secondary">📋 Kopieer bericht</button>
+            <button id="copy-btn" class="btn-secondary">📋 Copy message</button>
             <a id="dm-link" href="#" target="_blank" rel="noopener" class="btn-secondary">💬 Open Instagram DM ↗</a>
           </div>
         </div>
@@ -113,8 +113,8 @@
       </div>
 
       <div class="decision-row">
-        <button id="reject-btn" class="btn-reject">✕ Niet gekwalificeerd</button>
-        <button id="accept-btn" class="btn-accept">✓ Verstuurd</button>
+        <button id="reject-btn" class="btn-reject">✕ Not qualified</button>
+        <button id="accept-btn" class="btn-accept">✓ Sent</button>
       </div>
     </section>
 
@@ -122,43 +122,43 @@
     <section id="view-end" class="view hidden">
       <div class="end-hero">
         <div class="end-emoji">🎉</div>
-        <h1>Goed gedaan!</h1>
+        <h1>Well done!</h1>
         <p class="end-sub" id="end-summary-line"></p>
       </div>
 
       <div class="stats-row">
         <div class="stat-card">
           <div class="stat-value" id="end-sent-count">0</div>
-          <div class="stat-label">berichten verstuurd</div>
+          <div class="stat-label">messages sent</div>
         </div>
         <div class="stat-card">
           <div class="stat-value" id="end-rejected-count">0</div>
-          <div class="stat-label">niet gekwalificeerd</div>
+          <div class="stat-label">not qualified</div>
         </div>
       </div>
 
       <div class="card">
-        <h3>✓ Verstuurd</h3>
+        <h3>✓ Sent</h3>
         <ul class="result-list" id="end-sent-list"></ul>
       </div>
       <div class="card">
-        <h3>✕ Niet gekwalificeerd</h3>
+        <h3>✕ Not qualified</h3>
         <ul class="result-list" id="end-rejected-list"></ul>
       </div>
 
-      <button id="back-home-btn" class="btn-primary">← Terug naar home</button>
+      <button id="back-home-btn" class="btn-primary">← Back to home</button>
     </section>
 
     <!-- ANALYTICS -->
     <section id="view-analytics" class="view hidden">
       <h1>Analytics</h1>
       <div class="range-tabs" id="range-tabs">
-        <button data-range="today" class="range-tab active">Vandaag</button>
-        <button data-range="week" class="range-tab">Deze week</button>
-        <button data-range="month" class="range-tab">Deze maand</button>
-        <button data-range="3months" class="range-tab">3 maanden</button>
-        <button data-range="year" class="range-tab">Dit jaar</button>
-        <button data-range="all" class="range-tab">Alles</button>
+        <button data-range="today" class="range-tab active">Today</button>
+        <button data-range="week" class="range-tab">This week</button>
+        <button data-range="month" class="range-tab">This month</button>
+        <button data-range="3months" class="range-tab">3 months</button>
+        <button data-range="year" class="range-tab">This year</button>
+        <button data-range="all" class="range-tab">All</button>
       </div>
 
       <div class="stats-row">
@@ -168,7 +168,7 @@
         </div>
         <div class="stat-card">
           <div class="stat-value" id="an-change">–</div>
-          <div class="stat-label" id="an-change-label">vs vorige periode</div>
+          <div class="stat-label" id="an-change-label">vs previous period</div>
         </div>
       </div>
 

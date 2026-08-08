@@ -1,23 +1,34 @@
 const express = require('express');
-const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
-const DATA_FILE = path.join(__dirname, 'data', 'data.json');
 const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-function loadData() {
-  try {
-    return JSON.parse(fs.readFileSync(DATA_FILE, 'utf8'));
-  } catch {
-    return { outreaches: [] };
-  }
-}
+const { neon } = require('@neondatabase/serverless');
+const sql = neon(process.env.DATABASE_URL);
 
-function saveData(data) {
-  fs.writeFileSync(DATA_FILE, JSON.stringify(data, null, 2));
+async function loadData() {
+  const rows = await sql`SELECT * FROM outreaches`;
+  return {
+    outreaches: rows.map(r => ({
+      id: r.id,
+      date: r.date,
+      createdAt: r.created_at,
+      username: r.username,
+      profileUrl: r.profile_url,
+      fullName: r.full_name,
+      bio: r.bio,
+      followers: r.followers,
+      lastPostWeeks: r.last_post_weeks,
+      postsPerWeek: r.posts_per_week,
+      avgViews: r.avg_views,
+      template: r.template,
+      message: r.message,
+      status: r.status
+    }))
+  };
 }
 
 // Local-timezone date string (YYYY-MM-DD). Deliberately avoids toISOString(),
@@ -62,8 +73,8 @@ function computeStreak(sentDateSet) {
   return streak;
 }
 
-app.get('/api/home', (req, res) => {
-  const data = loadData();
+app.get('/api/home', async (req, res) => {
+  const data = await loadData();
   const sentDateSet = new Set(
     data.outreaches.filter(o => o.status === 'sent').map(o => o.date)
   );
@@ -75,8 +86,7 @@ app.get('/api/home', (req, res) => {
   res.json({ streak, last7Days });
 });
 
-app.post('/api/outreach', (req, res) => {
-  const data = loadData();
+app.post('/api/outreach', async (req, res) => {
   const record = {
     id: crypto.randomUUID(),
     date: todayStr(),
@@ -85,21 +95,25 @@ app.post('/api/outreach', (req, res) => {
     profileUrl: req.body.profileUrl || '',
     fullName: req.body.fullName || '',
     bio: req.body.bio || '',
-    followers: req.body.followers ?? null,
-    lastPostWeeks: req.body.lastPostWeeks ?? null,
-    postsPerWeek: req.body.postsPerWeek ?? null,
-    avgViews: req.body.avgViews ?? null,
+    followers: req.body.followers === '' || req.body.followers == null ? null : req.body.followers,
+    lastPostWeeks: req.body.lastPostWeeks === '' || req.body.lastPostWeeks == null ? null : req.body.lastPostWeeks,
+    postsPerWeek: req.body.postsPerWeek === '' || req.body.postsPerWeek == null ? null : req.body.postsPerWeek,
+    avgViews: req.body.avgViews === '' || req.body.avgViews == null ? null : req.body.avgViews,
     template: req.body.template || '',
     message: req.body.message || '',
     status: req.body.status === 'not_qualified' ? 'not_qualified' : 'sent'
   };
-  data.outreaches.push(record);
-  saveData(data);
+
+  await sql`
+    INSERT INTO outreaches (id, date, created_at, username, profile_url, full_name, bio, followers, last_post_weeks, posts_per_week, avg_views, template, message, status)
+    VALUES (${record.id}, ${record.date}, ${record.createdAt}, ${record.username}, ${record.profileUrl}, ${record.fullName}, ${record.bio}, ${record.followers}, ${record.lastPostWeeks}, ${record.postsPerWeek}, ${record.avgViews}, ${record.template}, ${record.message}, ${record.status})
+  `;
+
   res.json({ ok: true, record });
 });
 
-app.get('/api/analytics', (req, res) => {
-  const data = loadData();
+app.get('/api/analytics', async (req, res) => {
+  const data = await loadData();
   const range = req.query.range || 'month';
   const sent = data.outreaches.filter(o => o.status === 'sent');
   const today = new Date();

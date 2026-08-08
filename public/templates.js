@@ -1,34 +1,34 @@
 // The 6 outreach templates. {naam}, {views}, {months} are placeholders.
 const TEMPLATES = {
   geen_unieke_kennis: {
-    label: '1. Geen unieke kennis delen',
+    label: '1. Not sharing unique knowledge',
     text: ({ naam }) =>
-      `Hey ${naam}, ik wil even zeggen dat ik denk dat je echt veel unieke kennis in huis hebt als fitness coach, alleen jammer genoeg zie ik dat nog niet echt terug op je feed. Jammer, want daar haal je juist de meeste klanten uit. Wil je even deze video van 14 seconden kijken?`
+      `Hey ${naam}, just wanted to say I think you've got a lot of unique knowledge as a fitness coach, but unfortunately I don't really see that reflected in your feed yet. Which is a shame, because that's exactly where you'd get most of your clients from. Want to check out this 14-second video?`
   },
   vastzit_onder_x: {
-    label: '2. Vastzit onder X weergaven',
+    label: '2. Stuck under X views',
     text: ({ naam, views }) =>
-      `Hey ${naam}, ben even door je profiel gelopen en zag dat je nog vastzit onder de ${views} weergaven. Wat jammer is want ik vind dat je wel een tof verhaal hebt. Zie het super vaak terugkomen - wil je even deze video kijken? Hij is maar 14 seconden lang.`
+      `Hey ${naam}, I was just looking through your profile and noticed you're still stuck under ${views} views. Which is a shame because I think you've got a great story to tell. I see it come up so often - want to check out this video? It's only 14 seconds long.`
   },
   inconsistent_waarde: {
-    label: '3. Inconsistent waarde content plaatst',
+    label: '3. Inconsistent value content',
     text: ({ naam }) =>
-      `Hey ${naam}, wilde even zeggen dat je echt een tof verhaal hebt. Wat me wel opviel is dat je veel unieke waarde in huis hebt, maar dat het nu nog niet helemaal van je pagina afspat (waarschijnlijk omdat het scripten en editen je nu simpelweg te veel tijd kost). Misschien kan ik je helpen, wil je even deze video kijken? Hij is maar 14 seconden lang.`
+      `Hey ${naam}, just wanted to say you've got a great story to tell. What did stand out to me is that you have a lot of unique value to offer, but it's not quite coming across on your page yet (probably because scripting and editing simply takes up too much time right now). Maybe I can help you out — want to check out this video? It's only 14 seconds long.`
   },
   inconsistent_posten: {
-    label: '4. Inconsistent content plaatst',
+    label: '4. Posting inconsistently',
     text: ({ naam }) =>
-      `Hey ${naam}, wilde even zeggen dat je echt toffe content plaatst en dat je echt unieke waarde deelt als fitness coach, alleen het valt me jammer genoeg op dat het posten nu nog een beetje inconsistent is. Super logisch ook, want elke week urenlang researchen en editen naast je lopende coaching is bijna niet te doen. Alleen zonde, want door die gaten in je planning mis je simpelweg een hoop klanten. Ik heb hier misschien een oplossing voor, wil je even deze video kijken van 14 seconden?`
+      `Hey ${naam}, wanted to say you're posting really great content and sharing genuine value as a fitness coach, but I did notice the posting is a bit inconsistent right now. Totally understandable too, since spending hours every week researching and editing on top of your ongoing coaching is nearly impossible. Still, it's a shame, because those gaps in your schedule are simply costing you a bunch of clients. I might have a solution for this — want to check out this 14-second video?`
   },
   lang_geen_content: {
-    label: '5. Lang geen content geplaatst',
+    label: '5. No content in a while',
     text: ({ naam, months }) =>
-      `Hey ${naam}, het valt me op dat je al een tijdje geen content hebt geplaatst, de laatste keer was zelfs ${months} maanden geleden. Waarschijnlijk kostte het content maken je veel tijd, of wist je niet wat te doen en vond je het moeilijk om op ideeën te komen. Wat jammer is want ik vind dat je wel een tof verhaal hebt. Als je ooit nog interesse hebt om het content plaatsen weer een beetje op te pakken wil je dan even deze video kijken? Hij is maar 14 seconden lang.`
+      `Hey ${naam}, I noticed you haven't posted any content in a while — the last time was even ${months} months ago. It probably took up a lot of your time to make content, or you weren't sure what to do and found it hard to come up with ideas. Which is a shame because I think you've got a great story to tell. If you're ever interested in picking content creation back up a bit, would you check out this video? It's only 14 seconds long.`
   },
   veel_tijd_content: {
-    label: '6. Veel tijd besteden aan content',
+    label: '6. Spending a lot of time on content',
     text: ({ naam }) =>
-      `Hey ${naam}, echt super toffe content die je post en ik vind dat je echt een tof verhaal hebt. Alleen zou het kunnen dat je nu nogal veel tijd besteed aan content plannen, researchen, scripten en editen. Als dat zo is, is mijn enige vraag dat je even deze video kijkt, hij is maar 14 seconden lang.`
+      `Hey ${naam}, really great content you're posting, and I think you've got a great story to tell. It's just that you might be spending quite a lot of time on content planning, researching, scripting and editing. If that's the case, my only ask is that you check out this video, it's only 14 seconds long.`
   }
 };
 
@@ -42,19 +42,19 @@ function suggestTemplate({ lastPostWeeks, postsPerWeek, avgViews, viewsThreshold
 
   if (!isNaN(lw) && lw >= 8) {
     const months = Math.max(1, Math.round(lw / 4.345));
-    return { key: 'lang_geen_content', months, reason: `Laatste post was ${lw} weken (~${months} mnd) geleden.` };
+    return { key: 'lang_geen_content', months, reason: `Last post was ${lw} weeks (~${months} mo) ago.` };
   }
   if (!isNaN(ppw) && ppw > 0 && ppw < 1) {
-    return { key: 'inconsistent_posten', reason: `Postfrequentie is laag (${ppw}x per week) met waarschijnlijk gaten.` };
+    return { key: 'inconsistent_posten', reason: `Posting frequency is low (${ppw}x per week) with probable gaps.` };
   }
   if (views !== null && viewsThreshold && views < viewsThreshold) {
-    return { key: 'vastzit_onder_x', reason: `Gemiddelde weergaven (${views}) zit onder je drempel van ${viewsThreshold}.` };
+    return { key: 'vastzit_onder_x', reason: `Average views (${views}) is below your threshold of ${viewsThreshold}.` };
   }
   if (!isNaN(ppw) && ppw >= 1 && ppw < 3) {
-    return { key: 'inconsistent_waarde', reason: `Postfrequentie (${ppw}x/week) is redelijk maar niet super consistent.` };
+    return { key: 'inconsistent_waarde', reason: `Posting frequency (${ppw}x/week) is decent but not very consistent.` };
   }
   if (!isNaN(ppw) && ppw >= 3) {
-    return { key: 'veel_tijd_content', reason: `Post vaak (${ppw}x/week) — waarschijnlijk kost dit veel tijd. Check zelf of template 1 beter past.` };
+    return { key: 'veel_tijd_content', reason: `Posts often (${ppw}x/week) — probably takes up a lot of time. Check yourself whether template 1 fits better.` };
   }
-  return { key: 'geen_unieke_kennis', reason: 'Geen duidelijk statistisch signaal — standaard suggestie, gebruik je eigen inschatting.' };
+  return { key: 'geen_unieke_kennis', reason: 'No clear statistical signal — default suggestion, use your own judgment.' };
 }
