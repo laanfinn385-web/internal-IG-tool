@@ -89,6 +89,16 @@ async function loadLeads() {
   renderLeadsTable();
 }
 
+// Default view: the URL itself is a clickable link (opens the profile),
+// with a small pencil button that swaps this cell into an editable input.
+function urlCellHtml(lead) {
+  const url = lead.profileUrl || '';
+  const display = url
+    ? `<a href="${escapeHtml(url)}" target="_blank" rel="noopener" class="url-link">${escapeHtml(url)}</a>`
+    : `<span class="muted url-link-empty">No URL</span>`;
+  return `<div class="url-view">${display}<button type="button" class="url-edit-btn" title="Edit URL">✏️</button></div>`;
+}
+
 function leadRowHtml(lead, index) {
   const expanded = leadsState.expanded.has(lead.id);
   const selected = leadsState.selected.has(lead.id);
@@ -99,7 +109,7 @@ function leadRowHtml(lead, index) {
     <div class="${rowClasses}" data-id="${lead.id}">
       <div class="lc lc-check"><input type="checkbox" class="row-select" ${selected ? 'checked' : ''}></div>
       <div class="lc lc-num">${index + 1}</div>
-      <div class="lc lc-url"><input type="text" value="${escapeHtml(lead.profileUrl)}" data-field="profileUrl" placeholder="Profile URL"></div>
+      <div class="lc lc-url">${urlCellHtml(lead)}</div>
       <div class="lc lc-username">
         <input type="text" value="${escapeHtml(lead.username)}" data-field="username" placeholder="username">
         ${hasNote ? '<span class="note-dot" title="Has a note"></span>' : ''}
@@ -308,7 +318,35 @@ $('#leads-rows').addEventListener('click', (e) => {
   const expandBtn = e.target.closest('.expand-btn');
   if (expandBtn) {
     toggleExpand(expandBtn.closest('.leads-row-body').dataset.id);
+    return;
   }
+  const urlEditBtn = e.target.closest('.url-edit-btn');
+  if (urlEditBtn) {
+    const id = urlEditBtn.closest('.leads-row-body').dataset.id;
+    const lead = leadsState.leads.find(l => l.id === id);
+    if (!lead) return;
+    const cell = urlEditBtn.closest('.lc-url');
+    cell.innerHTML = `<input type="text" value="${escapeHtml(lead.profileUrl)}" data-field="profileUrl" class="url-edit-input" placeholder="Profile URL">`;
+    const input = cell.querySelector('input');
+    input.focus();
+    input.select();
+  }
+});
+
+// Pressing Enter in the URL edit field just blurs it — the existing
+// focusout handler below takes care of saving + swapping back to link view.
+$('#leads-rows').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && e.target.classList.contains('url-edit-input')) {
+    e.target.blur();
+  }
+});
+
+$('#leads-rows').addEventListener('focusout', (e) => {
+  if (!e.target.classList.contains('url-edit-input')) return;
+  const id = e.target.closest('.leads-row-body').dataset.id;
+  const lead = leadsState.leads.find(l => l.id === id);
+  if (!lead) return;
+  e.target.closest('.lc-url').innerHTML = urlCellHtml(lead);
 });
 
 // ---------- Selection ----------
