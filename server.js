@@ -3,7 +3,7 @@ const path = require('path');
 const crypto = require('crypto');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '15mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 const { neon } = require('@neondatabase/serverless');
@@ -223,6 +223,22 @@ app.get('/api/analytics', async (req, res) => {
 
 // ---------- LEADS ----------
 
+// Wraps an async route handler so a thrown/rejected error becomes a JSON
+// error response instead of hanging the request or falling through to
+// Express's default HTML error page (which the frontend can't parse).
+function asyncRoute(handler) {
+  return async (req, res) => {
+    try {
+      await handler(req, res);
+    } catch (e) {
+      console.error(`${req.method} ${req.path} failed:`, e);
+      res.status(500).json({ error: e.message || 'Something went wrong on the server.' });
+    }
+  };
+}
+
+const MAX_BULK_BATCH = 2000;
+
 async function loadLeads() {
   const rows = await sql`SELECT * FROM leads WHERE deleted_at IS NULL ORDER BY seq ASC`;
   return rows.map(r => ({
@@ -238,12 +254,12 @@ async function loadLeads() {
   }));
 }
 
-app.get('/api/leads', async (req, res) => {
+app.get('/api/leads', asyncRoute(async (req, res) => {
   const leads = await loadLeads();
   res.json({ leads });
-});
+}));
 
-app.post('/api/leads', async (req, res) => {
+app.post('/api/leads', asyncRoute(async (req, res) => {
   const b = req.body;
   const id = crypto.randomUUID();
   await sql`
@@ -252,11 +268,14 @@ app.post('/api/leads', async (req, res) => {
       ${b.followers === '' || b.followers == null ? null : Number(b.followers)})
   `;
   res.json({ ok: true, id });
-});
+}));
 
-app.post('/api/leads/bulk', async (req, res) => {
+app.post('/api/leads/bulk', asyncRoute(async (req, res) => {
   const leads = Array.isArray(req.body.leads) ? req.body.leads : [];
   if (leads.length === 0) return res.json({ ok: true, inserted: 0 });
+  if (leads.length > MAX_BULK_BATCH) {
+    return res.status(400).json({ error: `Batch too large (${leads.length} rows) — send at most ${MAX_BULK_BATCH} at a time.` });
+  }
 
   const ids = leads.map(() => crypto.randomUUID());
   const profileUrls = leads.map(l => l.profileUrl || '');
@@ -270,9 +289,9 @@ app.post('/api/leads/bulk', async (req, res) => {
     SELECT * FROM unnest(${ids}::uuid[], ${profileUrls}::text[], ${usernames}::text[], ${fullNames}::text[], ${bios}::text[], ${followersArr}::integer[])
   `;
   res.json({ ok: true, inserted: leads.length });
-});
+}));
 
-app.patch('/api/leads/:id', async (req, res) => {
+app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   const { id } = req.params;
   const b = req.body;
   await sql`
@@ -287,9 +306,9 @@ app.patch('/api/leads/:id', async (req, res) => {
     WHERE id = ${id} AND deleted_at IS NULL
   `;
   res.json({ ok: true });
-});
+}));
 
-app.post('/api/leads/delete', async (req, res) => {
+app.post('/api/leads/delete', asyncRoute(async (req, res) => {
   const { ids, all } = req.body;
   let rows;
   if (all) {
@@ -300,13 +319,21 @@ app.post('/api/leads/delete', async (req, res) => {
     rows = await sql`UPDATE leads SET deleted_at = now() WHERE id = ANY(${idList}::uuid[]) AND deleted_at IS NULL RETURNING id`;
   }
   res.json({ ok: true, deletedIds: rows.map(r => r.id) });
-});
+}));
 
-app.post('/api/leads/restore', async (req, res) => {
+app.post('/api/leads/restore', asyncRoute(async (req, res) => {
   const idList = Array.isArray(req.body.ids) ? req.body.ids : [];
   if (idList.length === 0) return res.json({ ok: true });
   await sql`UPDATE leads SET deleted_at = NULL WHERE id = ANY(${idList}::uuid[])`;
   res.json({ ok: true });
+}));
+
+// Catches body-parser errors (e.g. payload too large) and anything else
+// that reaches next(err), so the client always gets JSON back instead of
+// Express's default HTML error page.
+app.use((err, req, res, next) => {
+  console.error('Unhandled error:', err);
+  res.status(err.status || 500).json({ error: err.message || 'Something went wrong on the server.' });
 });
 
 const PORT = process.env.PORT || 4173;

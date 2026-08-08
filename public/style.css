@@ -590,6 +590,28 @@ input:focus, textarea:focus, select:focus {
   transition: width 5s linear;
 }
 
+.import-progress { margin: 4px 0 8px; }
+.import-progress .progress-bar { margin-bottom: 8px; }
+.import-progress p { margin: 0; text-align: center; }
+.import-error {
+  color: var(--red);
+  background: rgba(255, 49, 49, 0.08);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font-size: 0.85rem;
+  margin: 4px 0 0;
+}
+
+.leads-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+.leads-pagination-btns { display: flex; gap: 8px; }
+.leads-pagination-btns button:disabled { opacity: 0.4; cursor: not-allowed; }
+
 @media (max-width: 700px) {
   .leads-row { flex-wrap: wrap; }
   .lc-url, .lc-username { flex: 1 1 100%; }

@@ -1,11 +1,38 @@
+const PAGE_SIZE = 200;
+const IMPORT_CHUNK_SIZE = 500;
+
 const leadsState = {
   leads: [],
-  expanded: new Set()
+  expanded: new Set(),
+  page: 0
 };
 
-const csvState = { headers: [], rows: [], mapping: {} };
+const csvState = { headers: [], rows: [], mapping: {}, leadsToImport: null, importedCount: 0 };
 
 let pendingUndo = null; // { ids, timer }
+
+// Fetches JSON, applies a timeout, and throws a readable Error on any
+// network failure, timeout, or non-2xx response (using the server's
+// { error } message when present) instead of failing silently.
+async function fetchJson(url, options, timeoutMs = 30000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res;
+  try {
+    res = await fetch(url, { ...(options || {}), signal: controller.signal });
+  } catch (e) {
+    if (e.name === 'AbortError') throw new Error('Request timed out. Check your connection and try again.');
+    throw new Error('Network error — check your connection and try again.');
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try { data = await res.json(); } catch (_) { /* empty or non-JSON body */ }
+  if (!res.ok) {
+    throw new Error((data && data.error) || `Server error (${res.status})`);
+  }
+  return data;
+}
 
 const LEAD_FIELDS = [
   { key: 'profileUrl', label: 'Profile URL', required: true, patterns: [/profile.?url/i, /^url$/i, /link/i] },
@@ -36,11 +63,11 @@ function normalizeFollowers(raw) {
 
 async function loadLeads() {
   try {
-    const res = await fetch('/api/leads');
-    const data = await res.json();
-    leadsState.leads = data.leads || [];
+    const data = await fetchJson('/api/leads');
+    leadsState.leads = (data && data.leads) || [];
   } catch (e) {
     console.error('Could not load leads', e);
+    alert(`Could not load leads: ${e.message}`);
   }
   renderLeadsTable();
 }
@@ -81,17 +108,40 @@ function renderLeadsTable() {
   }
   dropzone.classList.add('hidden');
   wrap.classList.remove('hidden');
-  $('#leads-rows').innerHTML = leadsState.leads.map(leadRowHtml).join('');
+
+  // Only the current page is rendered into the DOM — with lead lists up to
+  // ~20k rows, rendering everything at once makes the page sluggish.
+  const totalPages = Math.max(1, Math.ceil(leadsState.leads.length / PAGE_SIZE));
+  leadsState.page = Math.min(Math.max(leadsState.page, 0), totalPages - 1);
+
+  const start = leadsState.page * PAGE_SIZE;
+  const pageLeads = leadsState.leads.slice(start, start + PAGE_SIZE);
+  $('#leads-rows').innerHTML = pageLeads.map((lead, i) => leadRowHtml(lead, start + i)).join('');
+
+  const pagination = $('#leads-pagination');
+  if (leadsState.leads.length <= PAGE_SIZE) {
+    pagination.classList.add('hidden');
+  } else {
+    pagination.classList.remove('hidden');
+    const end = Math.min(start + PAGE_SIZE, leadsState.leads.length);
+    $('#leads-pagination-info').textContent = `Showing ${start + 1}–${end} of ${leadsState.leads.length}`;
+    $('#leads-prev-page').disabled = leadsState.page === 0;
+    $('#leads-next-page').disabled = leadsState.page >= totalPages - 1;
+  }
 }
+
+$('#leads-prev-page').addEventListener('click', () => { leadsState.page--; renderLeadsTable(); });
+$('#leads-next-page').addEventListener('click', () => { leadsState.page++; renderLeadsTable(); });
 
 // ---------- Inline editing ----------
 
 async function updateLeadField(id, field, value) {
   const lead = leadsState.leads.find(l => l.id === id);
   if (!lead) return;
+  const previous = lead[field];
   lead[field] = value;
   try {
-    await fetch(`/api/leads/${id}`, {
+    await fetchJson(`/api/leads/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -105,6 +155,9 @@ async function updateLeadField(id, field, value) {
     });
   } catch (e) {
     console.error('Could not save lead', e);
+    lead[field] = previous;
+    alert(`Could not save that change: ${e.message}`);
+    renderLeadsTable();
   }
 }
 
@@ -161,15 +214,16 @@ function deleteLeads(ids) {
     renderLeadsTable();
 
     try {
-      const res = await fetch('/api/leads/delete', {
+      const data = await fetchJson('/api/leads/delete', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids })
       });
-      const data = await res.json();
       showUndoToast(data.deletedIds && data.deletedIds.length ? data.deletedIds : ids);
     } catch (e) {
       console.error('Could not delete leads', e);
+      alert(`Could not delete: ${e.message}. Reloading your leads to stay in sync.`);
+      await loadLeads();
     }
   }, 300);
 }
@@ -208,13 +262,14 @@ $('#undo-btn').addEventListener('click', async () => {
   pendingUndo = null;
   $('#undo-toast').classList.add('hidden');
   try {
-    await fetch('/api/leads/restore', {
+    await fetchJson('/api/leads/restore', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ ids })
     });
   } catch (e) {
     console.error('Could not restore leads', e);
+    alert(`Could not undo: ${e.message}`);
   }
   loadLeads();
 });
@@ -290,7 +345,7 @@ $('#add-confirm-btn').addEventListener('click', async () => {
   const btn = $('#add-confirm-btn');
   btn.disabled = true;
   try {
-    await fetch('/api/leads', {
+    await fetchJson('/api/leads', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
@@ -298,7 +353,7 @@ $('#add-confirm-btn').addEventListener('click', async () => {
     $('#leads-add-modal').classList.add('hidden');
     await loadLeads();
   } catch (e) {
-    alert('Could not add lead.');
+    alert(`Could not add lead: ${e.message}`);
   } finally {
     btn.disabled = false;
   }
@@ -306,18 +361,33 @@ $('#add-confirm-btn').addEventListener('click', async () => {
 
 // ---------- CSV import ----------
 
+function resetCsvState() {
+  csvState.headers = [];
+  csvState.rows = [];
+  csvState.mapping = {};
+  csvState.leadsToImport = null;
+  csvState.importedCount = 0;
+}
+
 function handleCsvFile(file) {
+  resetCsvState();
   const reader = new FileReader();
   reader.onload = () => {
     const text = String(reader.result || '');
-    const rows = parseDelimitedRows(text.trim(), ',').map(r => r.map(c => c.trim()));
+    let rows;
+    try {
+      rows = parseDelimitedRows(text.trim(), ',').map(r => r.map(c => c.trim()));
+    } catch (e) {
+      alert(`Could not parse that CSV: ${e.message}`);
+      return;
+    }
     if (rows.length === 0) { alert('That CSV appears to be empty.'); return; }
     csvState.headers = rows[0];
     csvState.rows = rows.slice(1).filter(r => r.some(c => c !== ''));
     if (csvState.rows.length === 0) { alert('No data rows found in that CSV.'); return; }
     openMappingModal();
   };
-  reader.onerror = () => alert('Could not read that file.');
+  reader.onerror = () => alert('Could not read that file. Please try again.');
   reader.readAsText(file);
 }
 
@@ -400,18 +470,19 @@ function renderMappingPreview() {
 
 function closeMappingModal() {
   $('#leads-mapping-modal').classList.add('hidden');
+  $('#mapping-progress').classList.add('hidden');
+  $('#mapping-error').classList.add('hidden');
+  $('#mapping-confirm-btn').disabled = false;
+  $('#mapping-confirm-btn').textContent = 'Import leads';
+  $('#mapping-cancel-btn').disabled = false;
   leadsFileInput.value = '';
+  resetCsvState();
 }
 
 $('#mapping-cancel-btn').addEventListener('click', closeMappingModal);
 
-$('#mapping-confirm-btn').addEventListener('click', async () => {
+function buildLeadsFromMapping() {
   const mapping = csvState.mapping;
-  if (mapping.profileUrl < 0 && mapping.username < 0) {
-    alert('Map at least Profile URL or Username.');
-    return;
-  }
-
   const leads = csvState.rows.map(row => ({
     profileUrl: mapping.profileUrl >= 0 ? (row[mapping.profileUrl] || '').trim() : '',
     username: mapping.username >= 0 ? (row[mapping.username] || '').trim().replace('@', '') : '',
@@ -430,23 +501,74 @@ $('#mapping-confirm-btn').addEventListener('click', async () => {
     }
   });
 
-  if (leads.length === 0) { alert('No valid rows to import.'); return; }
+  return leads;
+}
 
-  const btn = $('#mapping-confirm-btn');
-  btn.disabled = true;
-  btn.textContent = 'Importing…';
-  try {
-    await fetch('/api/leads/bulk', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ leads })
-    });
+// Imports csvState.leadsToImport in chunks (so a 3000-20000 row CSV never
+// hits a request-size/timeout limit in one shot), tracking how many rows
+// have landed so far. On failure, the already-imported rows stay put and
+// clicking the button again (still labelled "Retry…") resumes from
+// csvState.importedCount instead of re-sending everything.
+async function importLeadsInChunks() {
+  const leads = csvState.leadsToImport;
+  const total = leads.length;
+  const progressWrap = $('#mapping-progress');
+  const progressFill = $('#mapping-progress-fill');
+  const progressText = $('#mapping-progress-text');
+  const errorEl = $('#mapping-error');
+  const confirmBtn = $('#mapping-confirm-btn');
+  const cancelBtn = $('#mapping-cancel-btn');
+
+  errorEl.classList.add('hidden');
+  progressWrap.classList.remove('hidden');
+  confirmBtn.disabled = true;
+  cancelBtn.disabled = true;
+
+  while (csvState.importedCount < total) {
+    const start = csvState.importedCount;
+    const chunk = leads.slice(start, start + IMPORT_CHUNK_SIZE);
+
+    progressText.textContent = `Importing ${start} of ${total} leads…`;
+    progressFill.style.width = `${Math.round((start / total) * 100)}%`;
+
+    try {
+      await fetchJson('/api/leads/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ leads: chunk })
+      }, 30000);
+      csvState.importedCount += chunk.length;
+    } catch (e) {
+      confirmBtn.disabled = false;
+      cancelBtn.disabled = false;
+      confirmBtn.textContent = `Retry (${csvState.importedCount} of ${total} done)`;
+      errorEl.textContent = `Import stopped after ${csvState.importedCount} of ${total} leads: ${e.message}. Nothing already imported was lost — click Retry to continue with the rest.`;
+      errorEl.classList.remove('hidden');
+      return false;
+    }
+  }
+
+  progressFill.style.width = '100%';
+  progressText.textContent = `Imported ${total} of ${total} leads.`;
+  return true;
+}
+
+$('#mapping-confirm-btn').addEventListener('click', async () => {
+  if (!csvState.leadsToImport) {
+    const mapping = csvState.mapping;
+    if (mapping.profileUrl < 0 && mapping.username < 0) {
+      alert('Map at least Profile URL or Username.');
+      return;
+    }
+    const leads = buildLeadsFromMapping();
+    if (leads.length === 0) { alert('No valid rows to import.'); return; }
+    csvState.leadsToImport = leads;
+    csvState.importedCount = 0;
+  }
+
+  const ok = await importLeadsInChunks();
+  if (ok) {
     closeMappingModal();
     await loadLeads();
-  } catch (e) {
-    alert('Import failed. Please try again.');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Import leads';
   }
 });

@@ -188,6 +188,13 @@
           </div>
           <div id="leads-rows"></div>
         </div>
+        <div class="leads-pagination" id="leads-pagination">
+          <span class="muted" id="leads-pagination-info"></span>
+          <div class="leads-pagination-btns">
+            <button id="leads-prev-page" class="btn-secondary">← Prev</button>
+            <button id="leads-next-page" class="btn-secondary">Next →</button>
+          </div>
+        </div>
       </div>
 
       <!-- CSV mapping modal -->
@@ -200,6 +207,11 @@
           <div class="mapping-preview-wrap">
             <table class="mapping-preview" id="mapping-preview"></table>
           </div>
+          <div id="mapping-progress" class="import-progress hidden">
+            <div class="progress-bar"><div class="progress-fill" id="mapping-progress-fill"></div></div>
+            <p class="muted" id="mapping-progress-text"></p>
+          </div>
+          <p id="mapping-error" class="import-error hidden"></p>
           <div class="modal-actions">
             <button id="mapping-cancel-btn" class="btn-secondary">Cancel</button>
             <button id="mapping-confirm-btn" class="btn-primary">Import leads</button>
