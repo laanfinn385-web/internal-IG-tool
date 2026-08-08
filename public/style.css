@@ -479,6 +479,10 @@ input:focus, textarea:focus, select:focus {
   letter-spacing: 0.04em;
   color: var(--muted);
   background: var(--purple-soft);
+  /* Overrides .leads-row's overflow:hidden (there for the delete swipe
+     animation on data rows) so the stage-filter dropdown isn't clipped
+     right at the header's own edge. */
+  overflow: visible;
 }
 .leads-row-body:hover { background: var(--purple-soft); }
 .leads-row-body.call-booked { background: rgba(31, 177, 92, 0.1); }
