@@ -5,8 +5,19 @@ const leadsState = {
   leads: [],
   expanded: new Set(),
   selected: new Set(),
-  page: 0
+  page: 0,
+  search: ''
 };
+
+// Full list of {lead, originalIndex} pairs matching the current search —
+// originalIndex keeps the "#" column stable (true row position) even
+// while a search is narrowing which rows are shown.
+function getFilteredLeads() {
+  const q = leadsState.search.trim().toLowerCase();
+  const withIndex = leadsState.leads.map((lead, i) => ({ lead, originalIndex: i }));
+  if (!q) return withIndex;
+  return withIndex.filter(({ lead }) => (lead.username || '').toLowerCase().includes(q));
+}
 
 const csvState = { headers: [], rows: [], mapping: {}, leadsToImport: null, importedCount: 0 };
 
@@ -135,22 +146,33 @@ function autoResizeTextarea(el) {
 function renderLeadsTable() {
   const wrap = $('#leads-table-wrap');
   const dropzone = $('#leads-dropzone');
-  if (leadsState.leads.length === 0) {
+  const searchRow = $('#leads-search-row');
+  const total = leadsState.leads.length;
+
+  $('#leads-total-count').textContent = `${total} total lead${total === 1 ? '' : 's'}`;
+
+  if (total === 0) {
     wrap.classList.add('hidden');
+    searchRow.classList.add('hidden');
     dropzone.classList.remove('hidden');
     return;
   }
   dropzone.classList.add('hidden');
+  searchRow.classList.remove('hidden');
   wrap.classList.remove('hidden');
+
+  const filtered = getFilteredLeads();
 
   // Only the current page is rendered into the DOM — with lead lists up to
   // ~20k rows, rendering everything at once makes the page sluggish.
-  const totalPages = Math.max(1, Math.ceil(leadsState.leads.length / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   leadsState.page = Math.min(Math.max(leadsState.page, 0), totalPages - 1);
 
   const start = leadsState.page * PAGE_SIZE;
-  const pageLeads = leadsState.leads.slice(start, start + PAGE_SIZE);
-  $('#leads-rows').innerHTML = pageLeads.map((lead, i) => leadRowHtml(lead, start + i)).join('');
+  const pageItems = filtered.slice(start, start + PAGE_SIZE);
+  $('#leads-rows').innerHTML = pageItems.length
+    ? pageItems.map(({ lead, originalIndex }) => leadRowHtml(lead, originalIndex)).join('')
+    : `<div class="leads-empty-search">No leads match "${escapeHtml(leadsState.search)}"</div>`;
 
   // Expanded detail rows render visible (not display:none), so their bio
   // textarea can be measured and grown to fit right away.
@@ -159,12 +181,13 @@ function renderLeadsTable() {
   updateSelectionBar();
 
   const pagination = $('#leads-pagination');
-  if (leadsState.leads.length <= PAGE_SIZE) {
+  if (filtered.length <= PAGE_SIZE) {
     pagination.classList.add('hidden');
   } else {
     pagination.classList.remove('hidden');
-    const end = Math.min(start + PAGE_SIZE, leadsState.leads.length);
-    $('#leads-pagination-info').textContent = `Showing ${start + 1}–${end} of ${leadsState.leads.length}`;
+    const end = Math.min(start + PAGE_SIZE, filtered.length);
+    const matchSuffix = leadsState.search ? ' matching' : '';
+    $('#leads-pagination-info').textContent = `Showing ${start + 1}–${end} of ${filtered.length}${matchSuffix}`;
     $('#leads-prev-page').disabled = leadsState.page === 0;
     $('#leads-next-page').disabled = leadsState.page >= totalPages - 1;
   }
@@ -172,6 +195,12 @@ function renderLeadsTable() {
 
 $('#leads-prev-page').addEventListener('click', () => { leadsState.page--; renderLeadsTable(); });
 $('#leads-next-page').addEventListener('click', () => { leadsState.page++; renderLeadsTable(); });
+
+$('#leads-search').addEventListener('input', (e) => {
+  leadsState.search = e.target.value;
+  leadsState.page = 0;
+  renderLeadsTable();
+});
 
 // ---------- Inline editing ----------
 
@@ -299,7 +328,7 @@ function setLeadSelected(id, selected) {
 // page — selecting "all" across a paginated 20k-row list would be a trap.
 function updateSelectAllCheckbox() {
   const start = leadsState.page * PAGE_SIZE;
-  const pageIds = leadsState.leads.slice(start, start + PAGE_SIZE).map(l => l.id);
+  const pageIds = getFilteredLeads().slice(start, start + PAGE_SIZE).map(({ lead }) => lead.id);
   const allSelected = pageIds.length > 0 && pageIds.every(id => leadsState.selected.has(id));
   $('#leads-select-all').checked = allSelected;
 }
@@ -317,10 +346,10 @@ function updateSelectionBar() {
 
 $('#leads-select-all').addEventListener('change', (e) => {
   const start = leadsState.page * PAGE_SIZE;
-  const pageLeads = leadsState.leads.slice(start, start + PAGE_SIZE);
-  pageLeads.forEach(l => {
-    if (e.target.checked) leadsState.selected.add(l.id);
-    else leadsState.selected.delete(l.id);
+  const pageItems = getFilteredLeads().slice(start, start + PAGE_SIZE);
+  pageItems.forEach(({ lead }) => {
+    if (e.target.checked) leadsState.selected.add(lead.id);
+    else leadsState.selected.delete(lead.id);
   });
   renderLeadsTable();
   updateSelectionBar();

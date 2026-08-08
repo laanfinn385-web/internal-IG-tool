@@ -378,7 +378,27 @@ input:focus, textarea:focus, select:focus {
 
 .leads-header { margin-bottom: 18px; align-items: flex-start; }
 .leads-header h1 { margin: 0; }
+.leads-header .muted { margin: 2px 0 0; }
 .leads-toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
+
+.leads-search-row { margin-bottom: 14px; }
+.leads-search-input {
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--card-bg);
+  color: var(--text);
+  font-size: 0.95rem;
+  box-shadow: var(--shadow);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.leads-search-input:focus {
+  outline: none;
+  border-color: var(--purple-light);
+  box-shadow: 0 0 0 3px rgba(111, 36, 184, 0.16);
+}
+.leads-empty-search { padding: 40px 20px; text-align: center; color: var(--muted); }
 .btn-danger-outline { color: var(--red); border-color: rgba(255, 49, 49, 0.35); }
 .btn-danger-outline:hover { background: rgba(255, 49, 49, 0.1); }
 

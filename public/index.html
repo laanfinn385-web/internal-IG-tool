@@ -190,12 +190,19 @@
     <!-- LEADS -->
     <section id="view-leads" class="view hidden">
       <div class="row-between leads-header">
-        <h1>Leads</h1>
+        <div>
+          <h1>Leads</h1>
+          <p class="muted" id="leads-total-count"></p>
+        </div>
         <div class="leads-toolbar" id="leads-toolbar-actions">
           <button id="leads-add-btn" class="btn-secondary">+ Add lead</button>
           <button id="leads-import-btn" class="btn-secondary">⬆ Import CSV</button>
           <button id="leads-delete-btn" class="btn-secondary btn-danger-outline">🗑 Delete leads</button>
         </div>
+      </div>
+
+      <div class="leads-search-row" id="leads-search-row">
+        <input type="text" id="leads-search" class="leads-search-input" placeholder="🔍 Search by username...">
       </div>
 
       <div id="leads-dropzone" class="dropzone">
