@@ -534,7 +534,80 @@ input:focus, textarea:focus, select:focus {
 .lc-url { flex: 2; min-width: 0; }
 .lc-username { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
 .lc-expand { width: 32px; flex-shrink: 0; justify-content: center; }
-.lc-stage { width: 120px; flex-shrink: 0; }
+.lc-stage { width: 140px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+
+.stage-filter-wrap { position: relative; }
+.stage-filter-btn {
+  position: relative;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.7rem;
+  color: var(--muted);
+  padding: 3px 5px;
+  border-radius: 6px;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+.stage-filter-btn:hover { background: var(--border); color: var(--text); }
+.stage-filter-btn.active { color: var(--accent); background: var(--purple-soft); }
+.stage-filter-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0 3px;
+  border-radius: 7px;
+  background: linear-gradient(135deg, var(--purple), var(--red));
+  color: white;
+  font-size: 0.6rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.stage-filter-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 190px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lift);
+  padding: 8px;
+  z-index: 150;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 500;
+}
+.stage-filter-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: var(--text);
+  cursor: pointer;
+  margin-bottom: 0;
+}
+.stage-filter-option:hover { background: var(--purple-soft); }
+.stage-filter-option input { width: auto; margin: 0; flex-shrink: 0; }
+.stage-filter-clear-btn {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.stage-filter-clear-btn:hover { background: var(--border); color: var(--text); }
 .lc-trash { width: 32px; flex-shrink: 0; justify-content: center; }
 
 .note-dot {

@@ -6,17 +6,28 @@ const leadsState = {
   expanded: new Set(),
   selected: new Set(),
   page: 0,
-  search: ''
+  search: '',
+  stageFilter: new Set() // empty = no filter, show every stage
 };
 
-// Full list of {lead, originalIndex} pairs matching the current search —
-// originalIndex keeps the "#" column stable (true row position) even
-// while a search is narrowing which rows are shown.
+// Full list of {lead, originalIndex} pairs matching the current search and
+// stage filter — originalIndex keeps the "#" column anchored to true row
+// position even while the view is narrowed or reordered.
 function getFilteredLeads() {
   const q = leadsState.search.trim().toLowerCase();
-  const withIndex = leadsState.leads.map((lead, i) => ({ lead, originalIndex: i }));
-  if (!q) return withIndex;
-  return withIndex.filter(({ lead }) => (lead.username || '').toLowerCase().includes(q));
+  let items = leadsState.leads.map((lead, i) => ({ lead, originalIndex: i }));
+  if (q) items = items.filter(({ lead }) => (lead.username || '').toLowerCase().includes(q));
+
+  if (leadsState.stageFilter.size > 0) {
+    items = items.filter(({ lead }) => leadsState.stageFilter.has(lead.stage));
+    // Group by stage — lowest stage first, regardless of the order the
+    // checkboxes were ticked in — while keeping each stage's own leads in
+    // their original relative order (stable sort).
+    items = items
+      .map((item, i) => ({ ...item, _order: i }))
+      .sort((a, b) => (STAGE_ORDER[a.lead.stage] ?? 99) - (STAGE_ORDER[b.lead.stage] ?? 99) || a._order - b._order);
+  }
+  return items;
 }
 
 const csvState = { headers: [], rows: [], mapping: {}, leadsToImport: null, importedCount: 0, duplicatesSkipped: 0 };
@@ -46,6 +57,10 @@ const STAGE_OPTIONS = [
   { value: 'call_booked', label: 'Call booked' },
   { value: 'dead', label: 'Dead' }
 ];
+
+// Pipeline position, lowest first — drives the group ordering when the
+// stage filter has multiple stages selected.
+const STAGE_ORDER = Object.fromEntries(STAGE_OPTIONS.map((o, i) => [o.value, i]));
 
 function stageLabel(lead) {
   const stage = lead.stage;
@@ -182,7 +197,7 @@ function renderLeadsTable() {
   const pageItems = filtered.slice(start, start + PAGE_SIZE);
   $('#leads-rows').innerHTML = pageItems.length
     ? pageItems.map(({ lead, originalIndex }) => leadRowHtml(lead, originalIndex)).join('')
-    : `<div class="leads-empty-search">No leads match "${escapeHtml(leadsState.search)}"</div>`;
+    : `<div class="leads-empty-search">${emptyStateMessage()}</div>`;
 
   // Expanded detail rows render visible (not display:none), so their bio
   // textarea can be measured and grown to fit right away.
@@ -191,16 +206,24 @@ function renderLeadsTable() {
   updateSelectionBar();
 
   const pagination = $('#leads-pagination');
+  const matchSuffix = (leadsState.search || leadsState.stageFilter.size > 0) ? ' matching' : '';
+  const end = Math.min(start + PAGE_SIZE, filtered.length);
+  $('#leads-pagination-info').textContent = filtered.length
+    ? `Showing ${start + 1}–${end} of ${filtered.length}${matchSuffix}`
+    : `No leads${matchSuffix}`;
   if (filtered.length <= PAGE_SIZE) {
     pagination.classList.add('hidden');
   } else {
     pagination.classList.remove('hidden');
-    const end = Math.min(start + PAGE_SIZE, filtered.length);
-    const matchSuffix = leadsState.search ? ' matching' : '';
-    $('#leads-pagination-info').textContent = `Showing ${start + 1}–${end} of ${filtered.length}${matchSuffix}`;
     $('#leads-prev-page').disabled = leadsState.page === 0;
     $('#leads-next-page').disabled = leadsState.page >= totalPages - 1;
   }
+}
+
+function emptyStateMessage() {
+  if (leadsState.search) return `No leads match "${escapeHtml(leadsState.search)}"`;
+  if (leadsState.stageFilter.size > 0) return 'No leads match the selected stage filter.';
+  return 'No leads.';
 }
 
 $('#leads-prev-page').addEventListener('click', () => { leadsState.page--; renderLeadsTable(); });
@@ -209,6 +232,42 @@ $('#leads-next-page').addEventListener('click', () => { leadsState.page++; rende
 $('#leads-search').addEventListener('input', (e) => {
   leadsState.search = e.target.value;
   leadsState.page = 0;
+  renderLeadsTable();
+});
+
+// ---------- Stage filter ----------
+
+function updateStageFilterButton() {
+  const n = leadsState.stageFilter.size;
+  const btn = $('#stage-filter-btn');
+  const badge = $('#stage-filter-badge');
+  btn.classList.toggle('active', n > 0);
+  badge.classList.toggle('hidden', n === 0);
+  badge.textContent = n;
+}
+
+$('#stage-filter-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  $('#stage-filter-dropdown').classList.toggle('hidden');
+});
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.stage-filter-wrap')) $('#stage-filter-dropdown').classList.add('hidden');
+});
+
+$('#stage-filter-dropdown').addEventListener('change', (e) => {
+  if (e.target.type !== 'checkbox') return;
+  if (e.target.checked) leadsState.stageFilter.add(e.target.value);
+  else leadsState.stageFilter.delete(e.target.value);
+  leadsState.page = 0;
+  updateStageFilterButton();
+  renderLeadsTable();
+});
+
+$('#stage-filter-clear').addEventListener('click', () => {
+  leadsState.stageFilter.clear();
+  $all('#stage-filter-dropdown input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+  leadsState.page = 0;
+  updateStageFilterButton();
   renderLeadsTable();
 });
 
