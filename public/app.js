@@ -42,6 +42,7 @@ function showView(name) {
   $(`#view-${name}`).classList.remove('hidden');
   $all('.navbtn').forEach(btn => btn.classList.toggle('active', btn.dataset.nav === name));
   if (name === 'home') loadHome();
+  if (name === 'leads') loadLeads();
   if (name === 'analytics') loadAnalytics(currentRange);
 }
 

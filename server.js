@@ -221,6 +221,94 @@ app.get('/api/analytics', async (req, res) => {
   res.json({ range, total, prevTotal, pctChange, series });
 });
 
+// ---------- LEADS ----------
+
+async function loadLeads() {
+  const rows = await sql`SELECT * FROM leads WHERE deleted_at IS NULL ORDER BY seq ASC`;
+  return rows.map(r => ({
+    id: r.id,
+    profileUrl: r.profile_url,
+    username: r.username,
+    fullName: r.full_name,
+    bio: r.bio,
+    followers: r.followers,
+    stage: r.stage,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at
+  }));
+}
+
+app.get('/api/leads', async (req, res) => {
+  const leads = await loadLeads();
+  res.json({ leads });
+});
+
+app.post('/api/leads', async (req, res) => {
+  const b = req.body;
+  const id = crypto.randomUUID();
+  await sql`
+    INSERT INTO leads (id, profile_url, username, full_name, bio, followers)
+    VALUES (${id}, ${b.profileUrl || ''}, ${b.username || ''}, ${b.fullName || ''}, ${b.bio || ''},
+      ${b.followers === '' || b.followers == null ? null : Number(b.followers)})
+  `;
+  res.json({ ok: true, id });
+});
+
+app.post('/api/leads/bulk', async (req, res) => {
+  const leads = Array.isArray(req.body.leads) ? req.body.leads : [];
+  if (leads.length === 0) return res.json({ ok: true, inserted: 0 });
+
+  const ids = leads.map(() => crypto.randomUUID());
+  const profileUrls = leads.map(l => l.profileUrl || '');
+  const usernames = leads.map(l => l.username || '');
+  const fullNames = leads.map(l => l.fullName || '');
+  const bios = leads.map(l => l.bio || '');
+  const followersArr = leads.map(l => (l.followers === '' || l.followers == null ? null : Number(l.followers)));
+
+  await sql`
+    INSERT INTO leads (id, profile_url, username, full_name, bio, followers)
+    SELECT * FROM unnest(${ids}::uuid[], ${profileUrls}::text[], ${usernames}::text[], ${fullNames}::text[], ${bios}::text[], ${followersArr}::integer[])
+  `;
+  res.json({ ok: true, inserted: leads.length });
+});
+
+app.patch('/api/leads/:id', async (req, res) => {
+  const { id } = req.params;
+  const b = req.body;
+  await sql`
+    UPDATE leads SET
+      profile_url = ${b.profileUrl ?? ''},
+      username = ${b.username ?? ''},
+      full_name = ${b.fullName ?? ''},
+      bio = ${b.bio ?? ''},
+      followers = ${b.followers === '' || b.followers == null ? null : Number(b.followers)},
+      stage = ${b.stage || 'new'},
+      updated_at = now()
+    WHERE id = ${id} AND deleted_at IS NULL
+  `;
+  res.json({ ok: true });
+});
+
+app.post('/api/leads/delete', async (req, res) => {
+  const { ids, all } = req.body;
+  let rows;
+  if (all) {
+    rows = await sql`UPDATE leads SET deleted_at = now() WHERE deleted_at IS NULL RETURNING id`;
+  } else {
+    const idList = Array.isArray(ids) ? ids : [];
+    if (idList.length === 0) return res.json({ ok: true, deletedIds: [] });
+    rows = await sql`UPDATE leads SET deleted_at = now() WHERE id = ANY(${idList}::uuid[]) AND deleted_at IS NULL RETURNING id`;
+  }
+  res.json({ ok: true, deletedIds: rows.map(r => r.id) });
+});
+
+app.post('/api/leads/restore', async (req, res) => {
+  const idList = Array.isArray(req.body.ids) ? req.body.ids : [];
+  if (idList.length === 0) return res.json({ ok: true });
+  await sql`UPDATE leads SET deleted_at = NULL WHERE id = ANY(${idList}::uuid[])`;
+  res.json({ ok: true });
+});
+
 const PORT = process.env.PORT || 4173;
 app.listen(PORT, () => {
   console.log(`Outreach tool running at http://localhost:${PORT}`);

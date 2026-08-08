@@ -20,6 +20,7 @@
     </div>
     <nav>
       <button class="navbtn active" data-nav="home">Home</button>
+      <button class="navbtn" data-nav="leads">Leads</button>
       <button class="navbtn" data-nav="analytics">Analytics</button>
     </nav>
   </header>
@@ -156,6 +157,111 @@
       <button id="back-home-btn" class="btn-primary">← Back to home</button>
     </section>
 
+    <!-- LEADS -->
+    <section id="view-leads" class="view hidden">
+      <div class="row-between leads-header">
+        <h1>Leads</h1>
+        <div class="leads-toolbar" id="leads-toolbar-actions">
+          <button id="leads-add-btn" class="btn-secondary">+ Add lead</button>
+          <button id="leads-import-btn" class="btn-secondary">⬆ Import CSV</button>
+          <button id="leads-delete-btn" class="btn-secondary btn-danger-outline">🗑 Delete leads</button>
+        </div>
+      </div>
+
+      <div id="leads-dropzone" class="dropzone">
+        <div class="dropzone-icon">📄</div>
+        <h2>Import your leads</h2>
+        <p class="muted">Drag and drop a CSV file here, or click to browse. You'll map the columns in the next step.</p>
+        <button id="leads-browse-btn" class="btn-primary">Choose CSV file</button>
+        <input type="file" id="leads-file-input" accept=".csv,text/csv" hidden>
+      </div>
+
+      <div id="leads-table-wrap" class="hidden">
+        <div class="leads-table">
+          <div class="leads-row leads-row-head">
+            <div class="lc lc-num">#</div>
+            <div class="lc lc-url">Profile URL</div>
+            <div class="lc lc-username">Username</div>
+            <div class="lc lc-expand"></div>
+            <div class="lc lc-stage">Stage</div>
+            <div class="lc lc-trash"></div>
+          </div>
+          <div id="leads-rows"></div>
+        </div>
+      </div>
+
+      <!-- CSV mapping modal -->
+      <div id="leads-mapping-modal" class="modal-overlay hidden">
+        <div class="modal">
+          <h3>Map your columns</h3>
+          <p class="muted">Match the fields the tool needs to a column from your CSV.</p>
+          <div class="mapping-grid" id="mapping-grid"></div>
+          <p class="muted mapping-preview-label">Preview</p>
+          <div class="mapping-preview-wrap">
+            <table class="mapping-preview" id="mapping-preview"></table>
+          </div>
+          <div class="modal-actions">
+            <button id="mapping-cancel-btn" class="btn-secondary">Cancel</button>
+            <button id="mapping-confirm-btn" class="btn-primary">Import leads</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Add lead modal -->
+      <div id="leads-add-modal" class="modal-overlay hidden">
+        <div class="modal">
+          <h3>Add lead</h3>
+          <label>Profile URL
+            <input type="text" id="add-profileUrl" placeholder="https://www.instagram.com/username/">
+          </label>
+          <label>Username
+            <input type="text" id="add-username" placeholder="username">
+          </label>
+          <label>Full name
+            <input type="text" id="add-fullName" placeholder="E.g. John Smith">
+          </label>
+          <label>Bio
+            <textarea id="add-bio" rows="3" placeholder="Bio text..."></textarea>
+          </label>
+          <label>Followers
+            <input type="number" id="add-followers" min="0" placeholder="E.g. 3200">
+          </label>
+          <div class="modal-actions">
+            <button id="add-cancel-btn" class="btn-secondary">Cancel</button>
+            <button id="add-confirm-btn" class="btn-primary">Add lead</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Delete modal -->
+      <div id="leads-delete-modal" class="modal-overlay hidden">
+        <div class="modal">
+          <h3>Delete leads</h3>
+          <label class="radio-label">
+            <input type="radio" name="delete-mode" value="all" id="delete-mode-all" checked>
+            Delete all leads <span class="muted" id="delete-all-count"></span>
+          </label>
+          <label class="radio-label">
+            <input type="radio" name="delete-mode" value="range" id="delete-mode-range">
+            Delete a range of rows
+          </label>
+          <div class="range-inputs hidden" id="delete-range-inputs">
+            <label>From row
+              <input type="number" id="delete-range-from" min="1">
+            </label>
+            <label>To row
+              <input type="number" id="delete-range-to" min="1">
+            </label>
+          </div>
+          <p class="muted" id="delete-error" style="display:none; color: var(--red);"></p>
+          <div class="modal-actions">
+            <button id="delete-cancel-btn" class="btn-secondary">Cancel</button>
+            <button id="delete-confirm-btn" class="btn-reject">Delete</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- ANALYTICS -->
     <section id="view-analytics" class="view hidden">
       <h1>Analytics</h1>
@@ -185,9 +291,18 @@
     </section>
 
   </main>
+
+  <div id="undo-toast" class="undo-toast hidden">
+    <div class="undo-toast-row">
+      <span id="undo-toast-text"></span>
+      <button id="undo-btn" class="undo-btn">Undo</button>
+    </div>
+    <div class="undo-progress"><div class="undo-progress-fill" id="undo-progress-fill"></div></div>
+  </div>
 </div>
 
 <script src="templates.js"></script>
 <script src="app.js"></script>
+<script src="leads.js"></script>
 </body>
 </html>
