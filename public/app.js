@@ -40,6 +40,7 @@ function $all(sel) { return Array.from(document.querySelectorAll(sel)); }
 function showView(name) {
   $all('.view').forEach(v => v.classList.add('hidden'));
   $(`#view-${name}`).classList.remove('hidden');
+  $all('.navbtn').forEach(btn => btn.classList.toggle('active', btn.dataset.nav === name));
   if (name === 'home') loadHome();
   if (name === 'analytics') loadAnalytics(currentRange);
 }
