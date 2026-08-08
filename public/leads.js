@@ -246,13 +246,34 @@ function updateStageFilterButton() {
   badge.textContent = n;
 }
 
+function closeStageFilterDropdown() {
+  $('#stage-filter-dropdown').classList.add('hidden');
+}
+
 $('#stage-filter-btn').addEventListener('click', (e) => {
   e.stopPropagation();
-  $('#stage-filter-dropdown').classList.toggle('hidden');
+  const dropdown = $('#stage-filter-dropdown');
+  if (!dropdown.classList.contains('hidden')) {
+    closeStageFilterDropdown();
+    return;
+  }
+  // position:fixed, placed from the button's own rect — independent of
+  // any ancestor's overflow/clipping, so a short or filtered-down table
+  // can never cut it off.
+  const btnRect = e.currentTarget.getBoundingClientRect();
+  const dropdownWidth = 190;
+  dropdown.style.top = `${btnRect.bottom + 8}px`;
+  dropdown.style.left = `${Math.max(8, btnRect.right - dropdownWidth)}px`;
+  dropdown.classList.remove('hidden');
 });
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.stage-filter-wrap')) $('#stage-filter-dropdown').classList.add('hidden');
+  if (!e.target.closest('#stage-filter-dropdown') && !e.target.closest('#stage-filter-btn')) {
+    closeStageFilterDropdown();
+  }
 });
+// A fixed-position dropdown would otherwise drift out of place under the
+// button if the page scrolls while it's open.
+window.addEventListener('scroll', closeStageFilterDropdown, true);
 
 $('#stage-filter-dropdown').addEventListener('change', (e) => {
   if (e.target.type !== 'checkbox') return;

@@ -224,20 +224,9 @@
             <div class="lc lc-expand"></div>
             <div class="lc lc-stage">
               <span>Stage</span>
-              <div class="stage-filter-wrap">
-                <button type="button" id="stage-filter-btn" class="stage-filter-btn" title="Filter by stage">
-                  ⏷<span class="stage-filter-badge hidden" id="stage-filter-badge">0</span>
-                </button>
-                <div id="stage-filter-dropdown" class="stage-filter-dropdown hidden">
-                  <label class="stage-filter-option"><input type="checkbox" value="new"> New</label>
-                  <label class="stage-filter-option"><input type="checkbox" value="phase1"> Phase 1</label>
-                  <label class="stage-filter-option"><input type="checkbox" value="phase2"> Phase 2</label>
-                  <label class="stage-filter-option"><input type="checkbox" value="phase3"> Phase 3</label>
-                  <label class="stage-filter-option"><input type="checkbox" value="call_booked"> Call booked</label>
-                  <label class="stage-filter-option"><input type="checkbox" value="dead"> Dead</label>
-                  <button type="button" id="stage-filter-clear" class="stage-filter-clear-btn">Clear filter</button>
-                </div>
-              </div>
+              <button type="button" id="stage-filter-btn" class="stage-filter-btn" title="Filter by stage">
+                ⏷<span class="stage-filter-badge hidden" id="stage-filter-badge">0</span>
+              </button>
             </div>
             <div class="lc lc-trash"></div>
           </div>
@@ -250,6 +239,19 @@
             <button id="leads-next-page" class="btn-secondary">Next →</button>
           </div>
         </div>
+      </div>
+
+      <!-- Positioned via JS (fixed, computed from the filter button's own
+           rect) instead of CSS-anchored inside the table, so it can never
+           get clipped by the table's own rounded-corner overflow:hidden. -->
+      <div id="stage-filter-dropdown" class="stage-filter-dropdown hidden">
+        <label class="stage-filter-option"><input type="checkbox" value="new"> New</label>
+        <label class="stage-filter-option"><input type="checkbox" value="phase1"> Phase 1</label>
+        <label class="stage-filter-option"><input type="checkbox" value="phase2"> Phase 2</label>
+        <label class="stage-filter-option"><input type="checkbox" value="phase3"> Phase 3</label>
+        <label class="stage-filter-option"><input type="checkbox" value="call_booked"> Call booked</label>
+        <label class="stage-filter-option"><input type="checkbox" value="dead"> Dead</label>
+        <button type="button" id="stage-filter-clear" class="stage-filter-clear-btn">Clear filter</button>
       </div>
 
       <!-- CSV mapping modal -->

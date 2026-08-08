@@ -540,7 +540,6 @@ input:focus, textarea:focus, select:focus {
 .lc-expand { width: 32px; flex-shrink: 0; justify-content: center; }
 .lc-stage { width: 140px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 
-.stage-filter-wrap { position: relative; }
 .stage-filter-btn {
   position: relative;
   background: none;
@@ -572,9 +571,12 @@ input:focus, textarea:focus, select:focus {
   justify-content: center;
 }
 .stage-filter-dropdown {
-  position: absolute;
-  top: calc(100% + 8px);
-  right: 0;
+  /* Fixed + positioned via JS from the trigger button's own rect (see
+     leads.js) — deliberately NOT anchored inside the table's DOM, since
+     that always leaves it at the mercy of some ancestor's overflow:hidden
+     (the table needs that for its rounded corners; a short/filtered
+     table clips the dropdown right where the table itself ends). */
+  position: fixed;
   width: 190px;
   background: var(--card-bg);
   border: 1px solid var(--border);
