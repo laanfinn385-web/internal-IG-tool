@@ -136,10 +136,10 @@ app.get('/api/analytics', asyncRoute(async (req, res) => {
   if (range === 'today') {
     currentStart = currentEnd = todayStr();
     prevStart = prevEnd = daysAgoStr(1);
-    for (let i = 13; i >= 0; i--) {
-      const ds = daysAgoStr(i);
-      series.push({ label: ds.slice(5), count: countBetween(ds, ds) });
-    }
+    // Just today — one bar, matching how every other range's chart is
+    // confined to its own current period (was previously hardcoded to a
+    // 14-day lookback shared with "week", making the two tabs look identical).
+    series.push({ label: currentStart.slice(5), count: countBetween(currentStart, currentEnd) });
   } else if (range === 'week') {
     const ws = startOfWeek(today);
     currentStart = todayStr(ws);
@@ -148,8 +148,10 @@ app.get('/api/analytics', asyncRoute(async (req, res) => {
     const prevWe = new Date(ws); prevWe.setDate(prevWe.getDate() - 1);
     prevStart = todayStr(prevWs);
     prevEnd = todayStr(prevWe);
-    for (let i = 13; i >= 0; i--) {
-      const ds = daysAgoStr(i);
+    // Just this week's days so far (Monday through today), not a 14-day
+    // lookback that spilled into last week too.
+    for (let d = new Date(ws); todayStr(d) <= currentEnd; d.setDate(d.getDate() + 1)) {
+      const ds = todayStr(d);
       series.push({ label: ds.slice(5), count: countBetween(ds, ds) });
     }
   } else if (range === 'month') {
