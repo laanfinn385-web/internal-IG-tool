@@ -2,7 +2,7 @@ const state = {
   profiles: [],      // parsed from URL input for the current session
   index: 0,           // current profile index
   results: [],         // {profile, status, template, message} for finished profiles this session
-  viewsThreshold: Number(localStorage.getItem('viewsThreshold') || 1000)
+  viewsThreshold: 1000  // overwritten from the server (Settings page) during init
 };
 
 const SESSION_KEY = 'outreach_session_v1';
@@ -89,12 +89,6 @@ async function loadHome() {
     $('#available-leads-value').textContent = '–';
   }
 }
-
-$('#views-threshold').value = state.viewsThreshold;
-$('#views-threshold').addEventListener('input', e => {
-  state.viewsThreshold = Number(e.target.value || 0);
-  localStorage.setItem('viewsThreshold', state.viewsThreshold);
-});
 
 // Tab-delimited tokenizer that understands spreadsheet-style quoting: a cell
 // wrapped in "..." can contain literal tabs/newlines (e.g. a multi-line bio),
@@ -553,8 +547,17 @@ function renderChart(series) {
 }
 
 // ---------- INIT ----------
+async function loadViewsThreshold() {
+  try {
+    const data = await fetchJson('/api/settings/app');
+    state.viewsThreshold = Number(data.settings && data.settings.views_threshold) || 1000;
+  } catch (e) {
+    console.error('Could not load views threshold setting', e);
+  }
+}
+
 (async function init() {
-  await loadTemplatesFromServer();
+  await Promise.all([loadTemplatesFromServer(), loadViewsThreshold()]);
   const saved = loadSession();
   if (saved && Array.isArray(saved.profiles) && saved.profiles.length > 0 && saved.index < saved.profiles.length) {
     state.profiles = saved.profiles;

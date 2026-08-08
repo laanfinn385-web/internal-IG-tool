@@ -212,9 +212,6 @@ input:focus, textarea:focus, select:focus {
 .stat-value.negative { color: var(--red); }
 .stat-label { font-size: 0.8rem; color: var(--muted); margin-top: 4px; }
 
-.settings-card { margin-top: 6px; }
-.settings-label input { max-width: 160px; }
-
 .inline-link { color: var(--accent); font-weight: 600; text-decoration: none; }
 .inline-link:hover { text-decoration: underline; }
 

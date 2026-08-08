@@ -309,20 +309,30 @@ app.get('/api/leads/next', asyncRoute(async (req, res) => {
   res.json({ leads: rows.map(mapLeadRow) });
 }));
 
+// Username uniqueness (case-insensitive, among active leads) is enforced by
+// the leads_username_unique_active partial index, so ON CONFLICT DO NOTHING
+// here covers both "already in the list" and "duplicated within this same
+// request" — Postgres resolves conflicts between rows in the same INSERT
+// too, not just against rows already on disk.
 app.post('/api/leads', asyncRoute(async (req, res) => {
   const b = req.body;
   const id = crypto.randomUUID();
-  await sql`
+  const rows = await sql`
     INSERT INTO leads (id, profile_url, username, full_name, bio, followers, notes)
     VALUES (${id}, ${b.profileUrl || ''}, ${b.username || ''}, ${b.fullName || ''}, ${b.bio || ''},
       ${b.followers === '' || b.followers == null ? null : Number(b.followers)}, ${b.notes || ''})
+    ON CONFLICT (lower(username)) WHERE deleted_at IS NULL AND username <> '' DO NOTHING
+    RETURNING id
   `;
+  if (rows.length === 0 && b.username) {
+    return res.status(409).json({ error: `A lead with username @${b.username} is already in your list.` });
+  }
   res.json({ ok: true, id });
 }));
 
 app.post('/api/leads/bulk', asyncRoute(async (req, res) => {
   const leads = Array.isArray(req.body.leads) ? req.body.leads : [];
-  if (leads.length === 0) return res.json({ ok: true, inserted: 0 });
+  if (leads.length === 0) return res.json({ ok: true, inserted: 0, duplicates: 0 });
   if (leads.length > MAX_BULK_BATCH) {
     return res.status(400).json({ error: `Batch too large (${leads.length} rows) — send at most ${MAX_BULK_BATCH} at a time.` });
   }
@@ -334,11 +344,13 @@ app.post('/api/leads/bulk', asyncRoute(async (req, res) => {
   const bios = leads.map(l => l.bio || '');
   const followersArr = leads.map(l => (l.followers === '' || l.followers == null ? null : Number(l.followers)));
 
-  await sql`
+  const rows = await sql`
     INSERT INTO leads (id, profile_url, username, full_name, bio, followers)
     SELECT * FROM unnest(${ids}::uuid[], ${profileUrls}::text[], ${usernames}::text[], ${fullNames}::text[], ${bios}::text[], ${followersArr}::integer[])
+    ON CONFLICT (lower(username)) WHERE deleted_at IS NULL AND username <> '' DO NOTHING
+    RETURNING id
   `;
-  res.json({ ok: true, inserted: leads.length });
+  res.json({ ok: true, inserted: rows.length, duplicates: leads.length - rows.length });
 }));
 
 // Partial update — only columns actually present in the request body are
@@ -401,7 +413,14 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   sets.push('updated_at = now()');
   params.push(id);
 
-  await sql.query(`UPDATE leads SET ${sets.join(', ')} WHERE id = $${i} AND deleted_at IS NULL`, params);
+  try {
+    await sql.query(`UPDATE leads SET ${sets.join(', ')} WHERE id = $${i} AND deleted_at IS NULL`, params);
+  } catch (e) {
+    if (e.code === '23505') {
+      return res.status(409).json({ error: `A lead with username @${b.username} is already in your list.` });
+    }
+    throw e;
+  }
   res.json({ ok: true });
 }));
 
@@ -578,11 +597,17 @@ app.get('/api/settings/app', asyncRoute(async (req, res) => {
 }));
 
 app.put('/api/settings/app', asyncRoute(async (req, res) => {
-  const { calendarLink } = req.body;
+  const { calendarLink, viewsThreshold } = req.body;
   if (calendarLink !== undefined) {
     await sql`
       INSERT INTO app_settings (key, value) VALUES ('calendar_link', ${calendarLink})
       ON CONFLICT (key) DO UPDATE SET value = ${calendarLink}
+    `;
+  }
+  if (viewsThreshold !== undefined) {
+    await sql`
+      INSERT INTO app_settings (key, value) VALUES ('views_threshold', ${String(viewsThreshold)})
+      ON CONFLICT (key) DO UPDATE SET value = ${String(viewsThreshold)}
     `;
   }
   res.json({ ok: true });

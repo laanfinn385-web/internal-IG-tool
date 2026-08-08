@@ -79,14 +79,6 @@
         </div>
         <div id="home-session-error" class="import-error hidden"></div>
       </div>
-
-      <div class="card settings-card">
-        <h3>Settings</h3>
-        <label class="settings-label">
-          Views threshold for the "stuck under X views" template
-          <input type="number" id="views-threshold" min="0" step="50">
-        </label>
-      </div>
     </section>
 
     <!-- DASHBOARD -->
@@ -387,12 +379,15 @@
       <h1>Settings</h1>
 
       <div class="card">
-        <h3>Calendar link</h3>
-        <p class="muted">Used to fill in <code>{link}</code> in your Phase 3 follow-ups.</p>
+        <h3>General</h3>
         <label>Booking link
           <input type="text" id="settings-calendar-link" placeholder="https://cal.com/yourname">
         </label>
-        <button id="settings-calendar-save" class="btn-secondary">Save</button>
+        <p class="muted" style="margin-top:-8px;">Used to fill in <code>{link}</code> in your Phase 3 follow-ups.</p>
+        <label>Views threshold for the "stuck under X views" template
+          <input type="number" id="settings-views-threshold" min="0" step="50">
+        </label>
+        <button id="settings-general-save" class="btn-secondary">Save</button>
       </div>
 
       <div class="card">

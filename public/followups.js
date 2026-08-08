@@ -189,6 +189,7 @@ async function loadSettingsPage() {
     settingsState.templates = tplData.templates || [];
     settingsState.followups = fuData.followups || [];
     $('#settings-calendar-link').value = (appData.settings && appData.settings.calendar_link) || '';
+    $('#settings-views-threshold').value = (appData.settings && appData.settings.views_threshold) || 1000;
     renderSettingsTemplates();
     renderSettingsFollowups();
   } catch (e) {
@@ -290,17 +291,21 @@ $('#settings-followups').addEventListener('input', (e) => {
   if (e.target.classList.contains('auto-resize')) autoResizeTextarea(e.target);
 });
 
-$('#settings-calendar-save').addEventListener('click', async () => {
-  const btn = $('#settings-calendar-save');
+$('#settings-general-save').addEventListener('click', async () => {
+  const btn = $('#settings-general-save');
   btn.disabled = true;
   try {
     await fetchJson('/api/settings/app', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ calendarLink: $('#settings-calendar-link').value })
+      body: JSON.stringify({
+        calendarLink: $('#settings-calendar-link').value,
+        viewsThreshold: Number($('#settings-views-threshold').value) || 0
+      })
     });
+    state.viewsThreshold = Number($('#settings-views-threshold').value) || 0;
   } catch (err) {
-    alert(`Could not save calendar link: ${err.message}`);
+    alert(`Could not save settings: ${err.message}`);
   } finally {
     btn.disabled = false;
   }

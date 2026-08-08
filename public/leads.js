@@ -19,7 +19,7 @@ function getFilteredLeads() {
   return withIndex.filter(({ lead }) => (lead.username || '').toLowerCase().includes(q));
 }
 
-const csvState = { headers: [], rows: [], mapping: {}, leadsToImport: null, importedCount: 0 };
+const csvState = { headers: [], rows: [], mapping: {}, leadsToImport: null, importedCount: 0, duplicatesSkipped: 0 };
 
 let pendingUndo = null; // { ids, timer }
 // fetchJson is defined in app.js (loaded first) and shared globally.
@@ -585,6 +585,7 @@ function resetCsvState() {
   csvState.mapping = {};
   csvState.leadsToImport = null;
   csvState.importedCount = 0;
+  csvState.duplicatesSkipped = 0;
 }
 
 function handleCsvFile(file) {
@@ -750,12 +751,13 @@ async function importLeadsInChunks() {
     progressFill.style.width = `${Math.round((start / total) * 100)}%`;
 
     try {
-      await fetchJson('/api/leads/bulk', {
+      const data = await fetchJson('/api/leads/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ leads: chunk })
       }, 30000);
       csvState.importedCount += chunk.length;
+      csvState.duplicatesSkipped += data.duplicates || 0;
     } catch (e) {
       confirmBtn.disabled = false;
       cancelBtn.disabled = false;
@@ -768,6 +770,10 @@ async function importLeadsInChunks() {
 
   progressFill.style.width = '100%';
   progressText.textContent = `Imported ${total} of ${total} leads.`;
+  if (csvState.duplicatesSkipped > 0) {
+    const added = total - csvState.duplicatesSkipped;
+    alert(`Imported ${added} new lead${added === 1 ? '' : 's'}. Skipped ${csvState.duplicatesSkipped} duplicate${csvState.duplicatesSkipped === 1 ? '' : 's'} already in your list (or repeated in the file) — nothing was added twice.`);
+  }
   return true;
 }
 
@@ -782,6 +788,7 @@ $('#mapping-confirm-btn').addEventListener('click', async () => {
     if (leads.length === 0) { alert('No valid rows to import.'); return; }
     csvState.leadsToImport = leads;
     csvState.importedCount = 0;
+    csvState.duplicatesSkipped = 0;
   }
 
   const ok = await importLeadsInChunks();
