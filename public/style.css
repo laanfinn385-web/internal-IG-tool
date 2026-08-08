@@ -364,7 +364,43 @@ input:focus, textarea:focus, select:focus {
 .range-tab:hover { transform: translateY(-1px); }
 .range-tab.active { background: linear-gradient(135deg, var(--purple), var(--purple-light)); color: white; border-color: transparent; }
 
+.chart-card { position: relative; }
 #an-chart { width: 100%; height: 260px; }
+.chart-bar { transition: fill 0.1s; }
+.chart-hit-area { cursor: pointer; }
+
+.chart-tooltip {
+  position: absolute;
+  pointer-events: none;
+  transform: translate(-50%, -100%);
+  background: var(--text);
+  color: var(--bg);
+  font-family: var(--font-display);
+  font-size: 0.8rem;
+  font-weight: 700;
+  padding: 6px 10px;
+  border-radius: 8px;
+  box-shadow: var(--shadow-lift);
+  white-space: nowrap;
+  z-index: 5;
+}
+.chart-tooltip::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 5px solid transparent;
+  border-top-color: var(--text);
+}
+.chart-tooltip .tooltip-sub {
+  display: block;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-weight: 500;
+  font-size: 0.68rem;
+  opacity: 0.75;
+  margin-top: 1px;
+}
 
 @media (max-width: 700px) {
   .dashboard-grid { grid-template-columns: 1fr; }

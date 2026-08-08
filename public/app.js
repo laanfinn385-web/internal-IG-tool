@@ -502,9 +502,25 @@ function renderFunnel(funnel) {
   $('#fn-asr').textContent = pctText(funnel.asr);
 }
 
+function showChartTooltip(barEl, s) {
+  const tooltip = $('#an-tooltip');
+  const card = $('#an-chart').closest('.chart-card');
+  const cardBox = card.getBoundingClientRect();
+  const barBox = barEl.getBoundingClientRect();
+  tooltip.innerHTML = `${s.count} reach-out${s.count === 1 ? '' : 's'}<span class="tooltip-sub">${escapeHtml(s.label)}</span>`;
+  tooltip.style.left = `${barBox.left + barBox.width / 2 - cardBox.left}px`;
+  tooltip.style.top = `${barBox.top - cardBox.top}px`;
+  tooltip.classList.remove('hidden');
+}
+
+function hideChartTooltip() {
+  $('#an-tooltip').classList.add('hidden');
+}
+
 function renderChart(series) {
   const svg = $('#an-chart');
   svg.innerHTML = '';
+  hideChartTooltip();
   if (!series || series.length === 0) return;
 
   const W = 800, H = 300, PAD = 30;
@@ -535,6 +551,25 @@ function renderChart(series) {
       text.textContent = s.label;
       svg.appendChild(text);
     }
+
+    // An invisible full-height, full-lane hit area — hovering a short (or
+    // zero-count) bar would otherwise be nearly impossible to target.
+    const hit = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+    hit.setAttribute('x', x);
+    hit.setAttribute('y', 0);
+    hit.setAttribute('width', barW);
+    hit.setAttribute('height', H - PAD);
+    hit.setAttribute('fill', 'transparent');
+    hit.classList.add('chart-hit-area');
+    hit.addEventListener('mouseenter', () => {
+      rect.setAttribute('fill', 'var(--purple-light)');
+      showChartTooltip(rect, s);
+    });
+    hit.addEventListener('mouseleave', () => {
+      rect.setAttribute('fill', 'var(--accent)');
+      hideChartTooltip();
+    });
+    svg.appendChild(hit);
   });
 
   const baseline = document.createElementNS('http://www.w3.org/2000/svg', 'line');
