@@ -25,6 +25,11 @@ function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+const STAGE_OPTIONS = [
+  { value: 'new', label: 'New' },
+  { value: 'contacted', label: 'Contacted' }
+];
+
 function stageLabel(stage) {
   return stage === 'contacted' ? 'Contacted' : 'New';
 }
@@ -66,7 +71,11 @@ function leadRowHtml(lead, index) {
         ${hasNote ? '<span class="note-dot" title="Has a note"></span>' : ''}
       </div>
       <div class="lc lc-expand"><button type="button" class="expand-btn${expanded ? ' expanded' : ''}" title="Show details">&rsaquo;</button></div>
-      <div class="lc lc-stage"><span class="stage-badge${contacted ? ' contacted' : ''}">${escapeHtml(stageLabel(lead.stage))}</span></div>
+      <div class="lc lc-stage">
+        <select class="stage-badge${contacted ? ' contacted' : ''}" data-field="stage">
+          ${STAGE_OPTIONS.map(o => `<option value="${o.value}"${lead.stage === o.value ? ' selected' : ''}>${o.label}</option>`).join('')}
+        </select>
+      </div>
       <div class="lc lc-trash"><button type="button" class="trash-btn" title="Delete lead">🗑</button></div>
     </div>`;
   const detail = `
@@ -150,12 +159,21 @@ async function updateLeadField(id, field, value) {
       body: JSON.stringify({ [field]: value })
     });
     if (field === 'notes') updateNoteDot(id, !!(value && value.trim()));
+    if (field === 'stage') updateStageStyling(id, value === 'contacted');
   } catch (e) {
     console.error('Could not save lead', e);
     lead[field] = previous;
     alert(`Could not save that change: ${e.message}`);
     renderLeadsTable();
   }
+}
+
+function updateStageStyling(id, contacted) {
+  const row = document.querySelector(`.leads-row-body[data-id="${id}"]`);
+  if (!row) return;
+  row.classList.toggle('contacted', contacted);
+  const select = row.querySelector('.stage-badge');
+  if (select) select.classList.toggle('contacted', contacted);
 }
 
 function updateNoteDot(id, hasNote) {
