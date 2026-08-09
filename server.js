@@ -355,17 +355,30 @@ app.get('/api/leads', asyncRoute(async (req, res) => {
 // The outreach queue: the next N leads that haven't been contacted yet, in
 // import order. If fewer than `count` come back, that shortfall *is* the
 // full remaining supply — no separate count query needed.
-app.get('/api/leads/next', asyncRoute(async (req, res) => {
+// POST (not GET) so a home-session top-up request can pass `excludeIds` —
+// the leads already sitting in the current session's queue but not yet
+// decided (still `stage = 'new'` in the DB) — without risking a URL-length
+// limit on a large session. `count` still works the same as before.
+app.post('/api/leads/next', asyncRoute(async (req, res) => {
+  const body = req.body || {};
   // `|| 15` would treat an explicit count=0 as "unset" and silently hand
   // back 15 leads instead of the Math.max(1, ...) floor doing that job.
-  const parsedCount = parseInt(req.query.count, 10);
+  const parsedCount = parseInt(body.count, 10);
   const count = Math.max(1, Math.min(MAX_NEXT_COUNT, Number.isFinite(parsedCount) ? parsedCount : 15));
-  const rows = await sql`
-    SELECT * FROM leads
-    WHERE deleted_at IS NULL AND stage = 'new'
-    ORDER BY seq ASC
-    LIMIT ${count}
-  `;
+  const excludeIds = Array.isArray(body.excludeIds) ? body.excludeIds.filter(id => typeof id === 'string') : [];
+  const rows = excludeIds.length > 0
+    ? await sql`
+        SELECT * FROM leads
+        WHERE deleted_at IS NULL AND stage = 'new' AND NOT (id = ANY(${excludeIds}))
+        ORDER BY seq ASC
+        LIMIT ${count}
+      `
+    : await sql`
+        SELECT * FROM leads
+        WHERE deleted_at IS NULL AND stage = 'new'
+        ORDER BY seq ASC
+        LIMIT ${count}
+      `;
   res.json({ leads: rows.map(mapLeadRow) });
 }));
 
@@ -434,6 +447,11 @@ const LEAD_PATCH_FIELDS = {
 };
 
 const FOLLOWUP_STAGES = ['phase1', 'phase2', 'phase3'];
+// Stages that imply "this lead has given a positive reply" — phase3 and
+// call_booked are downstream of phase2, so staying anywhere in this set
+// keeps the Positive Replies credit; call_booked is its own narrower set
+// for Appointments Set.
+const POSITIVE_REPLY_STAGES = ['phase2', 'phase3', 'call_booked'];
 
 app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   const { id } = req.params;
@@ -443,9 +461,13 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   let i = 1;
 
   // A stage change into a follow-up phase resets that phase's clock (fresh
-  // day-0) and, the first time a lead reaches phase2 / call_booked, logs a
-  // dated event so period-based analytics (Positive Replies, Appointments
-  // Set) can be computed later, not just read off current state.
+  // day-0) and logs a dated event so period-based analytics (Positive
+  // Replies, Appointments Set) can be computed later. These only count a
+  // lead while it's *currently* sitting in a stage that implies the
+  // milestone — moving it back out (e.g. undoing an accidental stage click)
+  // deletes the event and un-flags it, so it stops counting immediately,
+  // even retroactively for past date ranges. Re-entering later logs a fresh
+  // dated event rather than silently no-op'ing.
   if (Object.prototype.hasOwnProperty.call(b, 'stage')) {
     const [current] = await sql`SELECT stage, ever_positive_reply, ever_call_booked FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
     if (current && current.stage !== b.stage) {
@@ -454,18 +476,27 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
         sets.push('phase_started_at = now()');
       }
       const today = todayStr();
-      // Only log the dated event (and flip the ever_* flag) the first time
-      // this lead reaches the stage, matching the comment above — otherwise
-      // toggling a lead back and forth (e.g. fixing a misclick) double-counts
-      // it in the Positive Replies / Appointments Set funnel metrics.
-      if (b.stage === 'phase2' && !current.ever_positive_reply) {
+      const enteringPositive = POSITIVE_REPLY_STAGES.includes(b.stage);
+      const leavingPositive = POSITIVE_REPLY_STAGES.includes(current.stage) && !enteringPositive;
+
+      if (enteringPositive && !current.ever_positive_reply) {
         sets.push('ever_positive_reply = true');
         await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'positive_reply', ${today})`;
       }
+      if (leavingPositive) {
+        sets.push('ever_positive_reply = false');
+        await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'positive_reply'`;
+      }
+
       if (b.stage === 'call_booked' && !current.ever_call_booked) {
         sets.push('ever_call_booked = true');
         await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'call_booked', ${today})`;
       }
+      if (current.stage === 'call_booked' && b.stage !== 'call_booked') {
+        sets.push('ever_call_booked = false');
+        await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'call_booked'`;
+      }
+
       if (b.stage === 'dead') {
         await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'dead', ${today})`;
       }

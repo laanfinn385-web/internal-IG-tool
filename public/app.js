@@ -2,7 +2,15 @@ const state = {
   profiles: [],      // parsed from URL input for the current session
   index: 0,           // current profile index
   results: [],         // {profile, status, template, message} for finished profiles this session
-  viewsThreshold: 1000  // overwritten from the server (Settings page) during init
+  viewsThreshold: 1000,  // overwritten from the server (Settings page) during init
+  // Home's "reach N sent" flow vs the Leads page's "selected leads only" flow.
+  // 'fixed' = exactly this list, no top-up (leads-selection). 'goal' = keep
+  // fetching replacement leads on every disqualify until sentCount reaches
+  // sessionTarget, or the available-leads pool runs dry.
+  sessionMode: 'fixed',
+  sessionTarget: null,
+  sentCount: 0,
+  outOfLeads: false
 };
 
 const SESSION_KEY = 'outreach_session_v1';
@@ -15,7 +23,11 @@ function saveSession() {
     localStorage.setItem(SESSION_KEY, JSON.stringify({
       profiles: state.profiles,
       index: state.index,
-      results: state.results
+      results: state.results,
+      sessionMode: state.sessionMode,
+      sessionTarget: state.sessionTarget,
+      sentCount: state.sentCount,
+      outOfLeads: state.outOfLeads
     }));
   } catch (e) { /* storage full or unavailable — non-fatal */ }
 }
@@ -173,7 +185,11 @@ $('#start-session-btn').addEventListener('click', async () => {
   // activation can lapse once we hit an `await` (same rule as openProfileTab).
   const previewTab = window.open('', 'ig_preview');
   try {
-    const data = await fetchJson(`/api/leads/next?count=${count}`);
+    const data = await fetchJson('/api/leads/next', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ count })
+    });
     const leads = data.leads || [];
     if (leads.length < count) {
       if (count > MAX_SESSION_SIZE && leads.length === MAX_SESSION_SIZE) {
@@ -184,7 +200,10 @@ $('#start-session-btn').addEventListener('click', async () => {
       if (previewTab) previewTab.close();
       return;
     }
-    beginSessionWithLeads(leads);
+    // Home means "reach N sent messages", not "show me N profiles" — decide()
+    // keeps topping this session up with fresh leads on every disqualify
+    // until sentCount hits `count`, or the available-leads pool runs dry.
+    beginSessionWithLeads(leads, { mode: 'goal', target: count });
   } catch (e) {
     if (previewTab) previewTab.close();
     alert(`Could not start session: ${e.message}`);
@@ -193,10 +212,8 @@ $('#start-session-btn').addEventListener('click', async () => {
   }
 });
 
-// Shared by the home "next N" flow and the Leads page's "start session with
-// selected" flow — both just need an array of lead objects.
-function beginSessionWithLeads(leads) {
-  state.profiles = leads.map(l => ({
+function leadToProfile(l) {
+  return {
     leadId: l.id,
     username: l.username,
     profileUrl: l.profileUrl,
@@ -210,9 +227,20 @@ function beginSessionWithLeads(leads) {
     message: '',
     done: false,
     status: null
-  }));
+  };
+}
+
+// Shared by the home "next N" flow (goal mode — opts = {mode:'goal', target})
+// and the Leads page's "start session with selected" flow (fixed mode —
+// opts omitted, exactly this list, no top-up).
+function beginSessionWithLeads(leads, opts = {}) {
+  state.profiles = leads.map(leadToProfile);
   state.index = 0;
   state.results = [];
+  state.sessionMode = opts.mode || 'fixed';
+  state.sessionTarget = opts.target || null;
+  state.sentCount = 0;
+  state.outOfLeads = false;
   saveSession();
   showView('dashboard');
   renderProfile();
@@ -236,9 +264,18 @@ function renderProfile() {
   const p = currentProfile();
   if (!p) return;
 
-  $('#progress-current').textContent = state.index + 1;
-  $('#progress-total').textContent = state.profiles.length;
-  $('#progress-fill').style.width = `${((state.index) / state.profiles.length) * 100}%`;
+  // Goal mode's profile count grows as the queue tops itself up, so "current
+  // / total profiles" would be a moving, confusing target — show progress
+  // toward the actual goal (sent / target) instead.
+  if (state.sessionMode === 'goal') {
+    $('#progress-current').textContent = state.sentCount;
+    $('#progress-total').textContent = state.sessionTarget;
+    $('#progress-fill').style.width = `${Math.min(100, (state.sentCount / state.sessionTarget) * 100)}%`;
+  } else {
+    $('#progress-current').textContent = state.index + 1;
+    $('#progress-total').textContent = state.profiles.length;
+    $('#progress-fill').style.width = `${((state.index) / state.profiles.length) * 100}%`;
+  }
 
   $('#profile-link').href = p.profileUrl;
   $('#f-fullname').value = p.fullName;
@@ -372,10 +409,27 @@ async function decide(status) {
   p.status = status;
   p.done = true;
 
-  // Open (synchronously, before any await) so the browser doesn't treat it as
-  // a blocked popup — user-gesture activation can expire once we hit `await`.
-  const next = state.profiles[state.index + 1];
-  if (next) openProfileTab(next.profileUrl);
+  // Goal mode (home's "reach N sent") tops the queue back up whenever we're
+  // about to run out of queued profiles and haven't hit the target yet —
+  // that's true whether THIS decision was a disqualify (doesn't count toward
+  // the target, so the queue needs to grow to make up for it) or an accept
+  // that just happens to be the last profile already queued (still need a
+  // next profile to show). If it's the last profile already queued we don't
+  // know the replacement's URL yet — that needs an async fetch below. We
+  // still have to reserve the shared tab synchronously (before any await)
+  // or the popup blocker silently swallows it once user-gesture activation
+  // lapses; we just navigate it later once we know where.
+  const sentCountAfterThis = state.sentCount + (status === 'sent' ? 1 : 0);
+  const willNeedTopUp = state.sessionMode === 'goal'
+    && state.index >= state.profiles.length - 1
+    && sentCountAfterThis < state.sessionTarget;
+  const knownNext = state.profiles[state.index + 1];
+  let reservedTab = null;
+  if (knownNext) {
+    openProfileTab(knownNext.profileUrl);
+  } else if (willNeedTopUp) {
+    reservedTab = window.open('', 'ig_preview');
+  }
 
   // Guard against a double-click firing this twice before the first request
   // resolves — that would insert two outreach rows and skip a profile.
@@ -439,8 +493,38 @@ async function decide(status) {
     template: p.template,
     status
   });
+  if (status === 'sent') state.sentCount++;
 
-  if (state.index < state.profiles.length - 1) {
+  if (willNeedTopUp) {
+    try {
+      // Exclude every lead already in this session (decided or not) — they're
+      // all still `stage = 'new'` in the DB until their own PATCH/delete
+      // resolves, so without this the same lead could get queued twice.
+      const excludeIds = state.profiles.map(pr => pr.leadId).filter(Boolean);
+      const data = await fetchJson('/api/leads/next', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: 1, excludeIds })
+      });
+      const newLeads = data.leads || [];
+      if (newLeads.length > 0) {
+        const newProfile = leadToProfile(newLeads[0]);
+        state.profiles.push(newProfile);
+        openProfileTab(newProfile.profileUrl); // navigates the reserved tab
+      } else {
+        state.outOfLeads = true;
+        if (reservedTab) reservedTab.close();
+      }
+    } catch (e) {
+      console.error('Could not fetch more leads to keep this session going', e);
+      state.outOfLeads = true;
+      if (reservedTab) reservedTab.close();
+    }
+  }
+
+  const goalReached = state.sessionMode === 'goal' && state.sentCount >= state.sessionTarget;
+  const hasNext = state.index < state.profiles.length - 1;
+  if (!goalReached && hasNext) {
     state.index++;
     renderProfile();
   } else {
@@ -461,10 +545,23 @@ function showEndScreen() {
   $('#end-sent-count').textContent = sent.length;
   $('#end-rejected-count').textContent = rejected.length;
 
-  const lines = [
-    `You've made it through all ${state.results.length} profiles.`,
-    sent.length > 0 ? `${sent.length} message${sent.length === 1 ? '' : 's'} sent — nice work.` : `No messages sent today — sometimes the quality just isn't there.`
-  ];
+  let lines;
+  if (state.sessionMode === 'goal' && state.sentCount >= state.sessionTarget) {
+    lines = [
+      `Goal reached — you sent ${state.sentCount} of your target ${state.sessionTarget}.`,
+      `${rejected.length} profile${rejected.length === 1 ? '' : 's'} along the way didn't qualify.`
+    ];
+  } else if (state.sessionMode === 'goal' && state.outOfLeads) {
+    lines = [
+      `Ran out of available leads before reaching your target — sent ${state.sentCount} of ${state.sessionTarget}.`,
+      `Import more leads to keep going.`
+    ];
+  } else {
+    lines = [
+      `You've made it through all ${state.results.length} profiles.`,
+      sent.length > 0 ? `${sent.length} message${sent.length === 1 ? '' : 's'} sent — nice work.` : `No messages sent today — sometimes the quality just isn't there.`
+    ];
+  }
   $('#end-summary-line').textContent = lines.join(' ');
 
   // username/fullName come from freely-editable dashboard fields (and can
@@ -487,6 +584,10 @@ $('#back-home-btn').addEventListener('click', () => {
   state.profiles = [];
   state.results = [];
   state.index = 0;
+  state.sessionMode = 'fixed';
+  state.sessionTarget = null;
+  state.sentCount = 0;
+  state.outOfLeads = false;
   showView('home');
 });
 
@@ -644,6 +745,10 @@ async function loadViewsThreshold() {
     state.profiles = saved.profiles;
     state.index = saved.index;
     state.results = saved.results || [];
+    state.sessionMode = saved.sessionMode || 'fixed';
+    state.sessionTarget = saved.sessionTarget ?? null;
+    state.sentCount = saved.sentCount || 0;
+    state.outOfLeads = saved.outOfLeads || false;
     showView('dashboard');
     renderProfile();
   } else {
