@@ -30,26 +30,9 @@
   --stage-dead: var(--red);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #150c20;
-    --card-bg: #211430;
-    --text: #f3eefb;
-    --muted: #a99cbc;
-    --border: #362447;
-    --purple-light: #9a5fe0;
-    --accent: #9a5fe0;
-    --accent-dark: #b283ea;
-    --purple-soft: #2c1c40;
-    --shadow: 0 4px 18px rgba(0, 0, 0, 0.35);
-    --shadow-lift: 0 10px 28px rgba(0, 0, 0, 0.45);
-    --stage-new: #9ec5f4;
-    --stage-phase1: #6da7ec;
-    --stage-phase2: #3987e5;
-    --stage-phase3: #256abf;
-    --stage-call-booked: #184f95;
-  }
-}
+/* Deliberately no dark-mode media query — this app should always render the
+   light theme (matching the A&P Media brand site) regardless of the OS/
+   browser's color-scheme preference. */
 
 * { box-sizing: border-box; }
 
@@ -293,12 +276,9 @@ input:focus, textarea:focus, select:focus {
 
 /* ===== Home: overview grid ===== */
 
-.overview-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  margin: 0 0 20px;
-}
+.overview-grid { display: grid; gap: 14px; margin: 0 0 14px; }
+.overview-grid-3 { grid-template-columns: repeat(3, 1fr); }
+.overview-grid-2 { grid-template-columns: repeat(2, 1fr); }
 .overview-tile {
   background: var(--card-bg);
   border: 1px solid var(--border);
@@ -318,7 +298,6 @@ input:focus, textarea:focus, select:focus {
 .overview-tile.highlight .overview-tile-label { color: rgba(255, 255, 255, 0.88); }
 
 .overview-chart-tile {
-  grid-column: span 2;
   background: var(--card-bg);
   border: 1px solid var(--border);
   border-radius: 18px;
@@ -326,6 +305,12 @@ input:focus, textarea:focus, select:focus {
   box-shadow: var(--shadow);
 }
 .overview-chart-title { font-size: 0.85rem; font-weight: 700; color: var(--text); margin-bottom: 10px; }
+.overview-chart-title-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.overview-chart-title-row .overview-chart-title { margin-bottom: 0; }
+.overview-chart-delta { font-size: 0.78rem; font-weight: 700; padding: 2px 8px; border-radius: 20px; }
+.overview-chart-delta.positive { color: var(--green-dark); background: rgba(31, 177, 92, 0.12); }
+.overview-chart-delta.negative { color: var(--red-dark); background: rgba(255, 49, 49, 0.1); }
+.overview-chart-delta.neutral { color: var(--muted); background: var(--bg); }
 
 .overview-donut-row { display: flex; align-items: center; gap: 18px; }
 .overview-donut-wrap { position: relative; width: 108px; height: 108px; flex-shrink: 0; }
@@ -340,12 +325,10 @@ input:focus, textarea:focus, select:focus {
 #sends-sparkline { width: 100%; height: 96px; display: block; }
 
 @media (max-width: 1000px) {
-  .overview-grid { grid-template-columns: repeat(2, 1fr); }
-  .overview-chart-tile { grid-column: span 2; }
+  .overview-grid-3 { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 600px) {
-  .overview-grid { grid-template-columns: 1fr; }
-  .overview-chart-tile { grid-column: span 1; }
+  .overview-grid-3, .overview-grid-2 { grid-template-columns: 1fr; }
 }
 
 .session-size-row {
@@ -430,10 +413,6 @@ input:focus, textarea:focus, select:focus {
   padding: 8px 10px;
   font-weight: 500;
 }
-@media (prefers-color-scheme: dark) {
-  .suggestion-reason:not(:empty) { color: var(--accent-dark); }
-}
-
 .message-actions { display: flex; gap: 10px; margin-top: 10px; }
 
 .decision-row {
@@ -996,7 +975,6 @@ input:focus, textarea:focus, select:focus {
   padding: 4px 8px;
   border-radius: 6px;
 }
-@media (prefers-color-scheme: dark) { .undo-btn { color: var(--accent); } }
 .undo-btn:hover { background: rgba(255, 255, 255, 0.1); }
 .undo-progress {
   margin-top: 10px;

@@ -119,6 +119,14 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   const sevenDaysAgo = daysAgoStr(6);
   const last7Days = sent.filter(o => o.date >= sevenDaysAgo).length;
 
+  // Week-over-week comparison for the sends sparkline — the 7 days before
+  // the current 7-day window, same pctChange formula /api/analytics uses.
+  const fourteenDaysAgo = daysAgoStr(13);
+  const prevWeek = sent.filter(o => o.date >= fourteenDaysAgo && o.date < sevenDaysAgo).length;
+  const last7DaysPctChange = prevWeek === 0
+    ? (last7Days > 0 ? 100 : 0)
+    : Math.round(((last7Days - prevWeek) / prevWeek) * 1000) / 10;
+
   // Mini trend for the home overview sparkline — one point per of the last
   // 7 days, oldest first.
   const sendsTrend = [];
@@ -132,13 +140,21 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   const stageCounts = { new: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0 };
   stageRows.forEach(r => { if (r.stage in stageCounts) stageCounts[r.stage] = Number(r.count); });
 
-  // All-time reply rate: 'Replies' = positive_reply + dead events (a "no" is
-  // still a reply), same definition /api/analytics uses, just unscoped by
-  // date range here for a single always-current headline number.
-  const [{ count: repliesCount }] = await sql`SELECT count(*) FROM lead_events WHERE event IN ('positive_reply', 'dead')`;
-  const replyRate = sent.length > 0 ? Math.round((Number(repliesCount) / sent.length) * 1000) / 10 : null;
+  // All-time funnel rates — same definitions/formulas /api/analytics uses
+  // (replies = positive_reply + dead events; PRR/ASR against total sends),
+  // just unscoped by date range here for always-current headline numbers.
+  const eventRows = await sql`SELECT event, count(*) FROM lead_events WHERE event IN ('positive_reply', 'dead', 'call_booked') GROUP BY event`;
+  const eventCounts = { positive_reply: 0, dead: 0, call_booked: 0 };
+  eventRows.forEach(r => { eventCounts[r.event] = Number(r.count); });
+  const rate = (num, denom) => (denom > 0 ? Math.round((num / denom) * 1000) / 10 : null);
+  const replyRate = rate(eventCounts.positive_reply + eventCounts.dead, sent.length);
+  const prr = rate(eventCounts.positive_reply, sent.length);
+  const asr = rate(eventCounts.call_booked, sent.length);
 
-  res.json({ streak, last7Days, availableLeads: Number(count), stageCounts, sendsTrend, replyRate });
+  res.json({
+    streak, last7Days, last7DaysPctChange, availableLeads: Number(count), stageCounts,
+    sendsTrend, replyRate, prr, asr
+  });
 }));
 
 app.post('/api/outreach', asyncRoute(async (req, res) => {

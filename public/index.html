@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=3">
+<link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
 <div id="app">
@@ -47,7 +47,7 @@
 
     <!-- HOME -->
     <section id="view-home" class="view">
-      <div class="overview-grid">
+      <div class="overview-grid overview-grid-3">
         <div class="overview-tile highlight">
           <div class="overview-tile-label">🔥 Day streak</div>
           <div class="overview-tile-value" id="streak-value">–</div>
@@ -60,11 +60,9 @@
           <div class="overview-tile-label">🗂️ Leads ready</div>
           <div class="overview-tile-value" id="available-leads-value">–</div>
         </div>
-        <div class="overview-tile">
-          <div class="overview-tile-label">💬 Reply rate</div>
-          <div class="overview-tile-value" id="reply-rate-value">–</div>
-        </div>
+      </div>
 
+      <div class="overview-grid overview-grid-2">
         <div class="overview-chart-tile">
           <div class="overview-chart-title">Pipeline distribution</div>
           <div class="overview-donut-row">
@@ -77,9 +75,27 @@
         </div>
 
         <div class="overview-chart-tile" id="sends-sparkline-wrap">
-          <div class="overview-chart-title">Sends — last 7 days</div>
+          <div class="overview-chart-title-row">
+            <div class="overview-chart-title">Sends — last 7 days</div>
+            <span class="overview-chart-delta" id="sends-trend-delta"></span>
+          </div>
           <svg id="sends-sparkline" viewBox="0 0 300 110" preserveAspectRatio="none"></svg>
           <div id="sends-sparkline-tooltip" class="chart-tooltip hidden"></div>
+        </div>
+      </div>
+
+      <div class="overview-grid overview-grid-3">
+        <div class="overview-tile">
+          <div class="overview-tile-label">💬 Reply rate</div>
+          <div class="overview-tile-value" id="reply-rate-value">–</div>
+        </div>
+        <div class="overview-tile">
+          <div class="overview-tile-label">✅ Positive reply rate</div>
+          <div class="overview-tile-value" id="prr-value">–</div>
+        </div>
+        <div class="overview-tile">
+          <div class="overview-tile-label">📅 Appointment set rate</div>
+          <div class="overview-tile-value" id="asr-value">–</div>
         </div>
       </div>
 
@@ -463,9 +479,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=3"></script>
-<script src="app.js?v=3"></script>
-<script src="leads.js?v=3"></script>
-<script src="followups.js?v=3"></script>
+<script src="templates.js?v=4"></script>
+<script src="app.js?v=4"></script>
+<script src="leads.js?v=4"></script>
+<script src="followups.js?v=4"></script>
 </body>
 </html>

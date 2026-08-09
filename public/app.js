@@ -241,13 +241,24 @@ function renderSendsSparkline(series) {
   });
 }
 
+function renderSendsTrendDelta(pctChange) {
+  const el = $('#sends-trend-delta');
+  if (pctChange === null || pctChange === undefined) { el.textContent = ''; el.className = 'overview-chart-delta'; return; }
+  const sign = pctChange > 0 ? '+' : '';
+  el.textContent = `${sign}${pctChange}% vs last week`;
+  el.className = 'overview-chart-delta ' + (pctChange > 0 ? 'positive' : pctChange < 0 ? 'negative' : 'neutral');
+}
+
 async function loadHome() {
   try {
     const data = await fetchJson('/api/home');
     $('#streak-value').textContent = data.streak;
     $('#week-value').textContent = data.last7Days;
     $('#available-leads-value').textContent = data.availableLeads.toLocaleString('en-US');
-    $('#reply-rate-value').textContent = data.replyRate === null ? '–' : `${data.replyRate}%`;
+    $('#reply-rate-value').textContent = pctText(data.replyRate);
+    $('#prr-value').textContent = pctText(data.prr);
+    $('#asr-value').textContent = pctText(data.asr);
+    renderSendsTrendDelta(data.last7DaysPctChange);
     renderPipelineDonut(data.stageCounts);
     renderSendsSparkline(data.sendsTrend);
   } catch (e) {
@@ -255,6 +266,8 @@ async function loadHome() {
     $('#week-value').textContent = '–';
     $('#available-leads-value').textContent = '–';
     $('#reply-rate-value').textContent = '–';
+    $('#prr-value').textContent = '–';
+    $('#asr-value').textContent = '–';
   }
 }
 
