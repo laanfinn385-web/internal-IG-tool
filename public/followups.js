@@ -85,11 +85,21 @@ async function openFollowupSession(phase) {
 
 function followupCardHtml(lead) {
   const isMedia = lead.type !== 'text';
+  // The message accompanying a media step is optional ("sent alongside the
+  // media"), so a GIF/meme step can have no message at all — the media note
+  // itself needs to be clickable-to-open-DM too, or a message-less media
+  // step renders with nothing to click anywhere on the card.
   const mediaLine = isMedia
-    ? `<div class="followup-media-note">🎬 Send a ${escapeHtml(lead.type)}: ${escapeHtml(lead.mediaNote || '')}</div>`
+    ? `<button type="button" class="followup-media-note followup-open-dm" data-id="${lead.id}">🎬 Send a ${escapeHtml(lead.type)}: ${escapeHtml(lead.mediaNote || '')}</button>`
     : '';
   const messageLine = lead.message
-    ? `<button type="button" class="followup-message" data-id="${lead.id}">${escapeHtml(lead.message)}</button>`
+    ? `<button type="button" class="followup-message followup-open-dm" data-id="${lead.id}">${escapeHtml(lead.message)}</button>`
+    : '';
+  // Belt-and-suspenders: if a step somehow has neither (shouldn't happen for
+  // text steps, which require a message), still give the card a way to open
+  // the DM rather than being silently unclickable.
+  const fallbackLine = (!mediaLine && !messageLine)
+    ? `<button type="button" class="followup-message followup-open-dm" data-id="${lead.id}">Open DM →</button>`
     : '';
   return `
     <div class="card followup-card" data-id="${lead.id}">
@@ -99,6 +109,7 @@ function followupCardHtml(lead) {
       </div>
       ${mediaLine}
       ${messageLine}
+      ${fallbackLine}
       <div class="followup-card-actions">
         <button type="button" class="btn-accept followup-sent-btn" data-id="${lead.id}">✓ Sent</button>
         <button type="button" class="btn-reject followup-delete-btn" data-id="${lead.id}">✕ Delete lead</button>
@@ -111,7 +122,7 @@ function renderFollowupList() {
   const n = followupState.leads.length;
   $('#followup-sub').textContent = n === 0
     ? ''
-    : `${n} lead${n === 1 ? '' : 's'} — click a message to copy it and open the DM, then mark it Sent or delete the lead.`;
+    : `${n} lead${n === 1 ? '' : 's'} — click a message or media note to open the DM (and copy the message, if there is one), then mark it Sent or delete the lead.`;
 
   if (n === 0) {
     list.innerHTML = '';
@@ -130,18 +141,28 @@ function removeFollowupCard(id) {
 }
 
 $('#followup-list').addEventListener('click', async (e) => {
-  const msgBtn = e.target.closest('.followup-message');
-  if (msgBtn) {
-    const lead = followupState.leads.find(l => l.id === msgBtn.dataset.id);
-    if (lead && lead.message) {
-      // Open synchronously, before the clipboard await — user-gesture
-      // activation can lapse once we hit an await, and the popup blocker
-      // would silently swallow the DM tab (same rule app.js follows for
-      // openProfileTab).
+  const openBtn = e.target.closest('.followup-open-dm');
+  if (openBtn) {
+    const lead = followupState.leads.find(l => l.id === openBtn.dataset.id);
+    if (lead) {
+      // Start the clipboard write (if there's a message to copy) BEFORE
+      // window.open() — Chrome throws "Document is not focused" if
+      // writeText() is called after the new tab already has focus, which is
+      // exactly what happened when this was ordered the other way: the DM
+      // tab opened but nothing got copied. We don't await the write itself;
+      // calling window.open() in the same synchronous tick (rather than
+      // after an await) keeps this click's user-gesture activation intact
+      // for the popup blocker, and the write still completes in the
+      // background since it was *initiated* while this document had focus.
+      if (lead.message) {
+        navigator.clipboard.writeText(lead.message)
+          .then(() => {
+            openBtn.classList.add('copied');
+            setTimeout(() => openBtn.classList.remove('copied'), 900);
+          })
+          .catch(err => console.error('Clipboard write failed', err));
+      }
       window.open(lead.username ? `https://ig.me/m/${lead.username}` : lead.profileUrl, 'ig_preview');
-      try { await navigator.clipboard.writeText(lead.message); } catch (err) { console.error('Clipboard write failed', err); }
-      msgBtn.classList.add('copied');
-      setTimeout(() => msgBtn.classList.remove('copied'), 900);
     }
     return;
   }
