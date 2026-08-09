@@ -13,48 +13,55 @@
 <body>
 <div id="app">
 
-  <header class="topbar">
-    <div class="brand">
-      <span class="brand-icon">📩</span>
-      <span class="brand-text">Outreach Tool<span class="brand-sub">A&amp;P Media</span></span>
-    </div>
-    <div class="topbar-right">
-      <nav>
-        <button class="navbtn active" data-nav="home">Home</button>
-        <button class="navbtn" data-nav="leads">Leads</button>
-        <button class="navbtn" data-nav="analytics">Analytics</button>
-      </nav>
-      <div class="notif-wrap">
-        <button id="notif-bell" class="icon-btn notif-bell" title="Follow-up notifications">
-          🔔
-          <span class="notif-badge hidden" id="notif-badge">0</span>
-        </button>
-        <div id="notif-dropdown" class="notif-dropdown hidden">
-          <div class="notif-dropdown-header">Follow-ups due</div>
-          <div id="notif-list"></div>
-          <div class="notif-empty hidden" id="notif-empty">You're all caught up 🎉</div>
-        </div>
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-top">
+      <div class="brand">
+        <span class="brand-icon">📩</span>
+        <span class="brand-text">Outreach Tool<span class="brand-sub">A&amp;P Media</span></span>
       </div>
-      <button id="settings-btn" class="icon-btn" title="Settings" data-nav="settings">⚙️</button>
+      <button id="sidebar-toggle" class="sidebar-toggle-btn" title="Collapse sidebar">◀</button>
     </div>
-  </header>
+    <nav class="sidebar-nav">
+      <button class="navbtn active" data-nav="home"><span class="navbtn-icon">🏠</span><span class="navbtn-label">Home</span></button>
+      <button class="navbtn" data-nav="leads"><span class="navbtn-icon">👥</span><span class="navbtn-label">Leads</span></button>
+      <button class="navbtn" data-nav="analytics"><span class="navbtn-icon">📊</span><span class="navbtn-label">Analytics</span></button>
+    </nav>
+    <div class="sidebar-bottom">
+      <button id="settings-btn" class="navbtn" title="Settings" data-nav="settings"><span class="navbtn-icon">⚙️</span><span class="navbtn-label">Settings</span></button>
+    </div>
+  </aside>
 
-  <main>
+  <div class="notif-wrap">
+    <button id="notif-bell" class="icon-btn notif-bell" title="Follow-up notifications">
+      🔔
+      <span class="notif-badge hidden" id="notif-badge">0</span>
+    </button>
+    <div id="notif-dropdown" class="notif-dropdown hidden">
+      <div class="notif-dropdown-header">Follow-ups due</div>
+      <div id="notif-list"></div>
+      <div class="notif-empty hidden" id="notif-empty">You're all caught up 🎉</div>
+    </div>
+  </div>
+
+  <div class="main-wrap"><main class="main-content">
 
     <!-- HOME -->
     <section id="view-home" class="view">
-      <div class="stats-row">
-        <div class="stat-card streak">
-          <div class="stat-value" id="streak-value">–</div>
-          <div class="stat-label">🔥 day streak</div>
+      <div class="home-stats-row">
+        <div class="home-stat-card highlight">
+          <div class="home-stat-icon">🔥</div>
+          <div class="home-stat-value" id="streak-value">–</div>
+          <div class="home-stat-label">day streak</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-value" id="week-value">–</div>
-          <div class="stat-label">reach-outs last 7 days</div>
+        <div class="home-stat-card">
+          <div class="home-stat-icon">📤</div>
+          <div class="home-stat-value" id="week-value">–</div>
+          <div class="home-stat-label">reach-outs last 7 days</div>
         </div>
-        <div class="stat-card">
-          <div class="stat-value" id="available-leads-value">–</div>
-          <div class="stat-label">leads ready to contact</div>
+        <div class="home-stat-card">
+          <div class="home-stat-icon">🗂️</div>
+          <div class="home-stat-value" id="available-leads-value">–</div>
+          <div class="home-stat-label">leads ready to contact</div>
         </div>
       </div>
 
@@ -78,6 +85,12 @@
           <button id="start-session-btn" class="btn-primary">Start session →</button>
         </div>
         <div id="home-session-error" class="import-error hidden"></div>
+      </div>
+
+      <div class="card">
+        <h2>Pipeline overview</h2>
+        <p class="muted">Where your active leads currently sit.</p>
+        <div class="phase-breakdown" id="phase-breakdown"></div>
       </div>
     </section>
 
@@ -183,7 +196,7 @@
     <section id="view-leads" class="view hidden">
       <div class="row-between leads-header">
         <div>
-          <h1>Leads</h1>
+          <h1 class="page-title">Leads</h1>
           <p class="muted" id="leads-total-count"></p>
         </div>
         <div class="leads-toolbar" id="leads-toolbar-actions">
@@ -336,7 +349,7 @@
 
     <!-- ANALYTICS -->
     <section id="view-analytics" class="view hidden">
-      <h1>Analytics</h1>
+      <h1 class="page-title">Analytics</h1>
       <div class="range-tabs" id="range-tabs">
         <button data-range="today" class="range-tab active">Today</button>
         <button data-range="week" class="range-tab">This week</button>
@@ -380,7 +393,7 @@
     <!-- FOLLOW-UP SESSION -->
     <section id="view-followup" class="view hidden">
       <div class="row-between">
-        <h1 id="followup-title">Follow-ups</h1>
+        <h1 id="followup-title" class="page-title">Follow-ups</h1>
         <button id="followup-back-btn" class="btn-secondary">← Back</button>
       </div>
       <p class="muted" id="followup-sub"></p>
@@ -395,7 +408,7 @@
 
     <!-- SETTINGS -->
     <section id="view-settings" class="view hidden">
-      <h1>Settings</h1>
+      <h1 class="page-title">Settings</h1>
 
       <div class="card">
         <h3>General</h3>
@@ -427,7 +440,7 @@
       </div>
     </section>
 
-  </main>
+  </main></div>
 
   <div id="undo-toast" class="undo-toast hidden">
     <div class="undo-toast-row">

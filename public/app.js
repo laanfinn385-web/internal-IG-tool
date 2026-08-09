@@ -90,13 +90,46 @@ $all('.navbtn').forEach(btn => {
   btn.addEventListener('click', () => showView(btn.dataset.nav));
 });
 
+const SIDEBAR_COLLAPSED_KEY = 'outreach_sidebar_collapsed';
+if (localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1') $('#sidebar').classList.add('collapsed');
+$('#sidebar-toggle').addEventListener('click', () => {
+  const collapsed = $('#sidebar').classList.toggle('collapsed');
+  localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+});
+
 // ---------- HOME ----------
+const PHASE_BREAKDOWN_STAGES = [
+  { key: 'new', label: 'New', color: 'var(--stage-new)' },
+  { key: 'phase1', label: 'Phase 1', color: 'var(--stage-phase1)' },
+  { key: 'phase2', label: 'Phase 2', color: 'var(--stage-phase2)' },
+  { key: 'phase3', label: 'Phase 3', color: 'var(--stage-phase3)' },
+  { key: 'call_booked', label: 'Call booked', color: 'var(--stage-call-booked)' },
+  { key: 'dead', label: 'Dead', color: 'var(--stage-dead)' }
+];
+
+function renderPhaseBreakdown(stageCounts) {
+  const wrap = $('#phase-breakdown');
+  const counts = stageCounts || {};
+  const max = Math.max(1, ...PHASE_BREAKDOWN_STAGES.map(s => counts[s.key] || 0));
+  wrap.innerHTML = PHASE_BREAKDOWN_STAGES.map(s => {
+    const count = counts[s.key] || 0;
+    const pct = Math.round((count / max) * 100);
+    return `
+      <div class="phase-bar-row${count === 0 ? ' is-empty' : ''}">
+        <span class="phase-bar-label">${s.label}</span>
+        <div class="phase-bar-track"><div class="phase-bar-fill" style="width:${count === 0 ? 0 : Math.max(pct, 2)}%; background:${s.color}"></div></div>
+        <span class="phase-bar-count">${count.toLocaleString('en-US')}</span>
+      </div>`;
+  }).join('');
+}
+
 async function loadHome() {
   try {
     const data = await fetchJson('/api/home');
     $('#streak-value').textContent = data.streak;
     $('#week-value').textContent = data.last7Days;
-    $('#available-leads-value').textContent = data.availableLeads;
+    $('#available-leads-value').textContent = data.availableLeads.toLocaleString('en-US');
+    renderPhaseBreakdown(data.stageCounts);
   } catch (e) {
     $('#streak-value').textContent = '–';
     $('#week-value').textContent = '–';

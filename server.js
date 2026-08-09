@@ -122,7 +122,10 @@ app.get('/api/home', asyncRoute(async (req, res) => {
     o => o.status === 'sent' && o.date >= sevenDaysAgo
   ).length;
   const [{ count }] = await sql`SELECT count(*) FROM leads WHERE deleted_at IS NULL AND stage = 'new'`;
-  res.json({ streak, last7Days, availableLeads: Number(count) });
+  const stageRows = await sql`SELECT stage, count(*) FROM leads WHERE deleted_at IS NULL GROUP BY stage`;
+  const stageCounts = { new: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0 };
+  stageRows.forEach(r => { if (r.stage in stageCounts) stageCounts[r.stage] = Number(r.count); });
+  res.json({ streak, last7Days, availableLeads: Number(count), stageCounts });
 }));
 
 app.post('/api/outreach', asyncRoute(async (req, res) => {
