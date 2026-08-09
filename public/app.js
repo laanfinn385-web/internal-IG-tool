@@ -43,21 +43,23 @@ function $all(sel) { return Array.from(document.querySelectorAll(sel)); }
 async function fetchJson(url, options, timeoutMs = 30000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
-  let res;
   try {
-    res = await fetch(url, { ...(options || {}), signal: controller.signal });
+    const res = await fetch(url, { ...(options || {}), signal: controller.signal });
+    let data = null;
+    try { data = await res.json(); } catch (_) { /* empty or non-JSON body */ }
+    if (!res.ok) {
+      throw new Error((data && data.error) || `Server error (${res.status})`);
+    }
+    return data;
   } catch (e) {
+    // The timeout/abort signal covers the whole request including body
+    // parsing (a stalled body download used to slip past the old timeout).
     if (e.name === 'AbortError') throw new Error('Request timed out. Check your connection and try again.');
-    throw new Error('Network error — check your connection and try again.');
+    if (e instanceof TypeError) throw new Error('Network error — check your connection and try again.');
+    throw e; // already a descriptive Error (e.g. from the res.ok check above)
   } finally {
     clearTimeout(timer);
   }
-  let data = null;
-  try { data = await res.json(); } catch (_) { /* empty or non-JSON body */ }
-  if (!res.ok) {
-    throw new Error((data && data.error) || `Server error (${res.status})`);
-  }
-  return data;
 }
 
 function showView(name) {
@@ -153,20 +155,38 @@ function showHomeError(available, requested) {
 }
 function hideHomeError() { $('#home-session-error').classList.add('hidden'); }
 
+// Server clamps to this too (MAX_NEXT_COUNT in server.js) — mirrored here so
+// the client can tell "you asked for more than the server ever hands back in
+// one go" apart from "you genuinely don't have that many uncontacted leads".
+const MAX_SESSION_SIZE = 500;
+
 $('#start-session-btn').addEventListener('click', async () => {
   hideHomeError();
-  const count = Math.max(1, Number($('#session-size-input').value) || 15);
+  // `|| 15` would treat an explicit "0" in the field as unset and silently
+  // start a 15-profile session instead of rejecting/clamping it.
+  const rawCount = Number($('#session-size-input').value);
+  const count = Math.max(1, Number.isFinite(rawCount) && rawCount > 0 ? Math.round(rawCount) : 15);
   const btn = $('#start-session-btn');
   btn.disabled = true;
+  // Open the shared preview tab synchronously, before the await below, so
+  // the browser doesn't treat it as a blocked popup — user-gesture
+  // activation can lapse once we hit an `await` (same rule as openProfileTab).
+  const previewTab = window.open('', 'ig_preview');
   try {
     const data = await fetchJson(`/api/leads/next?count=${count}`);
     const leads = data.leads || [];
     if (leads.length < count) {
-      showHomeError(leads.length, count);
+      if (count > MAX_SESSION_SIZE && leads.length === MAX_SESSION_SIZE) {
+        showHomeError(`${MAX_SESSION_SIZE}+ (capped at ${MAX_SESSION_SIZE} per session)`, count);
+      } else {
+        showHomeError(leads.length, count);
+      }
+      if (previewTab) previewTab.close();
       return;
     }
     beginSessionWithLeads(leads);
   } catch (e) {
+    if (previewTab) previewTab.close();
     alert(`Could not start session: ${e.message}`);
   } finally {
     btn.disabled = false;
@@ -253,7 +273,9 @@ function populateTemplateSelect() {
 function buildPlaceholders(p) {
   const naam = (p.fullName || p.username || '').trim().split(' ')[0] || p.username;
   const months = p.lastPostWeeks ? Math.max(1, Math.round(Number(p.lastPostWeeks) / 4.345)) : '[X]';
-  const views = state.viewsThreshold ? state.viewsThreshold.toLocaleString('en-US') : '[X]';
+  // `? :` on the raw number would treat a deliberate threshold of 0 as unset
+  // and print the literal placeholder text "[X]" straight into a real DM.
+  const views = state.viewsThreshold != null ? state.viewsThreshold.toLocaleString('en-US') : '[X]';
   return { naam, months, views };
 }
 
@@ -276,7 +298,10 @@ function updateMessage(useSuggestion) {
   const key = $('#f-template').value || p.template;
   p.template = key;
   const placeholders = buildPlaceholders(p);
-  const text = TEMPLATES[key].text(placeholders);
+  // Guards against TEMPLATES still being {} if loadTemplatesFromServer()
+  // hasn't resolved yet (or failed) — without this a stray click during that
+  // window throws mid-render and leaves the message/template UI broken.
+  const text = TEMPLATES[key] ? TEMPLATES[key].text(placeholders) : '';
   p.message = text;
   $('#f-message').value = text;
 
@@ -286,15 +311,20 @@ function updateMessage(useSuggestion) {
 }
 
 // field listeners -> keep state + message in sync
-['f-bio', 'f-followers', 'f-avgviews'].forEach(id => {
+['f-bio', 'f-followers'].forEach(id => {
   $(`#${id}`).addEventListener('input', syncFieldsToState);
 });
 // naam placeholder in the message depends on these two, so re-render the message text
 ['f-fullname', 'f-username'].forEach(id => {
   $(`#${id}`).addEventListener('input', () => { syncFieldsToState(); updateMessage(false); });
 });
+// These three all feed suggestTemplate() (lastPostWeeks/postsPerWeek/avgViews),
+// so any of them can change which template is suggested — avgViews used to be
+// left out here, so filling it in last (after the other two) never re-ran the
+// suggestion even when it should have won by priority.
 $('#f-lastpost').addEventListener('input', () => { syncFieldsToState(); updateMessage(true); });
 $('#f-postsperweek').addEventListener('input', () => { syncFieldsToState(); updateMessage(true); });
+$('#f-avgviews').addEventListener('input', () => { syncFieldsToState(); updateMessage(true); });
 $('#f-template').addEventListener('change', () => { syncFieldsToState(); updateMessage(false); });
 $('#f-message').addEventListener('input', () => { currentProfile().message = $('#f-message').value; saveSession(); });
 
@@ -347,8 +377,15 @@ async function decide(status) {
   const next = state.profiles[state.index + 1];
   if (next) openProfileTab(next.profileUrl);
 
+  // Guard against a double-click firing this twice before the first request
+  // resolves — that would insert two outreach rows and skip a profile.
+  const acceptBtn = $('#accept-btn');
+  const rejectBtn = $('#reject-btn');
+  acceptBtn.disabled = true;
+  rejectBtn.disabled = true;
+
   try {
-    await fetch('/api/outreach', {
+    await fetchJson('/api/outreach', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -367,7 +404,10 @@ async function decide(status) {
     });
   } catch (e) {
     console.error('Could not save outreach', e);
+    alert(`This one didn't save to your analytics (${e.message}). The decision still went through locally — you may want to note it down.`);
   }
+  acceptBtn.disabled = false;
+  rejectBtn.disabled = false;
 
   // Keep the underlying lead in sync: sent -> enters Phase 1 follow-up
   // tracking (and any in-session edits saved back); not qualified -> the
@@ -375,7 +415,7 @@ async function decide(status) {
   // undo toast still covers it).
   if (p.leadId) {
     if (status === 'sent') {
-      fetch(`/api/leads/${p.leadId}`, {
+      fetchJson(`/api/leads/${p.leadId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -427,14 +467,17 @@ function showEndScreen() {
   ];
   $('#end-summary-line').textContent = lines.join(' ');
 
+  // username/fullName come from freely-editable dashboard fields (and can
+  // originate from an imported CSV), so they're escaped here exactly like
+  // every other place in the app that renders lead-supplied text.
   const sentList = $('#end-sent-list');
   sentList.innerHTML = sent.length
-    ? sent.map(r => `<li><strong>@${r.username}</strong> ${r.fullName ? `(${r.fullName})` : ''} — ${TEMPLATES[r.template]?.label || r.template}</li>`).join('')
+    ? sent.map(r => `<li><strong>@${escapeHtml(r.username)}</strong> ${r.fullName ? `(${escapeHtml(r.fullName)})` : ''} — ${escapeHtml(TEMPLATES[r.template]?.label || r.template)}</li>`).join('')
     : '<li class="muted">None</li>';
 
   const rejList = $('#end-rejected-list');
   rejList.innerHTML = rejected.length
-    ? rejected.map(r => `<li><strong>@${r.username}</strong> ${r.fullName ? `(${r.fullName})` : ''}</li>`).join('')
+    ? rejected.map(r => `<li><strong>@${escapeHtml(r.username)}</strong> ${r.fullName ? `(${escapeHtml(r.fullName)})` : ''}</li>`).join('')
     : '<li class="muted">None</li>';
 
   showView('end');
@@ -470,8 +513,7 @@ const RANGE_LABELS = {
 
 async function loadAnalytics(range) {
   try {
-    const res = await fetch(`/api/analytics?range=${range}`);
-    const data = await res.json();
+    const data = await fetchJson(`/api/analytics?range=${range}`);
     $('#an-total').textContent = data.total;
     $('#an-change-label').textContent = RANGE_LABELS[range] || '';
     if (data.pctChange === null) {
@@ -585,7 +627,11 @@ function renderChart(series) {
 async function loadViewsThreshold() {
   try {
     const data = await fetchJson('/api/settings/app');
-    state.viewsThreshold = Number(data.settings && data.settings.views_threshold) || 1000;
+    // `|| 1000` would silently overwrite a deliberately-set threshold of 0
+    // back to 1000 on every reload — only fall back when the setting is
+    // genuinely missing.
+    const raw = data.settings && data.settings.views_threshold;
+    state.viewsThreshold = raw !== undefined && raw !== null && raw !== '' ? Number(raw) : 1000;
   } catch (e) {
     console.error('Could not load views threshold setting', e);
   }

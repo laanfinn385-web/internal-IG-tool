@@ -134,10 +134,14 @@ $('#followup-list').addEventListener('click', async (e) => {
   if (msgBtn) {
     const lead = followupState.leads.find(l => l.id === msgBtn.dataset.id);
     if (lead && lead.message) {
+      // Open synchronously, before the clipboard await — user-gesture
+      // activation can lapse once we hit an await, and the popup blocker
+      // would silently swallow the DM tab (same rule app.js follows for
+      // openProfileTab).
+      window.open(lead.username ? `https://ig.me/m/${lead.username}` : lead.profileUrl, 'ig_preview');
       try { await navigator.clipboard.writeText(lead.message); } catch (err) { console.error('Clipboard write failed', err); }
       msgBtn.classList.add('copied');
       setTimeout(() => msgBtn.classList.remove('copied'), 900);
-      window.open(lead.username ? `https://ig.me/m/${lead.username}` : lead.profileUrl, 'ig_preview');
     }
     return;
   }
@@ -166,9 +170,13 @@ $('#followup-list').addEventListener('click', async (e) => {
   const delBtn = e.target.closest('.followup-delete-btn');
   if (delBtn) {
     const id = delBtn.dataset.id;
-    deleteLeads([id]);
+    // deleteLeads() defers its actual server-side call by ~300ms for the row
+    // fade-out, so refreshing notifications right away would read stale
+    // pre-delete state and leave the bell badge wrong until the next
+    // unrelated reload. deleteLeads() returns a promise that resolves after
+    // the real delete completes, so await that instead.
+    deleteLeads([id]).then(() => loadNotifications());
     removeFollowupCard(id);
-    loadNotifications();
   }
 });
 
@@ -275,6 +283,7 @@ $('#settings-followups').addEventListener('change', async (e) => {
   const { phase, step, field } = e.target.dataset;
   if (!phase || !step || !field) return;
   const entry = settingsState.followups.find(f => f.phase === Number(phase) && f.step === Number(step));
+  const previousValue = entry ? entry[field] : undefined;
   if (entry) entry[field] = e.target.value;
   try {
     await fetchJson(`/api/settings/followups/${phase}/${step}`, {
@@ -284,7 +293,12 @@ $('#settings-followups').addEventListener('change', async (e) => {
     });
     if (field === 'type') renderSettingsFollowups();
   } catch (err) {
+    // Revert the optimistic in-memory update so a failed save doesn't leave
+    // settingsState (and, on the next re-render, the form) silently out of
+    // sync with what's actually persisted — matches leads.js's updateLeadField.
+    if (entry) entry[field] = previousValue;
     alert(`Could not save follow-up step: ${err.message}`);
+    renderSettingsFollowups();
   }
 });
 $('#settings-followups').addEventListener('input', (e) => {

@@ -85,8 +85,11 @@ function stageClass(stage) {
 
 function normalizeFollowers(raw) {
   if (!raw) return '';
-  const kMatch = String(raw).trim().match(/^([\d.,]+)\s*[kK]$/);
-  if (kMatch) return Math.round(parseFloat(kMatch[1].replace(',', '.')) * 1000);
+  const suffixMatch = String(raw).trim().match(/^([\d.,]+)\s*([kKmMbB])$/);
+  if (suffixMatch) {
+    const multiplier = { k: 1e3, m: 1e6, b: 1e9 }[suffixMatch[2].toLowerCase()];
+    return Math.round(parseFloat(suffixMatch[1].replace(',', '.')) * multiplier);
+  }
   const digits = String(raw).replace(/[^\d]/g, '');
   return digits ? Number(digits) : '';
 }
@@ -496,8 +499,12 @@ $('#leads-selection-start').addEventListener('click', () => {
 
 // ---------- Delete + undo ----------
 
+// Returns a promise that resolves once the server-side delete has actually
+// completed (after the 300ms row fade-out) — callers that need to refresh
+// something dependent on lead state (e.g. the follow-up notification badge)
+// should await this instead of assuming the delete is done synchronously.
 function deleteLeads(ids) {
-  if (!ids || ids.length === 0) return;
+  if (!ids || ids.length === 0) return Promise.resolve();
   ids.forEach(id => {
     const row = document.querySelector(`.leads-row-body[data-id="${id}"]`);
     const detail = document.querySelector(`.lead-detail[data-detail-id="${id}"]`);
@@ -505,24 +512,27 @@ function deleteLeads(ids) {
     if (detail) detail.classList.add('hidden');
   });
 
-  setTimeout(async () => {
-    leadsState.leads = leadsState.leads.filter(l => !ids.includes(l.id));
-    ids.forEach(id => { leadsState.expanded.delete(id); leadsState.selected.delete(id); });
-    renderLeadsTable();
+  return new Promise(resolve => {
+    setTimeout(async () => {
+      leadsState.leads = leadsState.leads.filter(l => !ids.includes(l.id));
+      ids.forEach(id => { leadsState.expanded.delete(id); leadsState.selected.delete(id); });
+      renderLeadsTable();
 
-    try {
-      const data = await fetchJson('/api/leads/delete', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids })
-      });
-      showUndoToast(data.deletedIds && data.deletedIds.length ? data.deletedIds : ids);
-    } catch (e) {
-      console.error('Could not delete leads', e);
-      alert(`Could not delete: ${e.message}. Reloading your leads to stay in sync.`);
-      await loadLeads();
-    }
-  }, 300);
+      try {
+        const data = await fetchJson('/api/leads/delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ids })
+        });
+        showUndoToast(data.deletedIds && data.deletedIds.length ? data.deletedIds : ids);
+      } catch (e) {
+        console.error('Could not delete leads', e);
+        alert(`Could not delete: ${e.message}. Reloading your leads to stay in sync.`);
+        await loadLeads();
+      }
+      resolve();
+    }, 300);
+  });
 }
 
 function showUndoToast(ids) {

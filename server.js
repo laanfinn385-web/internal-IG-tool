@@ -9,6 +9,44 @@ app.use(express.static(path.join(__dirname, 'public')));
 const { neon } = require('@neondatabase/serverless');
 const sql = neon(process.env.DATABASE_URL);
 
+// Safety net: if any route handler ever forgets asyncRoute (see below) and
+// throws inside an async function, Node treats that as an unhandled
+// rejection and — since Node 15 — kills the whole process by default. This
+// is exactly what happened before this fix: a single malformed `followers`
+// value sent to /api/outreach crashed the entire server for every user,
+// not just that one request.
+process.on('unhandledRejection', (err) => {
+  console.error('Unhandled rejection (recovered, not crashing):', err);
+});
+
+// Converts a raw value to a number Postgres can safely store in an
+// INTEGER column — '', null, undefined, non-numeric strings, NaN, and
+// values outside Postgres's 32-bit integer range all become NULL instead
+// of throwing a raw DB error (or, worse, crashing the process).
+function toNullableInt(v) {
+  if (v === '' || v === null || v === undefined) return null;
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n) || n < -2147483648 || n > 2147483647) return null;
+  return n;
+}
+
+// Same idea for NUMERIC columns (posts_per_week, last_post_weeks), which
+// don't have the 32-bit range limit but still choke on non-numeric input.
+function toNullableNumeric(v) {
+  if (v === '' || v === null || v === undefined) return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Only http(s) URLs (or empty) are allowed — a javascript: URL saved here
+// would render as a normal-looking clickable link in the leads table and
+// execute in the page when clicked.
+function sanitizeUrl(v) {
+  const url = String(v || '').trim();
+  if (!url) return '';
+  return /^https?:\/\//i.test(url) ? url : '';
+}
+
 async function loadData() {
   const rows = await sql`SELECT * FROM outreaches`;
   return {
@@ -31,15 +69,15 @@ async function loadData() {
   };
 }
 
-// Local-timezone date string (YYYY-MM-DD). Deliberately avoids toISOString(),
-// which converts to UTC and rolls back to the previous day for any positive
-// UTC-offset timezone once local time is past midnight but before the UTC
-// offset catches up (e.g. Europe/Amsterdam).
+// Date string (YYYY-MM-DD) anchored to Europe/Amsterdam, not the server
+// process's own timezone. This runs on Vercel, whose serverless functions
+// default to UTC — using d.getFullYear()/getMonth()/getDate() (server-local)
+// would stamp a Tue 00:30 Amsterdam send as "Mon" for roughly the first two
+// hours of every local calendar day. Intl reads the wall-clock date for the
+// target zone regardless of what timezone the process itself runs in.
+const DATE_FMT = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Amsterdam', year: 'numeric', month: '2-digit', day: '2-digit' });
 function todayStr(d = new Date()) {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
+  return DATE_FMT.format(d); // en-CA locale formats as YYYY-MM-DD
 }
 
 function daysAgoStr(n, from = new Date()) {
@@ -87,7 +125,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   res.json({ streak, last7Days, availableLeads: Number(count) });
 }));
 
-app.post('/api/outreach', async (req, res) => {
+app.post('/api/outreach', asyncRoute(async (req, res) => {
   const record = {
     id: crypto.randomUUID(),
     date: todayStr(),
@@ -96,10 +134,10 @@ app.post('/api/outreach', async (req, res) => {
     profileUrl: req.body.profileUrl || '',
     fullName: req.body.fullName || '',
     bio: req.body.bio || '',
-    followers: req.body.followers === '' || req.body.followers == null ? null : req.body.followers,
-    lastPostWeeks: req.body.lastPostWeeks === '' || req.body.lastPostWeeks == null ? null : req.body.lastPostWeeks,
-    postsPerWeek: req.body.postsPerWeek === '' || req.body.postsPerWeek == null ? null : req.body.postsPerWeek,
-    avgViews: req.body.avgViews === '' || req.body.avgViews == null ? null : req.body.avgViews,
+    followers: toNullableInt(req.body.followers),
+    lastPostWeeks: toNullableNumeric(req.body.lastPostWeeks),
+    postsPerWeek: toNullableNumeric(req.body.postsPerWeek),
+    avgViews: toNullableInt(req.body.avgViews),
     template: req.body.template || '',
     message: req.body.message || '',
     status: req.body.status === 'not_qualified' ? 'not_qualified' : 'sent'
@@ -111,16 +149,33 @@ app.post('/api/outreach', async (req, res) => {
   `;
 
   res.json({ ok: true, record });
-});
+}));
 
 app.get('/api/analytics', asyncRoute(async (req, res) => {
   const data = await loadData();
   const range = req.query.range || 'month';
   const sent = data.outreaches.filter(o => o.status === 'sent');
-  const today = new Date();
+  // Built from todayStr() (Amsterdam-anchored) rather than `new Date()`
+  // directly — the getFullYear/getMonth/getDate/getDay getters below read
+  // whatever timezone the Date object's midnight was constructed in, and on
+  // Vercel (UTC) that would otherwise drift a day out of step with the date
+  // strings the rest of this function compares against.
+  const today = new Date(todayStr() + 'T00:00:00');
 
   function countBetween(startStr, endStr) {
     return sent.filter(o => o.date >= startStr && o.date <= endStr).length;
+  }
+
+  // Plain d.setMonth(d.getMonth() - n) silently overflows into the next
+  // month whenever the current day-of-month doesn't exist n months earlier
+  // (e.g. May 31 minus 3 months would land on "Feb 31" -> normalizes to
+  // Mar 3). Clamp to the target month's actual last day instead.
+  function subtractMonths(d, n) {
+    const day = d.getDate();
+    const result = new Date(d.getFullYear(), d.getMonth() - n, 1);
+    const lastDay = new Date(result.getFullYear(), result.getMonth() + 1, 0).getDate();
+    result.setDate(Math.min(day, lastDay));
+    return result;
   }
 
   function startOfWeek(d) {
@@ -167,10 +222,10 @@ app.get('/api/analytics', asyncRoute(async (req, res) => {
       series.push({ label: ds.slice(8), count: countBetween(ds, ds) });
     }
   } else if (range === '3months') {
-    const start = new Date(today); start.setMonth(start.getMonth() - 3);
+    const start = subtractMonths(today, 3);
     currentStart = todayStr(start);
     currentEnd = todayStr();
-    const prevStartD = new Date(start); prevStartD.setMonth(prevStartD.getMonth() - 3);
+    const prevStartD = subtractMonths(start, 3);
     const prevEndD = new Date(start); prevEndD.setDate(prevEndD.getDate() - 1);
     prevStart = todayStr(prevStartD);
     prevEnd = todayStr(prevEndD);
@@ -301,7 +356,10 @@ app.get('/api/leads', asyncRoute(async (req, res) => {
 // import order. If fewer than `count` come back, that shortfall *is* the
 // full remaining supply — no separate count query needed.
 app.get('/api/leads/next', asyncRoute(async (req, res) => {
-  const count = Math.max(1, Math.min(MAX_NEXT_COUNT, parseInt(req.query.count, 10) || 15));
+  // `|| 15` would treat an explicit count=0 as "unset" and silently hand
+  // back 15 leads instead of the Math.max(1, ...) floor doing that job.
+  const parsedCount = parseInt(req.query.count, 10);
+  const count = Math.max(1, Math.min(MAX_NEXT_COUNT, Number.isFinite(parsedCount) ? parsedCount : 15));
   const rows = await sql`
     SELECT * FROM leads
     WHERE deleted_at IS NULL AND stage = 'new'
@@ -318,11 +376,14 @@ app.get('/api/leads/next', asyncRoute(async (req, res) => {
 // too, not just against rows already on disk.
 app.post('/api/leads', asyncRoute(async (req, res) => {
   const b = req.body;
+  if (!b.username && !b.profileUrl) {
+    return res.status(400).json({ error: 'A lead needs at least a username or profile URL.' });
+  }
   const id = crypto.randomUUID();
   const rows = await sql`
     INSERT INTO leads (id, profile_url, username, full_name, bio, followers, notes)
-    VALUES (${id}, ${b.profileUrl || ''}, ${b.username || ''}, ${b.fullName || ''}, ${b.bio || ''},
-      ${b.followers === '' || b.followers == null ? null : Number(b.followers)}, ${b.notes || ''})
+    VALUES (${id}, ${sanitizeUrl(b.profileUrl)}, ${b.username || ''}, ${b.fullName || ''}, ${b.bio || ''},
+      ${toNullableInt(b.followers)}, ${b.notes || ''})
     ON CONFLICT (lower(username)) WHERE deleted_at IS NULL AND username <> '' DO NOTHING
     RETURNING id
   `;
@@ -333,18 +394,22 @@ app.post('/api/leads', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/leads/bulk', asyncRoute(async (req, res) => {
-  const leads = Array.isArray(req.body.leads) ? req.body.leads : [];
+  // Rows with neither a username nor a profile URL (e.g. a trailing blank
+  // line in a CSV) are dropped rather than sent to the DB — an empty lead
+  // is never useful and previously could be inserted with no validation.
+  const leads = (Array.isArray(req.body.leads) ? req.body.leads : [])
+    .filter(l => l.username || l.profileUrl);
   if (leads.length === 0) return res.json({ ok: true, inserted: 0, duplicates: 0 });
   if (leads.length > MAX_BULK_BATCH) {
     return res.status(400).json({ error: `Batch too large (${leads.length} rows) — send at most ${MAX_BULK_BATCH} at a time.` });
   }
 
   const ids = leads.map(() => crypto.randomUUID());
-  const profileUrls = leads.map(l => l.profileUrl || '');
+  const profileUrls = leads.map(l => sanitizeUrl(l.profileUrl));
   const usernames = leads.map(l => l.username || '');
   const fullNames = leads.map(l => l.fullName || '');
   const bios = leads.map(l => l.bio || '');
-  const followersArr = leads.map(l => (l.followers === '' || l.followers == null ? null : Number(l.followers)));
+  const followersArr = leads.map(l => toNullableInt(l.followers));
 
   const rows = await sql`
     INSERT INTO leads (id, profile_url, username, full_name, bio, followers)
@@ -382,18 +447,22 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   // dated event so period-based analytics (Positive Replies, Appointments
   // Set) can be computed later, not just read off current state.
   if (Object.prototype.hasOwnProperty.call(b, 'stage')) {
-    const [current] = await sql`SELECT stage FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
+    const [current] = await sql`SELECT stage, ever_positive_reply, ever_call_booked FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
     if (current && current.stage !== b.stage) {
       if (FOLLOWUP_STAGES.includes(b.stage)) {
         sets.push(`phase_step = $${i++}`); params.push(0);
         sets.push('phase_started_at = now()');
       }
       const today = todayStr();
-      if (b.stage === 'phase2') {
+      // Only log the dated event (and flip the ever_* flag) the first time
+      // this lead reaches the stage, matching the comment above — otherwise
+      // toggling a lead back and forth (e.g. fixing a misclick) double-counts
+      // it in the Positive Replies / Appointments Set funnel metrics.
+      if (b.stage === 'phase2' && !current.ever_positive_reply) {
         sets.push('ever_positive_reply = true');
         await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'positive_reply', ${today})`;
       }
-      if (b.stage === 'call_booked') {
+      if (b.stage === 'call_booked' && !current.ever_call_booked) {
         sets.push('ever_call_booked = true');
         await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'call_booked', ${today})`;
       }
@@ -406,7 +475,8 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   for (const [key, column] of Object.entries(LEAD_PATCH_FIELDS)) {
     if (!Object.prototype.hasOwnProperty.call(b, key)) continue;
     let value = b[key];
-    if (key === 'followers') value = (value === '' || value == null) ? null : Number(value);
+    if (key === 'followers') value = toNullableInt(value);
+    if (key === 'profileUrl') value = sanitizeUrl(value);
     sets.push(`${column} = $${i++}`);
     params.push(value);
   }
@@ -580,7 +650,13 @@ app.put('/api/settings/followups/:phase/:step', asyncRoute(async (req, res) => {
   const step = Number(req.params.step);
   const { dayOffset, type, message, mediaNote } = req.body;
   const sets = []; const params = []; let i = 1;
-  if (dayOffset !== undefined) { sets.push(`day_offset = $${i++}`); params.push(Number(dayOffset)); }
+  if (dayOffset !== undefined) {
+    // Matches the input's own min="0" — without this, a negative or
+    // non-numeric value (NaN) could reach the day_offset column and produce
+    // a due-date that's always in the past (or a raw SQL error for NaN).
+    const clamped = Math.max(0, Math.round(Number(dayOffset)) || 0);
+    sets.push(`day_offset = $${i++}`); params.push(clamped);
+  }
   if (type !== undefined) { sets.push(`type = $${i++}`); params.push(type); }
   if (message !== undefined) { sets.push(`message = $${i++}`); params.push(message); }
   if (mediaNote !== undefined) { sets.push(`media_note = $${i++}`); params.push(mediaNote); }

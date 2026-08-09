@@ -11,8 +11,10 @@ function renderTemplateString(str, placeholders) {
 
 async function loadTemplatesFromServer() {
   try {
-    const res = await fetch('/api/settings/templates');
-    const data = await res.json();
+    // fetchJson (app.js) times out instead of hanging forever — this call
+    // is awaited during app init, so an unprotected stalled request here
+    // would leave the whole app stuck on a blank shell with no fallback.
+    const data = await fetchJson('/api/settings/templates', undefined, 10000);
     const map = {};
     (data.templates || []).forEach(t => {
       map[t.id] = { label: t.label, text: (placeholders) => renderTemplateString(t.text, placeholders) };
