@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css">
+<link rel="stylesheet" href="style.css?v=3">
 </head>
 <body>
 <div id="app">
@@ -47,21 +47,39 @@
 
     <!-- HOME -->
     <section id="view-home" class="view">
-      <div class="home-stats-row">
-        <div class="home-stat-card highlight">
-          <div class="home-stat-icon">🔥</div>
-          <div class="home-stat-value" id="streak-value">–</div>
-          <div class="home-stat-label">day streak</div>
+      <div class="overview-grid">
+        <div class="overview-tile highlight">
+          <div class="overview-tile-label">🔥 Day streak</div>
+          <div class="overview-tile-value" id="streak-value">–</div>
         </div>
-        <div class="home-stat-card">
-          <div class="home-stat-icon">📤</div>
-          <div class="home-stat-value" id="week-value">–</div>
-          <div class="home-stat-label">reach-outs last 7 days</div>
+        <div class="overview-tile">
+          <div class="overview-tile-label">📤 Reach-outs (7d)</div>
+          <div class="overview-tile-value" id="week-value">–</div>
         </div>
-        <div class="home-stat-card">
-          <div class="home-stat-icon">🗂️</div>
-          <div class="home-stat-value" id="available-leads-value">–</div>
-          <div class="home-stat-label">leads ready to contact</div>
+        <div class="overview-tile">
+          <div class="overview-tile-label">🗂️ Leads ready</div>
+          <div class="overview-tile-value" id="available-leads-value">–</div>
+        </div>
+        <div class="overview-tile">
+          <div class="overview-tile-label">💬 Reply rate</div>
+          <div class="overview-tile-value" id="reply-rate-value">–</div>
+        </div>
+
+        <div class="overview-chart-tile">
+          <div class="overview-chart-title">Pipeline distribution</div>
+          <div class="overview-donut-row">
+            <div class="overview-donut-wrap" id="pipeline-donut-wrap">
+              <svg id="pipeline-donut" viewBox="0 0 120 120"></svg>
+              <div id="pipeline-donut-tooltip" class="chart-tooltip hidden"></div>
+            </div>
+            <div class="overview-donut-legend" id="pipeline-donut-legend"></div>
+          </div>
+        </div>
+
+        <div class="overview-chart-tile" id="sends-sparkline-wrap">
+          <div class="overview-chart-title">Sends — last 7 days</div>
+          <svg id="sends-sparkline" viewBox="0 0 300 110" preserveAspectRatio="none"></svg>
+          <div id="sends-sparkline-tooltip" class="chart-tooltip hidden"></div>
         </div>
       </div>
 
@@ -85,12 +103,6 @@
           <button id="start-session-btn" class="btn-primary">Start session →</button>
         </div>
         <div id="home-session-error" class="import-error hidden"></div>
-      </div>
-
-      <div class="card">
-        <h2>Pipeline overview</h2>
-        <p class="muted">Where your active leads currently sit.</p>
-        <div class="phase-breakdown" id="phase-breakdown"></div>
       </div>
     </section>
 
@@ -451,9 +463,9 @@
   </div>
 </div>
 
-<script src="templates.js"></script>
-<script src="app.js"></script>
-<script src="leads.js"></script>
-<script src="followups.js"></script>
+<script src="templates.js?v=3"></script>
+<script src="app.js?v=3"></script>
+<script src="leads.js?v=3"></script>
+<script src="followups.js?v=3"></script>
 </body>
 </html>

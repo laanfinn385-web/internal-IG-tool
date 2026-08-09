@@ -113,19 +113,32 @@ function computeStreak(sentDateSet) {
 
 app.get('/api/home', asyncRoute(async (req, res) => {
   const data = await loadData();
-  const sentDateSet = new Set(
-    data.outreaches.filter(o => o.status === 'sent').map(o => o.date)
-  );
+  const sent = data.outreaches.filter(o => o.status === 'sent');
+  const sentDateSet = new Set(sent.map(o => o.date));
   const streak = computeStreak(sentDateSet);
   const sevenDaysAgo = daysAgoStr(6);
-  const last7Days = data.outreaches.filter(
-    o => o.status === 'sent' && o.date >= sevenDaysAgo
-  ).length;
+  const last7Days = sent.filter(o => o.date >= sevenDaysAgo).length;
+
+  // Mini trend for the home overview sparkline — one point per of the last
+  // 7 days, oldest first.
+  const sendsTrend = [];
+  for (let i = 6; i >= 0; i--) {
+    const ds = daysAgoStr(i);
+    sendsTrend.push({ date: ds, count: sent.filter(o => o.date === ds).length });
+  }
+
   const [{ count }] = await sql`SELECT count(*) FROM leads WHERE deleted_at IS NULL AND stage = 'new'`;
   const stageRows = await sql`SELECT stage, count(*) FROM leads WHERE deleted_at IS NULL GROUP BY stage`;
   const stageCounts = { new: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0 };
   stageRows.forEach(r => { if (r.stage in stageCounts) stageCounts[r.stage] = Number(r.count); });
-  res.json({ streak, last7Days, availableLeads: Number(count), stageCounts });
+
+  // All-time reply rate: 'Replies' = positive_reply + dead events (a "no" is
+  // still a reply), same definition /api/analytics uses, just unscoped by
+  // date range here for a single always-current headline number.
+  const [{ count: repliesCount }] = await sql`SELECT count(*) FROM lead_events WHERE event IN ('positive_reply', 'dead')`;
+  const replyRate = sent.length > 0 ? Math.round((Number(repliesCount) / sent.length) * 1000) / 10 : null;
+
+  res.json({ streak, last7Days, availableLeads: Number(count), stageCounts, sendsTrend, replyRate });
 }));
 
 app.post('/api/outreach', asyncRoute(async (req, res) => {

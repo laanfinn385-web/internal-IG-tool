@@ -107,20 +107,138 @@ const PHASE_BREAKDOWN_STAGES = [
   { key: 'dead', label: 'Dead', color: 'var(--stage-dead)' }
 ];
 
-function renderPhaseBreakdown(stageCounts) {
-  const wrap = $('#phase-breakdown');
+function showOverviewTooltip(tooltipEl, wrapEl, x, y, html) {
+  const wrapBox = wrapEl.getBoundingClientRect();
+  tooltipEl.innerHTML = html;
+  tooltipEl.style.left = `${x - wrapBox.left}px`;
+  tooltipEl.style.top = `${y - wrapBox.top}px`;
+  tooltipEl.classList.remove('hidden');
+}
+
+// A ring built from one <circle> per non-zero stage, using stroke-dasharray
+// to carve out each arc — the standard SVG-donut technique. Segments are
+// hoverable (mouse position drives the tooltip, since a segment's own
+// bounding box is the full circle, not just its visible arc).
+function renderPipelineDonut(stageCounts) {
+  const svg = $('#pipeline-donut');
+  const legend = $('#pipeline-donut-legend');
+  const tooltip = $('#pipeline-donut-tooltip');
+  const wrap = $('#pipeline-donut-wrap');
+  svg.innerHTML = '';
+  tooltip.classList.add('hidden');
+
   const counts = stageCounts || {};
-  const max = Math.max(1, ...PHASE_BREAKDOWN_STAGES.map(s => counts[s.key] || 0));
-  wrap.innerHTML = PHASE_BREAKDOWN_STAGES.map(s => {
+  const total = PHASE_BREAKDOWN_STAGES.reduce((sum, s) => sum + (counts[s.key] || 0), 0);
+  const cx = 60, cy = 60, r = 46, strokeWidth = 16;
+  const circumference = 2 * Math.PI * r;
+
+  const track = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  track.setAttribute('cx', cx); track.setAttribute('cy', cy); track.setAttribute('r', r);
+  track.setAttribute('fill', 'none');
+  track.style.stroke = 'var(--border)';
+  track.setAttribute('stroke-width', strokeWidth);
+  svg.appendChild(track);
+
+  let cumulative = 0;
+  PHASE_BREAKDOWN_STAGES.filter(s => (counts[s.key] || 0) > 0).forEach(s => {
     const count = counts[s.key] || 0;
-    const pct = Math.round((count / max) * 100);
-    return `
-      <div class="phase-bar-row${count === 0 ? ' is-empty' : ''}">
-        <span class="phase-bar-label">${s.label}</span>
-        <div class="phase-bar-track"><div class="phase-bar-fill" style="width:${count === 0 ? 0 : Math.max(pct, 2)}%; background:${s.color}"></div></div>
-        <span class="phase-bar-count">${count.toLocaleString('en-US')}</span>
-      </div>`;
-  }).join('');
+    const pct = total > 0 ? count / total : 0;
+    const dash = pct * circumference;
+
+    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    circle.setAttribute('cx', cx); circle.setAttribute('cy', cy); circle.setAttribute('r', r);
+    circle.setAttribute('fill', 'none');
+    circle.style.stroke = s.color;
+    circle.setAttribute('stroke-width', strokeWidth);
+    circle.setAttribute('stroke-dasharray', `${dash} ${circumference - dash}`);
+    circle.setAttribute('stroke-dashoffset', String(-cumulative));
+    circle.setAttribute('transform', `rotate(-90 ${cx} ${cy})`);
+    circle.style.cursor = 'pointer';
+    circle.addEventListener('mouseenter', (e) => {
+      showOverviewTooltip(tooltip, wrap, e.clientX, e.clientY - 10,
+        `<strong>${count.toLocaleString('en-US')}</strong> (${Math.round(pct * 100)}%)<span class="tooltip-sub">${escapeHtml(s.label)}</span>`);
+    });
+    circle.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
+    svg.appendChild(circle);
+    cumulative += dash;
+  });
+
+  const totalText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  totalText.setAttribute('x', cx); totalText.setAttribute('y', cy - 2);
+  totalText.setAttribute('text-anchor', 'middle');
+  totalText.setAttribute('font-size', '20');
+  totalText.setAttribute('font-weight', '800');
+  totalText.style.fill = 'var(--text)';
+  totalText.textContent = total.toLocaleString('en-US');
+  svg.appendChild(totalText);
+  const subText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  subText.setAttribute('x', cx); subText.setAttribute('y', cy + 15);
+  subText.setAttribute('text-anchor', 'middle');
+  subText.setAttribute('font-size', '8');
+  subText.style.fill = 'var(--muted)';
+  subText.textContent = 'active leads';
+  svg.appendChild(subText);
+
+  legend.innerHTML = PHASE_BREAKDOWN_STAGES.map(s => `
+    <div class="donut-legend-item">
+      <span class="donut-legend-dot" style="background:${s.color}"></span>
+      <span class="donut-legend-label">${s.label}</span>
+      <span class="donut-legend-count">${(counts[s.key] || 0).toLocaleString('en-US')}</span>
+    </div>`).join('');
+}
+
+function renderSendsSparkline(series) {
+  const svg = $('#sends-sparkline');
+  const tooltip = $('#sends-sparkline-tooltip');
+  const wrap = $('#sends-sparkline-wrap');
+  svg.innerHTML = '';
+  tooltip.classList.add('hidden');
+  if (!series || series.length === 0) return;
+
+  const W = 300, H = 110, PAD_X = 20, PAD_Y = 16;
+  const max = Math.max(1, ...series.map(s => s.count));
+  const stepX = series.length > 1 ? (W - PAD_X * 2) / (series.length - 1) : 0;
+  const points = series.map((s, i) => ({
+    x: PAD_X + i * stepX,
+    y: H - PAD_Y - (s.count / max) * (H - PAD_Y * 2),
+    ...s
+  }));
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' '));
+  path.setAttribute('fill', 'none');
+  path.style.stroke = 'var(--accent)';
+  path.setAttribute('stroke-width', 2.5);
+  path.setAttribute('stroke-linecap', 'round');
+  path.setAttribute('stroke-linejoin', 'round');
+  svg.appendChild(path);
+
+  points.forEach(p => {
+    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y); dot.setAttribute('r', 3);
+    dot.style.fill = 'var(--accent)';
+    svg.appendChild(dot);
+
+    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    label.setAttribute('x', p.x); label.setAttribute('y', H - 2);
+    label.setAttribute('text-anchor', 'middle');
+    label.setAttribute('font-size', '8');
+    label.style.fill = 'var(--muted)';
+    label.textContent = p.date.slice(5);
+    svg.appendChild(label);
+
+    // Oversized invisible hit target — the 3px dot alone is hard to hover precisely.
+    const hit = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    hit.setAttribute('cx', p.x); hit.setAttribute('cy', p.y); hit.setAttribute('r', 12);
+    hit.setAttribute('fill', 'transparent');
+    hit.style.cursor = 'pointer';
+    hit.addEventListener('mouseenter', (e) => {
+      showOverviewTooltip(tooltip, wrap, e.clientX, e.clientY - 10,
+        `<strong>${p.count}</strong> sent<span class="tooltip-sub">${escapeHtml(p.date.slice(5))}</span>`);
+    });
+    hit.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
+    svg.appendChild(hit);
+  });
 }
 
 async function loadHome() {
@@ -129,11 +247,14 @@ async function loadHome() {
     $('#streak-value').textContent = data.streak;
     $('#week-value').textContent = data.last7Days;
     $('#available-leads-value').textContent = data.availableLeads.toLocaleString('en-US');
-    renderPhaseBreakdown(data.stageCounts);
+    $('#reply-rate-value').textContent = data.replyRate === null ? '–' : `${data.replyRate}%`;
+    renderPipelineDonut(data.stageCounts);
+    renderSendsSparkline(data.sendsTrend);
   } catch (e) {
     $('#streak-value').textContent = '–';
     $('#week-value').textContent = '–';
     $('#available-leads-value').textContent = '–';
+    $('#reply-rate-value').textContent = '–';
   }
 }
 
