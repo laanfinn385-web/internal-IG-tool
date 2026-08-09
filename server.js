@@ -497,8 +497,15 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
         await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'call_booked'`;
       }
 
+      // 'Replies' = Positive Replies + Dead (a "no" is still a reply) — so
+      // 'dead' needs the same enter/leave symmetry as the positive-reply
+      // stages above, or un-deading a lead (e.g. undoing a misclick) leaves
+      // it permanently stuck counting as a reply forever.
       if (b.stage === 'dead') {
         await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'dead', ${today})`;
+      }
+      if (current.stage === 'dead' && b.stage !== 'dead') {
+        await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'dead'`;
       }
     }
   }
