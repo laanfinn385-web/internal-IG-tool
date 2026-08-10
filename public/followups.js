@@ -226,6 +226,9 @@ async function loadSettingsPage() {
   }
 }
 
+// The actual wording (opener/hook/value/cta per category) lives in the
+// database and is composed + rotated behind the scenes by app.js — only the
+// category label is exposed here to edit.
 function renderSettingsTemplates() {
   const wrap = $('#settings-templates');
   wrap.innerHTML = settingsState.templates.map(t => `
@@ -233,30 +236,23 @@ function renderSettingsTemplates() {
       <label>Label
         <input type="text" value="${escapeHtml(t.label)}" data-tpl-id="${t.id}" data-field="label">
       </label>
-      <label>Message
-        <textarea rows="3" class="auto-resize" data-tpl-id="${t.id}" data-field="text">${escapeHtml(t.text)}</textarea>
-      </label>
     </div>
   `).join('');
-  $all('#settings-templates textarea.auto-resize').forEach(autoResizeTextarea);
 }
 
 $('#settings-templates').addEventListener('change', async (e) => {
-  const id = e.target.dataset.tplId;
   const field = e.target.dataset.field;
-  if (!id || !field) return;
+  if (field !== 'label') return;
+  const id = e.target.dataset.tplId;
   try {
     await fetchJson(`/api/settings/templates/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [field]: e.target.value })
+      body: JSON.stringify({ label: e.target.value })
     });
   } catch (err) {
     alert(`Could not save template: ${err.message}`);
   }
-});
-$('#settings-templates').addEventListener('input', (e) => {
-  if (e.target.classList.contains('auto-resize')) autoResizeTextarea(e.target);
 });
 
 $('#settings-phase-tabs').addEventListener('click', (e) => {

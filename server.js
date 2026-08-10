@@ -687,21 +687,32 @@ app.post('/api/leads/:id/followup-sent', asyncRoute(async (req, res) => {
 
 // ---------- SETTINGS ----------
 
+// Each category (e.g. "haven't posted in months") is built from 4 sentence
+// slots — opener/hook/value/cta — each with several independently-worded
+// versions. public/app.js draws one version per slot at random per profile,
+// so recombination alone gives far more distinct renderings than any one
+// slot's version count, without ever mixing a slot from one category into
+// another (see pickPart() there).
 app.get('/api/settings/templates', asyncRoute(async (req, res) => {
-  const rows = await sql`SELECT id, label, text FROM message_templates ORDER BY sort_order`;
-  res.json({ templates: rows });
+  const templates = await sql`SELECT id, label FROM message_templates ORDER BY sort_order`;
+  const parts = await sql`SELECT id, template_id, slot, text FROM message_template_parts ORDER BY template_id, slot, sort_order`;
+  res.json({
+    templates: templates.map(t => {
+      const forTemplate = parts.filter(p => p.template_id === t.id);
+      const bySlot = {};
+      for (const slot of ['opener', 'hook', 'value', 'cta']) {
+        bySlot[slot] = forTemplate.filter(p => p.slot === slot).map(p => ({ id: p.id, text: p.text }));
+      }
+      return { id: t.id, label: t.label, parts: bySlot };
+    })
+  });
 }));
 
 app.put('/api/settings/templates/:id', asyncRoute(async (req, res) => {
   const { id } = req.params;
-  const { label, text } = req.body;
-  const sets = []; const params = []; let i = 1;
-  if (label !== undefined) { sets.push(`label = $${i++}`); params.push(label); }
-  if (text !== undefined) { sets.push(`text = $${i++}`); params.push(text); }
-  if (sets.length === 0) return res.json({ ok: true });
-  sets.push('updated_at = now()');
-  params.push(id);
-  await sql.query(`UPDATE message_templates SET ${sets.join(', ')} WHERE id = $${i}`, params);
+  const { label } = req.body;
+  if (label === undefined) return res.json({ ok: true });
+  await sql`UPDATE message_templates SET label = ${label}, updated_at = now() WHERE id = ${id}`;
   res.json({ ok: true });
 }));
 

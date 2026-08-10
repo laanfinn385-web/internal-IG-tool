@@ -49,6 +49,82 @@ function clearSession() {
 function $(sel) { return document.querySelector(sel); }
 function $all(sel) { return Array.from(document.querySelectorAll(sel)); }
 
+// ---------- Message composition & wording rotation ----------
+// Instagram can flag near-identical DMs sent over and over. Each template
+// category is split into 4 sentence slots — opener/hook/value/cta — each with
+// several independently-worded versions written specifically for that
+// category (see templates.js/pickPart's callers). A message is composed by
+// drawing one version per slot, so a category with 4 versions per slot alone
+// has 4^4 = 256 possible renderings — recombination does far more for
+// variety than picking among whole pre-written messages ever could, while
+// still keeping every slot's wording specific to its own category (an opener
+// from one category can never end up in another).
+//
+// Each slot is drawn from its own shuffled "bag": every version in that slot
+// gets used once before any repeat, and a repeat is never dealt back-to-back
+// across a reshuffle. Persisted in localStorage (not sessionStorage) because
+// the pattern Instagram sees spans every session you've ever sent from, not
+// just today's batch.
+const MESSAGE_PART_ROTATION_KEY = 'template_part_rotation_v1';
+
+function loadPartRotation() {
+  try {
+    return JSON.parse(localStorage.getItem(MESSAGE_PART_ROTATION_KEY)) || {};
+  } catch (e) {
+    return {};
+  }
+}
+
+function savePartRotation(rotation) {
+  try {
+    localStorage.setItem(MESSAGE_PART_ROTATION_KEY, JSON.stringify(rotation));
+  } catch (e) { /* storage full or unavailable — non-fatal */ }
+}
+
+function shuffle(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+// Picks the next wording id for one slot (opener/hook/value/cta) of one
+// template category, drawing from a shuffled "bag" that's refilled (and
+// reshuffled) once emptied.
+function pickPart(key, slot) {
+  const parts = TEMPLATES[key] && TEMPLATES[key].parts && TEMPLATES[key].parts[slot];
+  if (!parts || parts.length === 0) return null;
+  const allIds = parts.map(p => p.id);
+  if (allIds.length === 1) return allIds[0];
+
+  const rotation = loadPartRotation();
+  const rotationKey = `${key}::${slot}`;
+  let entry = rotation[rotationKey];
+  if (!entry || !Array.isArray(entry.bag) || entry.bag.length === 0) {
+    let bag = shuffle(allIds);
+    // Avoid dealing the same wording twice in a row across a reshuffle boundary.
+    if (entry && entry.last && bag[0] === entry.last) {
+      [bag[0], bag[1]] = [bag[1], bag[0]];
+    }
+    entry = { bag, last: entry ? entry.last : null };
+  }
+  const id = entry.bag.shift();
+  entry.last = id;
+  rotation[rotationKey] = entry;
+  savePartRotation(rotation);
+  return id;
+}
+
+// Draws a fresh id for every slot of a template category — used whenever the
+// category changes or the user asks for a different wording.
+function pickAllParts(key) {
+  const partIds = {};
+  MESSAGE_SLOTS.forEach(slot => { partIds[slot] = pickPart(key, slot); });
+  return partIds;
+}
+
 // Fetches JSON, applies a timeout, and throws a readable Error on any
 // network failure, timeout, or non-2xx response (using the server's
 // { error } message when present) instead of failing silently.
@@ -501,11 +577,43 @@ function updateMessage(useSuggestion) {
 
   const key = $('#f-template').value || p.template;
   p.template = key;
+  // The category (which of the 6 templates fits this account) only changes
+  // when the suggestion re-runs or the user picks a different one manually —
+  // draw fresh wording in those cases, but keep whatever's already cached on
+  // this profile otherwise (so paging back/forth or editing an unrelated
+  // field doesn't keep reshuffling the wording under you).
+  if (p.partsKey !== key || !p.partIds) {
+    p.partIds = pickAllParts(key);
+    p.partsKey = key;
+  }
+  renderMessageText();
+}
+
+// Renders p.template + p.partIds into #f-message by composing one wording per
+// slot (opener/hook/value/cta). Split out from updateMessage() so the
+// "different wording" button can re-render without re-running the suggestion
+// or touching which category is selected.
+function renderMessageText() {
+  const p = currentProfile();
+  if (!p) return;
+  const key = p.template;
   const placeholders = buildPlaceholders(p);
+  const parts = TEMPLATES[key] && TEMPLATES[key].parts;
   // Guards against TEMPLATES still being {} if loadTemplatesFromServer()
-  // hasn't resolved yet (or failed) — without this a stray click during that
-  // window throws mid-render and leaves the message/template UI broken.
-  const text = TEMPLATES[key] ? TEMPLATES[key].text(placeholders) : '';
+  // hasn't resolved yet (or failed), or a cached part id no longer existing —
+  // without this a stray click during that window throws mid-render and
+  // leaves the message/template UI broken. Falls back to each slot's first
+  // available wording.
+  const text = parts
+    ? MESSAGE_SLOTS
+        .map(slot => {
+          const options = parts[slot] || [];
+          const chosen = options.find(o => p.partIds && o.id === p.partIds[slot]) || options[0];
+          return chosen ? chosen.render(placeholders) : '';
+        })
+        .filter(Boolean)
+        .join(' ')
+    : '';
   p.message = text;
   $('#f-message').value = text;
 
@@ -551,6 +659,17 @@ $('#copy-btn').addEventListener('click', async () => {
   const original = btn.textContent;
   btn.textContent = '✓ Copied!';
   setTimeout(() => { btn.textContent = original; }, 1200);
+});
+
+$('#reshuffle-btn').addEventListener('click', () => {
+  const p = currentProfile();
+  if (!p || !p.template) return;
+  // Redraws all 4 slots from the same rotation used automatically, so a
+  // manual reshuffle here still counts toward "every wording gets used before
+  // any repeat" instead of just picking uniformly at random.
+  p.partIds = pickAllParts(p.template);
+  p.partsKey = p.template;
+  renderMessageText();
 });
 
 $('#prev-btn').addEventListener('click', () => {

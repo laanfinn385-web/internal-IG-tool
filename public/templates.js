@@ -9,6 +9,8 @@ function renderTemplateString(str, placeholders) {
     .replace(/\{months\}/g, placeholders.months ?? '');
 }
 
+const MESSAGE_SLOTS = ['opener', 'hook', 'value', 'cta'];
+
 async function loadTemplatesFromServer() {
   try {
     // fetchJson (app.js) times out instead of hanging forever — this call
@@ -17,7 +19,19 @@ async function loadTemplatesFromServer() {
     const data = await fetchJson('/api/settings/templates', undefined, 10000);
     const map = {};
     (data.templates || []).forEach(t => {
-      map[t.id] = { label: t.label, text: (placeholders) => renderTemplateString(t.text, placeholders) };
+      // Each category is built from 4 sentence slots (opener/hook/value/cta),
+      // each with several independently-worded versions specific to that
+      // category. app.js's pickPart() draws one version per slot at random and
+      // joins them, so recombination alone makes repeats far less likely than
+      // picking among whole pre-written messages — see pickPart() in app.js.
+      const parts = {};
+      MESSAGE_SLOTS.forEach(slot => {
+        parts[slot] = ((t.parts && t.parts[slot]) || []).map(p => ({
+          id: p.id,
+          render: (placeholders) => renderTemplateString(p.text, placeholders)
+        }));
+      });
+      map[t.id] = { label: t.label, parts };
     });
     TEMPLATES = map;
   } catch (e) {
