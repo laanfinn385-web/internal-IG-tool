@@ -26,11 +26,19 @@ async function deleteVideoBlobs(urls) {
   const validUrls = (urls || []).filter(Boolean);
   if (validUrls.length === 0 || !RENDER_SERVICE_DELETE_URL || !RENDER_SERVICE_SECRET) return;
   try {
-    await fetch(RENDER_SERVICE_DELETE_URL, {
+    const res = await fetch(RENDER_SERVICE_DELETE_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-render-secret': RENDER_SERVICE_SECRET },
       body: JSON.stringify({ urls: validUrls })
     });
+    // fetch() only rejects on network failure, not on HTTP error status —
+    // an unchecked response here means a 401/500/etc. from the render
+    // service fails completely silently (this orphans the blob, which is
+    // harmless beyond quota, but should still be visible in logs).
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.error(`Video blob delete failed (${res.status}): ${body}`);
+    }
   } catch (e) {
     console.error('Could not delete video blob(s):', e);
   }
