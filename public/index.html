@@ -211,11 +211,26 @@
           </div>
         </div>
 
+        <div class="card status-card">
+          <h2>Lead status</h2>
+          <label class="toggle-switch-row">
+            <span class="toggle-switch">
+              <input type="checkbox" id="f-can-receive" checked>
+              <span class="toggle-switch-track"></span>
+            </span>
+            <span>Can receive messages</span>
+          </label>
+          <label>Notes
+            <textarea id="f-session-notes" rows="3" class="auto-resize" placeholder="Anything worth remembering about this lead..."></textarea>
+          </label>
+        </div>
+
       </div>
 
       <div class="decision-row">
         <button id="reject-btn" class="btn-reject">✕ Not qualified</button>
         <button id="accept-btn" class="btn-accept">✓ Sent</button>
+        <button id="next-unreachable-btn" class="btn-next-grey hidden">Next <span aria-hidden="true">→</span></button>
       </div>
     </section>
 
@@ -236,6 +251,10 @@
           <div class="stat-value" id="end-rejected-count">0</div>
           <div class="stat-label">not qualified</div>
         </div>
+        <div class="stat-card">
+          <div class="stat-value" id="end-cant-message-count">0</div>
+          <div class="stat-label">can't receive messages</div>
+        </div>
       </div>
 
       <div class="card">
@@ -245,6 +264,10 @@
       <div class="card">
         <h3>✕ Not qualified</h3>
         <ul class="result-list" id="end-rejected-list"></ul>
+      </div>
+      <div class="card">
+        <h3>🚫 Can't receive messages</h3>
+        <ul class="result-list" id="end-cant-message-list"></ul>
       </div>
 
       <button id="back-home-btn" class="btn-primary">← Back to home</button>

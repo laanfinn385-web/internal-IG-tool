@@ -180,7 +180,8 @@ const PHASE_BREAKDOWN_STAGES = [
   { key: 'phase2', label: 'Phase 2', color: 'var(--stage-phase2)' },
   { key: 'phase3', label: 'Phase 3', color: 'var(--stage-phase3)' },
   { key: 'call_booked', label: 'Call booked', color: 'var(--stage-call-booked)' },
-  { key: 'dead', label: 'Dead', color: 'var(--stage-dead)' }
+  { key: 'dead', label: 'Dead', color: 'var(--stage-dead)' },
+  { key: 'cant_message', label: "Can't receive messages", color: 'var(--stage-cant-message)' }
 ];
 
 function showOverviewTooltip(tooltipEl, wrapEl, x, y, html) {
@@ -473,7 +474,12 @@ function leadToProfile(l) {
     videoUrl: l.personalizedVideoUrl || null,
     videoStatus: l.personalizedVideoStatus || null,
     videoError: l.personalizedVideoError || null,
-    videoName: l.personalizedVideoName || ''
+    videoName: l.personalizedVideoName || '',
+    notes: l.notes || '',
+    notesSavedValue: l.notes || '',
+    // Always starts on for a freshly-shown profile — reassessed per lead,
+    // not remembered from whatever the last profile was left at.
+    canReceiveMessages: true
   };
 }
 
@@ -541,6 +547,7 @@ function renderProfile() {
   $('#f-template').value = p.template || Object.keys(TEMPLATES)[0];
   updateMessage(!p.template);
   renderVideoSection();
+  renderLeadStatusSection();
 
   $('#prev-btn').disabled = state.index === 0;
   $('#next-btn').disabled = state.index === state.profiles.length - 1;
@@ -862,6 +869,69 @@ $('#preload-skip-btn').addEventListener('click', () => {
   renderProfile();
 });
 
+// ---------- Lead status: "can receive messages" toggle + notes ----------
+
+function renderLeadStatusSection() {
+  const p = currentProfile();
+  if (!p) return;
+  $('#f-can-receive').checked = p.canReceiveMessages !== false;
+  $('#f-session-notes').value = p.notes || '';
+  autoResizeTextarea($('#f-session-notes'));
+  updateDecisionButtons();
+}
+
+// Swaps the normal Sent/Not qualified pair for a single grey Next button
+// when the lead can't receive messages at all — there's no outreach
+// decision to make on an account you can't message.
+function updateDecisionButtons() {
+  const p = currentProfile();
+  if (!p) return;
+  const canReceive = p.canReceiveMessages !== false;
+  $('#accept-btn').classList.toggle('hidden', !canReceive);
+  $('#reject-btn').classList.toggle('hidden', !canReceive);
+  $('#next-unreachable-btn').classList.toggle('hidden', canReceive);
+}
+
+$('#f-can-receive').addEventListener('change', () => {
+  const p = currentProfile();
+  if (!p) return;
+  p.canReceiveMessages = $('#f-can-receive').checked;
+  saveSession();
+  updateDecisionButtons();
+});
+
+$('#f-session-notes').addEventListener('input', (e) => {
+  autoResizeTextarea(e.target);
+  const p = currentProfile();
+  if (!p) return;
+  p.notes = e.target.value;
+  saveSession();
+});
+
+// Fires on blur-after-edit (matches the Leads page's own notes field), and
+// also called explicitly from decide() so a note typed but not yet blurred
+// isn't lost — especially for "not qualified", which soft-deletes the lead
+// right after and would otherwise silently drop it (PATCH requires
+// deleted_at IS NULL).
+async function saveNotesForProfile(p) {
+  if (!p || !p.leadId || p.notes === p.notesSavedValue) return;
+  try {
+    await fetchJson(`/api/leads/${p.leadId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ notes: p.notes })
+    });
+    p.notesSavedValue = p.notes;
+  } catch (e) {
+    console.error('Could not save notes', e);
+  }
+}
+
+$('#f-session-notes').addEventListener('change', () => {
+  const p = currentProfile();
+  if (p) saveNotesForProfile(p);
+});
+
 $('#prev-btn').addEventListener('click', () => {
   syncFieldsToState();
   if (state.index > 0) {
@@ -884,6 +954,11 @@ async function decide(status) {
   const p = currentProfile();
   p.status = status;
   p.done = true;
+
+  // Flush any note typed but not yet blurred — matters most for "not
+  // qualified", which soft-deletes the lead right after (a PATCH sent after
+  // that would silently no-op, since it requires deleted_at IS NULL).
+  await saveNotesForProfile(p);
 
   // Goal mode (home's "reach N sent") tops the queue back up whenever we're
   // about to run out of queued profiles and haven't hit the target yet —
@@ -911,38 +986,46 @@ async function decide(status) {
   // resolves — that would insert two outreach rows and skip a profile.
   const acceptBtn = $('#accept-btn');
   const rejectBtn = $('#reject-btn');
+  const nextUnreachableBtn = $('#next-unreachable-btn');
   acceptBtn.disabled = true;
   rejectBtn.disabled = true;
+  nextUnreachableBtn.disabled = true;
 
-  try {
-    await fetchJson('/api/outreach', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        username: p.username,
-        profileUrl: p.profileUrl,
-        fullName: p.fullName,
-        bio: p.bio,
-        followers: p.followers,
-        lastPostWeeks: p.lastPostWeeks,
-        postsPerWeek: p.postsPerWeek,
-        avgViews: p.avgViews,
-        template: p.template,
-        message: p.message,
-        status
-      })
-    });
-  } catch (e) {
-    console.error('Could not save outreach', e);
-    alert(`This one didn't save to your analytics (${e.message}). The decision still went through locally — you may want to note it down.`);
+  // "Can't receive messages" means no message was ever sent — there's
+  // nothing real to log in outreach analytics for it.
+  if (status !== 'cant_message') {
+    try {
+      await fetchJson('/api/outreach', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: p.username,
+          profileUrl: p.profileUrl,
+          fullName: p.fullName,
+          bio: p.bio,
+          followers: p.followers,
+          lastPostWeeks: p.lastPostWeeks,
+          postsPerWeek: p.postsPerWeek,
+          avgViews: p.avgViews,
+          template: p.template,
+          message: p.message,
+          status
+        })
+      });
+    } catch (e) {
+      console.error('Could not save outreach', e);
+      alert(`This one didn't save to your analytics (${e.message}). The decision still went through locally — you may want to note it down.`);
+    }
   }
   acceptBtn.disabled = false;
   rejectBtn.disabled = false;
+  nextUnreachableBtn.disabled = false;
 
   // Keep the underlying lead in sync: sent -> enters Phase 1 follow-up
   // tracking (and any in-session edits saved back); not qualified -> the
   // lead is removed from the list entirely (soft-deleted, so the leads-page
-  // undo toast still covers it).
+  // undo toast still covers it); can't receive messages -> tagged with its
+  // own stage but kept around (it's not a rejection, just unreachable for now).
   if (p.leadId) {
     if (status === 'sent') {
       fetchJson(`/api/leads/${p.leadId}`, {
@@ -957,6 +1040,12 @@ async function decide(status) {
           stage: 'phase1'
         })
       }).then(() => loadNotifications()).catch(e => console.error('Could not update lead stage', e));
+    } else if (status === 'cant_message') {
+      fetchJson(`/api/leads/${p.leadId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage: 'cant_message' })
+      }).catch(e => console.error('Could not update lead stage', e));
     } else {
       deleteLeads([p.leadId]);
     }
@@ -1014,16 +1103,19 @@ async function decide(status) {
 
 $('#accept-btn').addEventListener('click', () => decide('sent'));
 $('#reject-btn').addEventListener('click', () => decide('not_qualified'));
+$('#next-unreachable-btn').addEventListener('click', () => decide('cant_message'));
 
 // ---------- END SCREEN ----------
 function showEndScreen() {
   const sent = state.results.filter(r => r.status === 'sent');
   const rejected = state.results.filter(r => r.status === 'not_qualified');
+  const cantMessage = state.results.filter(r => r.status === 'cant_message');
 
   clearSession();
   $('#progress-fill').style.width = '100%';
   $('#end-sent-count').textContent = sent.length;
   $('#end-rejected-count').textContent = rejected.length;
+  $('#end-cant-message-count').textContent = cantMessage.length;
 
   let lines;
   if (state.sessionMode === 'goal' && state.sentCount >= state.sessionTarget) {
@@ -1055,6 +1147,11 @@ function showEndScreen() {
   const rejList = $('#end-rejected-list');
   rejList.innerHTML = rejected.length
     ? rejected.map(r => `<li><strong>@${escapeHtml(r.username)}</strong> ${r.fullName ? `(${escapeHtml(r.fullName)})` : ''}</li>`).join('')
+    : '<li class="muted">None</li>';
+
+  const cantMessageList = $('#end-cant-message-list');
+  cantMessageList.innerHTML = cantMessage.length
+    ? cantMessage.map(r => `<li><strong>@${escapeHtml(r.username)}</strong> ${r.fullName ? `(${escapeHtml(r.fullName)})` : ''}</li>`).join('')
     : '<li class="muted">None</li>';
 
   showView('end');

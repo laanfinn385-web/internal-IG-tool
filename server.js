@@ -164,7 +164,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
 
   const [{ count }] = await sql`SELECT count(*) FROM leads WHERE deleted_at IS NULL AND stage = 'new'`;
   const stageRows = await sql`SELECT stage, count(*) FROM leads WHERE deleted_at IS NULL GROUP BY stage`;
-  const stageCounts = { new: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0 };
+  const stageCounts = { new: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0, cant_message: 0 };
   stageRows.forEach(r => { if (r.stage in stageCounts) stageCounts[r.stage] = Number(r.count); });
 
   // All-time funnel rates — same definitions/formulas /api/analytics uses
@@ -537,15 +537,17 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
       if (FOLLOWUP_STAGES.includes(b.stage)) {
         sets.push(`phase_step = $${i++}`); params.push(0);
         sets.push('phase_started_at = now()');
-        // The lead's been sent — its personalized video has done its job.
-        // Clean it up rather than let it sit in Blob's 5GB free tier forever.
-        // Awaited: fire-and-forget here risked the function freezing/recycling
-        // right after the response was sent, before the delete fetch actually
-        // completed — confirmed happening in testing on /api/leads/delete.
-        if (current.personalized_video_url) {
-          await deleteVideoBlobs([current.personalized_video_url]);
-          sets.push('personalized_video_url = NULL', 'personalized_video_status = NULL', 'personalized_video_name = NULL');
-        }
+      }
+      // The video is done being useful once the lead leaves active-outreach
+      // limbo — either it's already been sent (entering a follow-up phase)
+      // or it never can be (can't receive messages). Clean it up rather than
+      // let it sit in Blob's 5GB free tier forever.
+      // Awaited: fire-and-forget here risked the function freezing/recycling
+      // right after the response was sent, before the delete fetch actually
+      // completed — confirmed happening in testing on /api/leads/delete.
+      if ((FOLLOWUP_STAGES.includes(b.stage) || b.stage === 'cant_message') && current.personalized_video_url) {
+        await deleteVideoBlobs([current.personalized_video_url]);
+        sets.push('personalized_video_url = NULL', 'personalized_video_status = NULL', 'personalized_video_name = NULL');
       }
       const today = todayStr();
       const enteringPositive = POSITIVE_REPLY_STAGES.includes(b.stage);

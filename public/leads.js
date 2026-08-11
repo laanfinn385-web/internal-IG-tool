@@ -55,7 +55,8 @@ const STAGE_OPTIONS = [
   { value: 'phase2', label: 'Phase 2' },
   { value: 'phase3', label: 'Phase 3' },
   { value: 'call_booked', label: 'Call booked' },
-  { value: 'dead', label: 'Dead' }
+  { value: 'dead', label: 'Dead' },
+  { value: 'cant_message', label: "Can't receive messages" }
 ];
 
 // Pipeline position, lowest first — drives the group ordering when the
@@ -72,6 +73,7 @@ function stageLabel(lead) {
   }
   if (stage === 'call_booked') return 'Call booked';
   if (stage === 'dead') return 'Dead';
+  if (stage === 'cant_message') return "Can't receive messages";
   return 'New';
 }
 
@@ -80,6 +82,7 @@ function stageClass(stage) {
   if (stage === 'phase1' || stage === 'phase2' || stage === 'phase3') return stage;
   if (stage === 'call_booked') return 'call-booked';
   if (stage === 'dead') return 'dead';
+  if (stage === 'cant_message') return 'cant-message';
   return '';
 }
 
