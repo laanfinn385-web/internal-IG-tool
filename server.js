@@ -13,6 +13,28 @@ const sql = neon(process.env.DATABASE_URL);
 // video-render-service/README.md) — these point this app at it.
 const RENDER_SERVICE_URL = process.env.RENDER_SERVICE_URL;
 const RENDER_SERVICE_SECRET = process.env.RENDER_SERVICE_SECRET;
+// Sibling endpoint on the same render-service deployment — reuses its
+// existing BLOB_READ_WRITE_TOKEN rather than this app needing its own.
+const RENDER_SERVICE_DELETE_URL = RENDER_SERVICE_URL ? RENDER_SERVICE_URL.replace(/\/api\/render$/, '/api/delete-video') : null;
+
+// Rendered videos are only useful up to the moment a lead is decided (sent
+// or disqualified) — after that they just sit in Vercel Blob's 5GB free
+// Hobby tier forever unless cleaned up. Best-effort: a failed delete here
+// leaves an orphaned blob (harmless beyond quota) rather than blocking the
+// lead update that called it.
+async function deleteVideoBlobs(urls) {
+  const validUrls = (urls || []).filter(Boolean);
+  if (validUrls.length === 0 || !RENDER_SERVICE_DELETE_URL || !RENDER_SERVICE_SECRET) return;
+  try {
+    await fetch(RENDER_SERVICE_DELETE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-render-secret': RENDER_SERVICE_SECRET },
+      body: JSON.stringify({ urls: validUrls })
+    });
+  } catch (e) {
+    console.error('Could not delete video blob(s):', e);
+  }
+}
 
 // Safety net: if any route handler ever forgets asyncRoute (see below) and
 // throws inside an async function, Node treats that as an unhandled
@@ -510,11 +532,17 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   // even retroactively for past date ranges. Re-entering later logs a fresh
   // dated event rather than silently no-op'ing.
   if (Object.prototype.hasOwnProperty.call(b, 'stage')) {
-    const [current] = await sql`SELECT stage, ever_positive_reply, ever_call_booked FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
+    const [current] = await sql`SELECT stage, ever_positive_reply, ever_call_booked, personalized_video_url FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
     if (current && current.stage !== b.stage) {
       if (FOLLOWUP_STAGES.includes(b.stage)) {
         sets.push(`phase_step = $${i++}`); params.push(0);
         sets.push('phase_started_at = now()');
+        // The lead's been sent — its personalized video has done its job.
+        // Clean it up rather than let it sit in Blob's 5GB free tier forever.
+        if (current.personalized_video_url) {
+          deleteVideoBlobs([current.personalized_video_url]);
+          sets.push('personalized_video_url = NULL', 'personalized_video_status = NULL', 'personalized_video_name = NULL');
+        }
       }
       const today = todayStr();
       const enteringPositive = POSITIVE_REPLY_STAGES.includes(b.stage);
@@ -636,14 +664,32 @@ app.post('/api/leads/:id/render-video', asyncRoute(async (req, res) => {
 
 app.post('/api/leads/delete', asyncRoute(async (req, res) => {
   const { ids, all } = req.body;
+  // RETURNING reflects the row *after* the update, so the video URLs have
+  // to be read before it — otherwise nulling them out in the same statement
+  // would mean we always "return" NULL and never know what to delete.
+  const toDelete = all
+    ? await sql`SELECT id, personalized_video_url FROM leads WHERE deleted_at IS NULL`
+    : (Array.isArray(ids) && ids.length > 0
+        ? await sql`SELECT id, personalized_video_url FROM leads WHERE id = ANY(${ids}::uuid[]) AND deleted_at IS NULL`
+        : []);
+  if (!all && toDelete.length === 0) return res.json({ ok: true, deletedIds: [] });
+
   let rows;
   if (all) {
-    rows = await sql`UPDATE leads SET deleted_at = now() WHERE deleted_at IS NULL RETURNING id`;
+    rows = await sql`
+      UPDATE leads SET deleted_at = now(), personalized_video_url = NULL, personalized_video_status = NULL, personalized_video_name = NULL
+      WHERE deleted_at IS NULL RETURNING id
+    `;
   } else {
-    const idList = Array.isArray(ids) ? ids : [];
-    if (idList.length === 0) return res.json({ ok: true, deletedIds: [] });
-    rows = await sql`UPDATE leads SET deleted_at = now() WHERE id = ANY(${idList}::uuid[]) AND deleted_at IS NULL RETURNING id`;
+    const idList = toDelete.map(r => r.id);
+    rows = await sql`
+      UPDATE leads SET deleted_at = now(), personalized_video_url = NULL, personalized_video_status = NULL, personalized_video_name = NULL
+      WHERE id = ANY(${idList}::uuid[]) AND deleted_at IS NULL RETURNING id
+    `;
   }
+  // Disqualified leads never got their video sent — no reason to keep it
+  // around in Blob storage either.
+  deleteVideoBlobs(toDelete.map(r => r.personalized_video_url).filter(Boolean));
   res.json({ ok: true, deletedIds: rows.map(r => r.id) });
 }));
 
