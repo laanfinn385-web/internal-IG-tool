@@ -359,7 +359,21 @@ input:focus, textarea:focus, select:focus {
 .session-size-custom input { text-align: center; font-weight: 700; }
 
 /* Dashboard */
-.progress-wrap { margin: 16px 0 10px; }
+.progress-wrap { margin: 16px 0 10px; display: flex; align-items: center; gap: 14px; }
+.progress-main { flex: 1; min-width: 0; }
+.btn-quit-save {
+  flex-shrink: 0;
+  padding: 9px 16px;
+  border: 1px solid rgba(255, 49, 49, 0.35);
+  border-radius: 999px;
+  background: rgba(255, 49, 49, 0.08);
+  color: var(--red-dark);
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+.btn-quit-save:hover { background: rgba(255, 49, 49, 0.16); transform: translateY(-1px); }
 .progress-label { font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
 .progress-bar { height: 9px; background: var(--border); border-radius: 5px; overflow: hidden; }
 .progress-fill { height: 100%; background: linear-gradient(90deg, var(--purple), var(--purple-light)); transition: width 0.3s; }
@@ -557,6 +571,38 @@ input:focus, textarea:focus, select:focus {
   font-size: 0.9rem;
 }
 .result-list li:last-child { border-bottom: none; }
+
+/* Saved sessions */
+.saved-sessions-list { display: flex; flex-direction: column; gap: 12px; }
+.saved-session-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  cursor: pointer;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+.saved-session-card:hover { box-shadow: var(--shadow-lift); transform: translateY(-1px); }
+.saved-session-main { min-width: 0; }
+.saved-session-date { font-weight: 700; font-family: var(--font-display); }
+.saved-session-summary { color: var(--muted); font-size: 0.86rem; margin-top: 3px; }
+.saved-session-continue-btn {
+  flex-shrink: 0;
+  padding: 10px 18px;
+  border: none;
+  border-radius: 999px;
+  background: var(--purple-soft);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.saved-session-continue-btn:hover { background: var(--purple-light); }
 
 /* Analytics */
 .range-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 4px; }
@@ -928,7 +974,17 @@ input:focus, textarea:focus, select:focus {
   background-color: var(--purple-soft);
   color: var(--accent);
   cursor: pointer;
-  width: auto;
+  /* A closed <select>'s rendered width can be driven by its widest <option>
+     in some browsers, not just the selected value — without a hard cap here,
+     adding "Can't receive messages" as an option widened every row's badge
+     (even ones showing "New") past the .lc-stage column into the next
+     column's delete button. */
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  box-sizing: border-box;
   margin: 0;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%23430074' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;

@@ -25,6 +25,7 @@
       <button class="navbtn active" data-nav="home"><span class="navbtn-icon">🏠</span><span class="navbtn-label">Home</span></button>
       <button class="navbtn" data-nav="leads"><span class="navbtn-icon">👥</span><span class="navbtn-label">Leads</span></button>
       <button class="navbtn" data-nav="analytics"><span class="navbtn-icon">📊</span><span class="navbtn-label">Analytics</span></button>
+      <button class="navbtn" data-nav="saved-sessions"><span class="navbtn-icon">💾</span><span class="navbtn-label">Saved Sessions</span></button>
     </nav>
     <div class="sidebar-bottom">
       <button id="settings-btn" class="navbtn" title="Settings" data-nav="settings"><span class="navbtn-icon">⚙️</span><span class="navbtn-label">Settings</span></button>
@@ -136,8 +137,11 @@
     <!-- DASHBOARD -->
     <section id="view-dashboard" class="view hidden">
       <div class="progress-wrap">
-        <div class="progress-label"><span id="progress-current">1</span> / <span id="progress-total">15</span></div>
-        <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        <div class="progress-main">
+          <div class="progress-label"><span id="progress-current">1</span> / <span id="progress-total">15</span></div>
+          <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+        </div>
+        <button id="quit-save-btn" class="btn-quit-save" type="button" title="Save the rest of this session for later">⏸ Quit &amp; save</button>
       </div>
 
       <div class="video-batch-row">
@@ -271,6 +275,29 @@
       </div>
 
       <button id="back-home-btn" class="btn-primary">← Back to home</button>
+    </section>
+
+    <!-- SAVED SESSIONS -->
+    <section id="view-saved-sessions" class="view hidden">
+      <div class="row-between leads-header">
+        <h1>Saved Sessions</h1>
+      </div>
+      <p class="muted" id="saved-sessions-empty">No saved sessions — use "Quit &amp; save" mid-session to pick one up later.</p>
+      <div id="saved-sessions-list" class="saved-sessions-list"></div>
+    </section>
+
+    <!-- SAVED SESSION DETAIL -->
+    <section id="view-saved-session-detail" class="view hidden">
+      <div class="row-between leads-header">
+        <button id="saved-session-back-btn" class="icon-btn" title="Back to Saved Sessions">←</button>
+        <h1>Saved session</h1>
+      </div>
+      <div class="card" id="saved-session-summary"></div>
+      <div class="card">
+        <h3>Remaining leads</h3>
+        <ul class="result-list" id="saved-session-remaining-list"></ul>
+      </div>
+      <button id="saved-session-continue-btn" class="btn-primary">Continue this session →</button>
     </section>
 
     <!-- LEADS -->

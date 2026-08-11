@@ -714,6 +714,49 @@ app.post('/api/leads/restore', asyncRoute(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ---------- SAVED SESSIONS ----------
+// "Quit & Save" on an in-progress outreach session: the profiles not yet
+// decided are stashed here (full profile state, so resuming looks exactly
+// like the session was never interrupted), alongside a summary of what was
+// already decided this session (for the saved-sessions list/detail views —
+// those decisions are already reflected in outreaches/leads regardless, this
+// is just for display). Nothing is created if a session has no decisions
+// yet — see the client-side check before this is ever called.
+
+function mapSavedSessionRow(r) {
+  return {
+    id: r.id,
+    createdAt: r.created_at,
+    sessionMode: r.session_mode,
+    sessionTarget: r.session_target,
+    sentCount: r.sent_count,
+    results: r.results || [],
+    remainingProfiles: r.remaining_profiles || []
+  };
+}
+
+app.post('/api/saved-sessions', asyncRoute(async (req, res) => {
+  const { sessionMode, sessionTarget, sentCount, results, remainingProfiles } = req.body;
+  const remaining = Array.isArray(remainingProfiles) ? remainingProfiles : [];
+  if (remaining.length === 0) return res.status(400).json({ error: 'Nothing to save — no remaining profiles.' });
+  const id = crypto.randomUUID();
+  await sql`
+    INSERT INTO saved_sessions (id, session_mode, session_target, sent_count, results, remaining_profiles)
+    VALUES (${id}, ${sessionMode || 'fixed'}, ${sessionTarget ?? null}, ${sentCount || 0}, ${JSON.stringify(Array.isArray(results) ? results : [])}, ${JSON.stringify(remaining)})
+  `;
+  res.json({ ok: true, id });
+}));
+
+app.get('/api/saved-sessions', asyncRoute(async (req, res) => {
+  const rows = await sql`SELECT * FROM saved_sessions ORDER BY created_at DESC`;
+  res.json({ sessions: rows.map(mapSavedSessionRow) });
+}));
+
+app.delete('/api/saved-sessions/:id', asyncRoute(async (req, res) => {
+  await sql`DELETE FROM saved_sessions WHERE id = ${req.params.id}`;
+  res.json({ ok: true });
+}));
+
 // ---------- FOLLOW-UP SEQUENCING ----------
 
 const PHASE_MAX_STEP = { 1: 2, 2: 9, 3: 9 };

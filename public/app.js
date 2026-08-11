@@ -158,6 +158,7 @@ function showView(name) {
   if (name === 'leads') { loadLeads(); loadNotifications(); }
   if (name === 'analytics') loadAnalytics(currentRange);
   if (name === 'settings') loadSettingsPage();
+  if (name === 'saved-sessions') loadSavedSessions();
 }
 
 $('#settings-btn').addEventListener('click', () => showView('settings'));
@@ -732,8 +733,23 @@ function renderVideoSection() {
   }
 }
 
+// Resolves the name to put in the video without assuming p is the profile
+// currently on screen — batch/preload rendering calls this for profiles
+// that have never been displayed yet, so their p.videoName is still empty
+// (that only gets seeded by renderVideoSection when a profile is actually
+// shown). Falls back to the same auto-detected first name the message's
+// {naam} placeholder uses.
+function resolveVideoName(p) {
+  if (p === currentProfile()) {
+    const live = $('#f-video-name').value.trim();
+    if (live) return live;
+  }
+  if (p.videoName && p.videoName.trim()) return p.videoName.trim();
+  return (buildPlaceholders(p).naam || '').trim();
+}
+
 async function renderVideoForProfile(p) {
-  const name = (p === currentProfile() ? $('#f-video-name').value : p.videoName || '').trim();
+  const name = resolveVideoName(p);
   if (!name) {
     p.videoStatus = 'error';
     p.videoError = 'No name to put in the video.';
@@ -1106,7 +1122,7 @@ $('#reject-btn').addEventListener('click', () => decide('not_qualified'));
 $('#next-unreachable-btn').addEventListener('click', () => decide('cant_message'));
 
 // ---------- END SCREEN ----------
-function showEndScreen() {
+function showEndScreen(opts = {}) {
   const sent = state.results.filter(r => r.status === 'sent');
   const rejected = state.results.filter(r => r.status === 'not_qualified');
   const cantMessage = state.results.filter(r => r.status === 'cant_message');
@@ -1118,7 +1134,12 @@ function showEndScreen() {
   $('#end-cant-message-count').textContent = cantMessage.length;
 
   let lines;
-  if (state.sessionMode === 'goal' && state.sentCount >= state.sessionTarget) {
+  if (opts.savedForLater) {
+    lines = [
+      `Here's what you got through before quitting — ${state.results.length} profile${state.results.length === 1 ? '' : 's'} decided.`,
+      `The rest of this session is saved — pick it up anytime from Saved Sessions.`
+    ];
+  } else if (state.sessionMode === 'goal' && state.sentCount >= state.sessionTarget) {
     lines = [
       `Goal reached — you sent ${state.sentCount} of your target ${state.sessionTarget}.`,
       `${rejected.length} profile${rejected.length === 1 ? '' : 's'} along the way didn't qualify.`
@@ -1157,7 +1178,7 @@ function showEndScreen() {
   showView('end');
 }
 
-$('#back-home-btn').addEventListener('click', () => {
+function resetSessionState() {
   state.profiles = [];
   state.results = [];
   state.index = 0;
@@ -1165,8 +1186,155 @@ $('#back-home-btn').addEventListener('click', () => {
   state.sessionTarget = null;
   state.sentCount = 0;
   state.outOfLeads = false;
+}
+
+$('#back-home-btn').addEventListener('click', () => {
+  resetSessionState();
   showView('home');
 });
+
+// ---------- QUIT & SAVE ----------
+$('#quit-save-btn').addEventListener('click', async () => {
+  // Nothing decided yet — there's nothing worth saving, and nothing should
+  // be touched. Just leave.
+  if (state.results.length === 0) {
+    resetSessionState();
+    clearSession();
+    showView('home');
+    return;
+  }
+
+  const remainingProfiles = state.profiles.slice(state.index);
+  const btn = $('#quit-save-btn');
+  btn.disabled = true;
+  if (remainingProfiles.length > 0) {
+    try {
+      await fetchJson('/api/saved-sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionMode: state.sessionMode,
+          sessionTarget: state.sessionTarget,
+          sentCount: state.sentCount,
+          results: state.results,
+          remainingProfiles
+        })
+      });
+    } catch (e) {
+      btn.disabled = false;
+      alert(`Could not save the rest of this session (${e.message}). Nothing was lost — you're still where you were, try again.`);
+      return;
+    }
+  }
+  btn.disabled = false;
+  showEndScreen({ savedForLater: remainingProfiles.length > 0 });
+});
+
+// ---------- SAVED SESSIONS ----------
+const savedSessionsState = { sessions: [], viewingId: null };
+
+function savedSessionSummary(session) {
+  const sent = session.results.filter(r => r.status === 'sent').length;
+  const rejected = session.results.filter(r => r.status === 'not_qualified').length;
+  const cantMessage = session.results.filter(r => r.status === 'cant_message').length;
+  const parts = [];
+  if (sent) parts.push(`${sent} sent`);
+  if (rejected) parts.push(`${rejected} not qualified`);
+  if (cantMessage) parts.push(`${cantMessage} can't message`);
+  parts.push(`${session.remainingProfiles.length} remaining`);
+  return parts.join(' · ');
+}
+
+async function loadSavedSessions() {
+  try {
+    const data = await fetchJson('/api/saved-sessions');
+    savedSessionsState.sessions = data.sessions || [];
+  } catch (e) {
+    console.error('Could not load saved sessions', e);
+    alert(`Could not load saved sessions: ${e.message}`);
+  }
+  renderSavedSessionsList();
+}
+
+function renderSavedSessionsList() {
+  const list = $('#saved-sessions-list');
+  const empty = $('#saved-sessions-empty');
+  if (savedSessionsState.sessions.length === 0) {
+    list.innerHTML = '';
+    empty.classList.remove('hidden');
+    return;
+  }
+  empty.classList.add('hidden');
+  // username/fullName are freely-editable, possibly CSV-imported text —
+  // escaped here like everywhere else this app renders lead-supplied text.
+  list.innerHTML = savedSessionsState.sessions.map(s => `
+    <div class="saved-session-card" data-id="${s.id}">
+      <div class="saved-session-main">
+        <div class="saved-session-date">${escapeHtml(timeAgo(s.createdAt))}</div>
+        <div class="saved-session-summary">${escapeHtml(savedSessionSummary(s))}</div>
+      </div>
+      <button type="button" class="saved-session-continue-btn" data-id="${s.id}">Continue →</button>
+    </div>
+  `).join('');
+}
+
+$('#saved-sessions-list').addEventListener('click', (e) => {
+  const continueBtn = e.target.closest('.saved-session-continue-btn');
+  if (continueBtn) {
+    e.stopPropagation();
+    const session = savedSessionsState.sessions.find(s => s.id === continueBtn.dataset.id);
+    if (session) resumeSavedSession(session);
+    return;
+  }
+  const card = e.target.closest('.saved-session-card');
+  if (card) showSavedSessionDetail(card.dataset.id);
+});
+
+function showSavedSessionDetail(id) {
+  const session = savedSessionsState.sessions.find(s => s.id === id);
+  if (!session) return;
+  savedSessionsState.viewingId = id;
+  $('#saved-session-summary').innerHTML = `
+    <h3>${escapeHtml(timeAgo(session.createdAt))}</h3>
+    <p class="muted">${escapeHtml(savedSessionSummary(session))}</p>
+  `;
+  const list = $('#saved-session-remaining-list');
+  list.innerHTML = session.remainingProfiles.length
+    ? session.remainingProfiles.map(p => `<li><strong>@${escapeHtml(p.username || '')}</strong> ${p.fullName ? `(${escapeHtml(p.fullName)})` : ''}</li>`).join('')
+    : '<li class="muted">None</li>';
+  showView('saved-session-detail');
+}
+
+$('#saved-session-back-btn').addEventListener('click', () => showView('saved-sessions'));
+
+$('#saved-session-continue-btn').addEventListener('click', () => {
+  const session = savedSessionsState.sessions.find(s => s.id === savedSessionsState.viewingId);
+  if (session) resumeSavedSession(session);
+});
+
+function resumeSavedSession(session) {
+  if (!session.remainingProfiles || session.remainingProfiles.length === 0) {
+    fetchJson(`/api/saved-sessions/${session.id}`, { method: 'DELETE' }).catch(() => {});
+    showView('home');
+    return;
+  }
+  state.profiles = session.remainingProfiles;
+  state.index = 0;
+  state.results = session.results || [];
+  state.sessionMode = session.sessionMode || 'fixed';
+  state.sessionTarget = session.sessionTarget ?? null;
+  state.sentCount = session.sentCount || 0;
+  state.outOfLeads = false;
+  saveSession();
+  // Must stay synchronous, before any await (including the one inside
+  // preloadSessionVideos) — see the same note in beginSessionWithLeads.
+  openProfileTab(state.profiles[0].profileUrl);
+  // Consumed — remove it so it doesn't linger in the list while it's being
+  // worked on again. Best-effort/not awaited: a failure here just leaves an
+  // unused row behind (harmless clutter), not worth blocking on.
+  fetchJson(`/api/saved-sessions/${session.id}`, { method: 'DELETE' }).catch(e => console.error('Could not remove saved session', e));
+  preloadSessionVideos();
+}
 
 // ---------- ANALYTICS ----------
 let currentRange = 'today';
