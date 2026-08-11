@@ -489,9 +489,11 @@ function beginSessionWithLeads(leads, opts = {}) {
   state.sentCount = 0;
   state.outOfLeads = false;
   saveSession();
-  showView('dashboard');
-  renderProfile();
+  // Must happen synchronously, before any await — including the one inside
+  // preloadSessionVideos() — or the browser's popup blocker silently kills
+  // it once this click's user-gesture activation lapses.
   openProfileTab(state.profiles[0].profileUrl);
+  preloadSessionVideos();
 }
 
 // ---------- DASHBOARD ----------
@@ -777,6 +779,28 @@ $('#video-generate-btn').addEventListener('click', () => {
 // concurrent ffmpeg cold starts is reasonable" rather than any hard limit.
 const VIDEO_BATCH_CONCURRENCY = 4;
 
+// Shared by the manual "Generate videos for this session" button and the
+// automatic preload screen shown when a session starts. Simple
+// concurrency-limited worker pool: each worker pulls the next profile off
+// the shared queue as soon as it finishes its own render.
+async function renderVideoBatch(targets, onProgress) {
+  let done = 0;
+  let failed = 0;
+  let nextIndex = 0;
+  async function worker() {
+    while (nextIndex < targets.length) {
+      const p = targets[nextIndex++];
+      await renderVideoForProfile(p);
+      if (p.videoStatus === 'error') failed++; else done++;
+      if (onProgress) onProgress(done, failed, targets.length);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(VIDEO_BATCH_CONCURRENCY, targets.length) }, worker)
+  );
+  return { done, failed };
+}
+
 $('#video-batch-generate-btn').addEventListener('click', async () => {
   const btn = $('#video-batch-generate-btn');
   const statusEl = $('#video-batch-status');
@@ -786,30 +810,56 @@ $('#video-batch-generate-btn').addEventListener('click', async () => {
     return;
   }
   btn.disabled = true;
-  let done = 0;
-  let failed = 0;
-  let nextIndex = 0;
-  const updateStatus = () => { statusEl.textContent = `Generating… ${done + failed}/${targets.length}`; };
-  updateStatus();
-
-  // Simple concurrency-limited worker pool: each worker pulls the next
-  // profile off the shared queue as soon as it finishes its own render.
-  async function worker() {
-    while (nextIndex < targets.length) {
-      const p = targets[nextIndex++];
-      await renderVideoForProfile(p);
-      if (p.videoStatus === 'error') failed++; else done++;
-      updateStatus();
-    }
-  }
-  await Promise.all(
-    Array.from({ length: Math.min(VIDEO_BATCH_CONCURRENCY, targets.length) }, worker)
-  );
-
+  statusEl.textContent = `Generating… 0/${targets.length}`;
+  const { done, failed } = await renderVideoBatch(targets, (d, f, total) => {
+    statusEl.textContent = `Generating… ${d + f}/${total}`;
+  });
   statusEl.textContent = failed === 0
     ? `Done — generated ${done} video${done === 1 ? '' : 's'}.`
     : `Generated ${done}, ${failed} failed — check each profile's status.`;
   btn.disabled = false;
+});
+
+// Shown between starting a session and the dashboard appearing — renders
+// every profile's video up front (with the auto-detected name, right most of
+// the time per the user) so they're already sitting there once the session
+// actually starts, rather than making the user wait mid-session per profile.
+let videoPreloadSkipped = false;
+
+async function preloadSessionVideos() {
+  const targets = state.profiles.filter(p => p.leadId && p.videoStatus !== 'done' && p.videoStatus !== 'rendering');
+  if (targets.length === 0) {
+    showView('dashboard');
+    renderProfile();
+    return;
+  }
+
+  videoPreloadSkipped = false;
+  showView('video-preload');
+  const fillEl = $('#preload-progress-fill');
+  const textEl = $('#preload-progress-text');
+  fillEl.style.width = '0%';
+  textEl.textContent = `Generating 0/${targets.length}`;
+
+  await renderVideoBatch(targets, (done, failed, total) => {
+    const completed = done + failed;
+    fillEl.style.width = `${Math.round((completed / total) * 100)}%`;
+    textEl.textContent = `Generating ${completed}/${total}`;
+  });
+
+  // The skip button may have already moved the user on (possibly into a
+  // different session entirely) by the time every render settles — don't
+  // yank them back to the dashboard out from under whatever they're doing.
+  if (!videoPreloadSkipped) {
+    showView('dashboard');
+    renderProfile();
+  }
+}
+
+$('#preload-skip-btn').addEventListener('click', () => {
+  videoPreloadSkipped = true;
+  showView('dashboard');
+  renderProfile();
 });
 
 $('#prev-btn').addEventListener('click', () => {
@@ -937,6 +987,10 @@ async function decide(status) {
         const newProfile = leadToProfile(newLeads[0]);
         state.profiles.push(newProfile);
         openProfileTab(newProfile.profileUrl); // navigates the reserved tab
+        // Not awaited — starts rendering in the background so the video is
+        // likely ready by the time the user gets here, without a second
+        // loading screen interrupting the session for just one profile.
+        renderVideoForProfile(newProfile);
       } else {
         state.outOfLeads = true;
         if (reservedTab) reservedTab.close();

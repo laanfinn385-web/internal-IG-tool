@@ -361,6 +361,28 @@ input:focus, textarea:focus, select:focus {
 .progress-bar { height: 9px; background: var(--border); border-radius: 5px; overflow: hidden; }
 .progress-fill { height: 100%; background: linear-gradient(90deg, var(--purple), var(--purple-light)); transition: width 0.3s; }
 
+.video-preload-wrap {
+  max-width: 360px;
+  margin: 90px auto;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+.video-preload-wrap h2 { margin: 0; font-size: 1.15rem; }
+.video-preload-wrap .progress-bar { width: 100%; height: 10px; }
+.video-preload-spinner {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 4px solid var(--border);
+  border-top-color: var(--purple);
+  animation: video-preload-spin 0.8s linear infinite;
+}
+@keyframes video-preload-spin { to { transform: rotate(360deg); } }
+#preload-skip-btn { margin-top: 8px; }
+
 .dash-nav {
   display: flex;
   align-items: center;

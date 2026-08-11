@@ -1,9 +1,28 @@
 # video-render-service
 
-Isolated Vercel project that burns a "Hey {name}" text overlay onto a base DM
+Isolated Vercel project that burns a "Hey {name} 👋" overlay onto a base DM
 video and uploads the result to Vercel Blob. Kept separate from the main
 outreach tool deployment so ffmpeg's binary doesn't add to the bundle size /
 cold start of every other route in that app.
+
+## The emoji
+
+The wave is a real color emoji image (`assets/wave-emoji.png`, Twemoji,
+CC-BY 4.0 — see `assets/Twemoji-LICENSE.txt`), composited with ffmpeg's
+`overlay` filter, not drawn as a font glyph. Two text-based approaches were
+tried and rejected first:
+- Inter (the name's font) has no emoji glyphs at all — freetype rendered a
+  literal "no glyph" box.
+- A monochrome/outline emoji font (Noto Emoji) rendered *something*, but
+  read as an obviously bolted-on UI element rather than the actual emoji
+  people recognize — freetype's drawtext can't do color bitmap/SVG glyphs at
+  all, so a "real-looking" emoji was never achievable through text rendering
+  here, only through compositing an actual image.
+
+Since ffmpeg has no way to position one filter's output relative to
+another's computed size, the name+emoji box is drawn manually (`drawbox`)
+sized from widths measured with `fontkit` against the exact font file, with
+the emoji placed right after — see the comments in `api/render.js`.
 
 ## ffmpeg binary
 
