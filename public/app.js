@@ -496,13 +496,11 @@ function beginSessionWithLeads(leads, opts = {}) {
   state.sentCount = 0;
   state.outOfLeads = false;
   saveSession();
-  // Reserve the tab now (synchronous, before any await — including the one
-  // inside preloadSessionVideos() — or the browser's popup blocker silently
-  // kills it once this click's user-gesture activation lapses) but don't
-  // navigate it to the actual profile yet. preloadSessionVideos() does that
-  // once rendering finishes, so the user isn't dropped into Instagram while
-  // videos are still generating.
-  window.open('', 'ig_preview');
+  // No tab is opened here at all — preloadSessionVideos() shows a "GO!"
+  // button once rendering is actually ready, and that click (a fresh,
+  // direct user gesture) is what opens the first profile's tab. Opening
+  // anything eagerly, even a placeholder tab, was still visibly happening
+  // before the user was ready for it.
   preloadSessionVideos();
 }
 
@@ -866,17 +864,30 @@ function formatDuration(totalSeconds) {
   return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
 }
 
-// Navigates the tab reserved by beginSessionWithLeads/resumeSavedSession —
-// called only once the session is actually ready to look at, not before, so
-// the user isn't dropped into Instagram while videos are still rendering.
 function openFirstProfileTab() {
   const first = state.profiles[0];
   if (first) openProfileTab(first.profileUrl);
 }
 
+// Opens the first profile's tab and moves into the dashboard — called only
+// from a direct click (either "Skip waiting" mid-render or "GO!" once
+// rendering's done), never automatically. A `window.open` call outside a
+// fresh, direct user gesture like this either gets popup-blocked or (if
+// pre-opened as a blank placeholder) is itself premature visible tab
+// activity the user didn't ask for yet — both tried before this and both
+// were wrong. A real click sidesteps the problem entirely.
+function enterDashboard() {
+  videoPreloadSkipped = true;
+  openFirstProfileTab();
+  showView('dashboard');
+  renderProfile();
+}
+
 async function preloadSessionVideos() {
   const targets = state.profiles.filter(p => p.leadId && p.videoStatus !== 'done' && p.videoStatus !== 'rendering');
   if (targets.length === 0) {
+    // Nothing to wait for — same fast path as before this feature existed,
+    // no button needed since there's no rendering delay to protect against.
     openFirstProfileTab();
     showView('dashboard');
     renderProfile();
@@ -888,8 +899,12 @@ async function preloadSessionVideos() {
   const fillEl = $('#preload-progress-fill');
   const textEl = $('#preload-progress-text');
   const etaEl = $('#preload-eta-text');
+  const continueBtn = $('#preload-continue-btn');
   fillEl.style.width = '0%';
   textEl.textContent = `Generating 0/${targets.length}`;
+  continueBtn.textContent = 'Skip waiting →';
+  continueBtn.classList.remove('btn-primary');
+  continueBtn.classList.add('btn-secondary');
   const initialEstimateSec = Math.ceil((targets.length / VIDEO_BATCH_CONCURRENCY) * ASSUMED_SECONDS_PER_VIDEO);
   etaEl.textContent = `Estimated time: about ${formatDuration(initialEstimateSec)}`;
 
@@ -900,9 +915,7 @@ async function preloadSessionVideos() {
     textEl.textContent = `Generating ${completed}/${total}`;
 
     const remainingCount = total - completed;
-    if (remainingCount === 0) {
-      etaEl.textContent = 'Done.';
-    } else if (completed > 0) {
+    if (completed > 0 && remainingCount > 0) {
       // Replaces the up-front guess with a live estimate from actual timing
       // once there's real data to base it on.
       const avgSecPerVideo = (Date.now() - batchStart) / 1000 / completed;
@@ -911,22 +924,18 @@ async function preloadSessionVideos() {
     }
   });
 
-  // The skip button may have already moved the user on (possibly into a
-  // different session entirely) by the time every render settles — don't
-  // yank them back to the dashboard out from under whatever they're doing.
-  if (!videoPreloadSkipped) {
-    openFirstProfileTab();
-    showView('dashboard');
-    renderProfile();
-  }
+  // Already left via "Skip waiting" — don't yank them back or overwrite a
+  // button they're not looking at anymore (possibly a different session
+  // entirely by now).
+  if (videoPreloadSkipped) return;
+
+  etaEl.textContent = 'All done.';
+  continueBtn.textContent = '✅ GO! →';
+  continueBtn.classList.remove('btn-secondary');
+  continueBtn.classList.add('btn-primary');
 }
 
-$('#preload-skip-btn').addEventListener('click', () => {
-  videoPreloadSkipped = true;
-  openFirstProfileTab();
-  showView('dashboard');
-  renderProfile();
-});
+$('#preload-continue-btn').addEventListener('click', enterDashboard);
 
 // ---------- Lead status: "can receive messages" toggle + notes ----------
 
@@ -1401,11 +1410,8 @@ function resumeSavedSession(session) {
   state.sentCount = session.sentCount || 0;
   state.outOfLeads = false;
   saveSession();
-  // Reserve the tab now (synchronous, before any await) but don't navigate
-  // it yet — same reserve-now-navigate-later pattern as
-  // beginSessionWithLeads, so resuming doesn't dump the user into Instagram
-  // before the (re-run) video preload has actually finished.
-  window.open('', 'ig_preview');
+  // No tab opened here — see the note in beginSessionWithLeads. The re-run
+  // preload's "GO!" button is what opens it once ready.
   // Consumed — remove it so it doesn't linger in the list while it's being
   // worked on again. Best-effort/not awaited: a failure here just leaves an
   // unused row behind (harmless clutter), not worth blocking on.
