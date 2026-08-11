@@ -425,10 +425,10 @@ $('#start-session-btn').addEventListener('click', async () => {
   const count = Math.max(1, Number.isFinite(rawCount) && rawCount > 0 ? Math.round(rawCount) : 15);
   const btn = $('#start-session-btn');
   btn.disabled = true;
-  // Open the shared preview tab synchronously, before the await below, so
-  // the browser doesn't treat it as a blocked popup — user-gesture
-  // activation can lapse once we hit an `await` (same rule as openProfileTab).
-  const previewTab = window.open('', 'ig_preview');
+  // No tab reservation here (there used to be one) — no tab opens anywhere
+  // until the video preload's "GO!" button is clicked, so reserving one
+  // this early would just sit there unused, which is exactly the stray
+  // about:blank tab this used to leave behind.
   try {
     const data = await fetchJson('/api/leads/next', {
       method: 'POST',
@@ -442,7 +442,6 @@ $('#start-session-btn').addEventListener('click', async () => {
       } else {
         showHomeError(leads.length, count);
       }
-      if (previewTab) previewTab.close();
       return;
     }
     // Home means "reach N sent messages", not "show me N profiles" — decide()
@@ -450,7 +449,6 @@ $('#start-session-btn').addEventListener('click', async () => {
     // until sentCount hits `count`, or the available-leads pool runs dry.
     beginSessionWithLeads(leads, { mode: 'goal', target: count });
   } catch (e) {
-    if (previewTab) previewTab.close();
     alert(`Could not start session: ${e.message}`);
   } finally {
     btn.disabled = false;
@@ -917,9 +915,14 @@ async function preloadSessionVideos() {
     const remainingCount = total - completed;
     if (completed > 0 && remainingCount > 0) {
       // Replaces the up-front guess with a live estimate from actual timing
-      // once there's real data to base it on.
-      const avgSecPerVideo = (Date.now() - batchStart) / 1000 / completed;
-      const remainingSec = (avgSecPerVideo * remainingCount) / VIDEO_BATCH_CONCURRENCY;
+      // once there's real data to base it on. elapsed/completed is already
+      // a concurrency-adjusted rate (with 4 running in parallel, 4
+      // completions land in ~1 video's worth of wall-clock time, not 4x
+      // that) — dividing by VIDEO_BATCH_CONCURRENCY again here was double
+      // counting it, shrinking the estimate down to roughly a single
+      // video's render time instead of the true remaining total.
+      const secPerCompletionWallClock = (Date.now() - batchStart) / 1000 / completed;
+      const remainingSec = secPerCompletionWallClock * remainingCount;
       etaEl.textContent = `About ${formatDuration(remainingSec)} left`;
     }
   });
