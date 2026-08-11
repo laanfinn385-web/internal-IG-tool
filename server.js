@@ -539,8 +539,11 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
         sets.push('phase_started_at = now()');
         // The lead's been sent — its personalized video has done its job.
         // Clean it up rather than let it sit in Blob's 5GB free tier forever.
+        // Awaited: fire-and-forget here risked the function freezing/recycling
+        // right after the response was sent, before the delete fetch actually
+        // completed — confirmed happening in testing on /api/leads/delete.
         if (current.personalized_video_url) {
-          deleteVideoBlobs([current.personalized_video_url]);
+          await deleteVideoBlobs([current.personalized_video_url]);
           sets.push('personalized_video_url = NULL', 'personalized_video_status = NULL', 'personalized_video_name = NULL');
         }
       }
@@ -688,8 +691,9 @@ app.post('/api/leads/delete', asyncRoute(async (req, res) => {
     `;
   }
   // Disqualified leads never got their video sent — no reason to keep it
-  // around in Blob storage either.
-  deleteVideoBlobs(toDelete.map(r => r.personalized_video_url).filter(Boolean));
+  // around in Blob storage either. Awaited — see the comment on the same
+  // call in PATCH /api/leads/:id for why fire-and-forget silently drops this.
+  await deleteVideoBlobs(toDelete.map(r => r.personalized_video_url).filter(Boolean));
   res.json({ ok: true, deletedIds: rows.map(r => r.id) });
 }));
 
