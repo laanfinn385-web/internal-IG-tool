@@ -2,25 +2,41 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
-const ffmpegPath = require('ffmpeg-static');
 const { put } = require('@vercel/blob');
 
 const BASE_VIDEO_PATH = path.join(__dirname, '..', 'assets', 'base-video.mp4');
 const FONT_PATH = path.join(__dirname, '..', 'assets', 'Inter.ttf');
 
-// Vercel's Lambda-based runtime has stripped the executable bit off bundled
-// binaries before — this is a known ffmpeg-static-on-Vercel failure mode, so
-// fix it defensively on every cold start rather than assume the bundler
-// preserved it.
-function ensureExecutable(binaryPath) {
-  try {
-    fs.chmodSync(binaryPath, 0o755);
-  } catch (e) {
-    // Ignore — if this fails, the spawn below will surface a clear ENOEXEC/EACCES anyway.
-  }
+// Not bundled with the deployment — a linux64-gpl static build from
+// BtbN/FFmpeg-Builds is ~140MB, over GitHub's 100MB file size limit, so it
+// can't be committed to the repo this project deploys from. Hosted in the
+// same Blob store instead and fetched into /tmp on cold start (cached there
+// across warm invocations of the same instance, so this only costs a
+// download once per cold start, not once per request).
+//
+// This isn't the binary `ffmpeg-static` (npm) would have installed — that
+// package's Linux x64 build genuinely has no `drawtext` filter compiled in
+// at all despite claiming --enable-libfreetype (confirmed by running
+// `strings` on the actual binary: zero occurrences of "drawtext"). That only
+// surfaced once deployed to Linux, not testing locally on macOS. This BtbN
+// build was verified the same way to actually have drawtext compiled in.
+const FFMPEG_BLOB_URL = 'https://rvpmbm5wpdb082rr.public.blob.vercel-storage.com/system/ffmpeg-linux-x64';
+const FFMPEG_LOCAL_PATH = '/tmp/ffmpeg-linux-x64';
+
+async function ensureFfmpegBinary() {
+  if (fs.existsSync(FFMPEG_LOCAL_PATH)) return FFMPEG_LOCAL_PATH;
+  const res = await fetch(FFMPEG_BLOB_URL);
+  if (!res.ok) throw new Error(`Could not download ffmpeg binary (${res.status})`);
+  const buffer = Buffer.from(await res.arrayBuffer());
+  // Write under a temp name and rename into place — avoids a concurrent
+  // request seeing a partially-written file if two cold starts race.
+  const tmpPath = `${FFMPEG_LOCAL_PATH}.${crypto.randomUUID()}`;
+  fs.writeFileSync(tmpPath, buffer, { mode: 0o755 });
+  fs.renameSync(tmpPath, FFMPEG_LOCAL_PATH);
+  return FFMPEG_LOCAL_PATH;
 }
 
-function runFfmpeg(args) {
+function runFfmpeg(ffmpegPath, args) {
   return new Promise((resolve, reject) => {
     const proc = spawn(ffmpegPath, args);
     let stderr = '';
@@ -76,13 +92,13 @@ module.exports = async (req, res) => {
     return;
   }
 
-  ensureExecutable(ffmpegPath);
-
   const workDir = '/tmp';
   const textFilePath = path.join(workDir, `text-${crypto.randomUUID()}.txt`);
   const outputPath = path.join(workDir, `out-${crypto.randomUUID()}.mp4`);
 
   try {
+    const ffmpegPath = await ensureFfmpegBinary();
+
     // textfile= (rather than text='...') sidesteps ffmpeg's filtergraph
     // string-escaping rules entirely — a name with an apostrophe, colon, or
     // accented character would otherwise need careful manual escaping.
@@ -101,7 +117,7 @@ module.exports = async (req, res) => {
       "enable='between(t,0,3)'"
     ].join(':');
 
-    await runFfmpeg([
+    await runFfmpeg(ffmpegPath, [
       '-y',
       '-i', BASE_VIDEO_PATH,
       '-vf', drawtext,

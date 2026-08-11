@@ -2,8 +2,31 @@
 
 Isolated Vercel project that burns a "Hey {name}" text overlay onto a base DM
 video and uploads the result to Vercel Blob. Kept separate from the main
-outreach tool deployment so ffmpeg's binary (~75-100MB) doesn't add to the
-bundle size / cold start of every other route in that app.
+outreach tool deployment so ffmpeg's binary doesn't add to the bundle size /
+cold start of every other route in that app.
+
+## ffmpeg binary
+
+The ffmpeg binary is a linux64-gpl static build from
+[BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) — but it isn't
+in this repo. At ~140MB it's over GitHub's 100MB file size limit, so it's
+hosted in the same Blob store the rendered videos go to
+(`system/ffmpeg-linux-x64`, uploaded once manually) and `api/render.js`
+downloads it into `/tmp` on cold start, cached there for any warm
+invocations of the same instance. If that Blob URL ever needs to change
+(re-uploaded elsewhere, moved to a different store), update
+`FFMPEG_BLOB_URL` in `api/render.js`.
+
+That wasn't the first choice — `ffmpeg-static` (npm) was tried first and
+looked fine locally (macOS binary has drawtext), but its Linux x64 binary
+turned out to have **no `drawtext` filter compiled in at all**, confirmed by
+running `strings` on the actual binary and finding zero occurrences of
+"drawtext", despite its build flags claiming `--enable-libfreetype`. This
+only surfaced once deployed to Vercel's Linux runtime — the macOS/Linux
+binaries a single npm package ships are not guaranteed to have the same
+filter set. The BtbN build was verified (via the same `strings` inspection)
+to have drawtext + freetype + fontconfig actually compiled in before
+switching to it.
 
 ## One-time setup
 
@@ -42,13 +65,16 @@ or `{ "error": "..." }` with a non-2xx status.
 
 ## Local testing
 
-```
-npm install
-node -e "require('./api/render')" # not directly runnable — see the test
-                                    # snippets used during development, which
-                                    # exercised the ffmpeg command directly
-                                    # against a synthetic testsrc clip.
-```
+The bundled ffmpeg binary is Linux x64 only, so it can't run directly on a
+non-Linux dev machine. It was verified two ways instead:
+- The command/filter logic (drawtext syntax, text positioning, timing) was
+  verified end-to-end using a locally-installed ffmpeg build (any platform)
+  against both a synthetic test clip and the real base video, visually
+  confirmed by extracting frames.
+- The exact bundled Linux binary was verified by inspecting its contents
+  (`strings assets/ffmpeg-linux-x64 | grep drawtext`) rather than executing
+  it, since no Linux/x86_64 execution environment was available. Full
+  execution was confirmed by an actual deployment + live request.
 
 There's no local Vercel dev server set up here (no `vercel` CLI in this
 environment). The ffmpeg command itself was verified locally against a
