@@ -122,7 +122,7 @@ module.exports = async (req, res) => {
       '-i', BASE_VIDEO_PATH,
       '-vf', drawtext,
       '-c:v', 'libx264',
-      '-preset', 'veryfast',
+      '-preset', 'superfast',
       '-crf', '23',
       '-c:a', 'copy',
       outputPath

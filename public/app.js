@@ -772,6 +772,11 @@ $('#video-generate-btn').addEventListener('click', () => {
   if (p) renderVideoForProfile(p);
 });
 
+// How many renders to have in flight at once during a batch. Vercel/Blob's
+// rate limits are far above this, so the ceiling here is really "how many
+// concurrent ffmpeg cold starts is reasonable" rather than any hard limit.
+const VIDEO_BATCH_CONCURRENCY = 4;
+
 $('#video-batch-generate-btn').addEventListener('click', async () => {
   const btn = $('#video-batch-generate-btn');
   const statusEl = $('#video-batch-status');
@@ -783,11 +788,24 @@ $('#video-batch-generate-btn').addEventListener('click', async () => {
   btn.disabled = true;
   let done = 0;
   let failed = 0;
-  for (const p of targets) {
-    statusEl.textContent = `Generating ${done + failed + 1}/${targets.length}…`;
-    await renderVideoForProfile(p);
-    if (p.videoStatus === 'error') failed++; else done++;
+  let nextIndex = 0;
+  const updateStatus = () => { statusEl.textContent = `Generating… ${done + failed}/${targets.length}`; };
+  updateStatus();
+
+  // Simple concurrency-limited worker pool: each worker pulls the next
+  // profile off the shared queue as soon as it finishes its own render.
+  async function worker() {
+    while (nextIndex < targets.length) {
+      const p = targets[nextIndex++];
+      await renderVideoForProfile(p);
+      if (p.videoStatus === 'error') failed++; else done++;
+      updateStatus();
+    }
   }
+  await Promise.all(
+    Array.from({ length: Math.min(VIDEO_BATCH_CONCURRENCY, targets.length) }, worker)
+  );
+
   statusEl.textContent = failed === 0
     ? `Done — generated ${done} video${done === 1 ? '' : 's'}.`
     : `Generated ${done}, ${failed} failed — check each profile's status.`;
