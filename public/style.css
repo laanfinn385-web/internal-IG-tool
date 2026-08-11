@@ -603,6 +603,22 @@ input:focus, textarea:focus, select:focus {
   transition: background 0.15s;
 }
 .saved-session-continue-btn:hover { background: var(--purple-light); }
+.saved-session-card-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.saved-session-delete-btn {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background 0.15s;
+}
+.saved-session-delete-btn:hover { background: rgba(255, 49, 49, 0.12); }
+.saved-session-detail-actions { display: flex; gap: 12px; align-items: center; }
+.saved-session-detail-actions .btn-primary { flex: 1; }
 
 /* Analytics */
 .range-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0 4px; }

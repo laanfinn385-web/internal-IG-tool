@@ -1273,9 +1273,31 @@ function renderSavedSessionsList() {
         <div class="saved-session-date">${escapeHtml(timeAgo(s.createdAt))}</div>
         <div class="saved-session-summary">${escapeHtml(savedSessionSummary(s))}</div>
       </div>
-      <button type="button" class="saved-session-continue-btn" data-id="${s.id}">Continue →</button>
+      <div class="saved-session-card-actions">
+        <button type="button" class="saved-session-continue-btn" data-id="${s.id}">Continue →</button>
+        <button type="button" class="saved-session-delete-btn" data-id="${s.id}" title="Delete this saved session">🗑</button>
+      </div>
     </div>
   `).join('');
+}
+
+// Deleting a saved session only discards the saved copy of the queue — the
+// leads in it are untouched (still sit at stage='new', same as any other
+// undecided lead) and can be picked up again through a normal session.
+async function deleteSavedSession(id) {
+  if (!confirm("Delete this saved session? The leads in it aren't affected — they'll stay as they are and can still be reached through a normal session.")) return;
+  try {
+    await fetchJson(`/api/saved-sessions/${id}`, { method: 'DELETE' });
+  } catch (e) {
+    alert(`Could not delete: ${e.message}`);
+    return;
+  }
+  savedSessionsState.sessions = savedSessionsState.sessions.filter(s => s.id !== id);
+  renderSavedSessionsList();
+  if (savedSessionsState.viewingId === id) {
+    savedSessionsState.viewingId = null;
+    showView('saved-sessions');
+  }
 }
 
 $('#saved-sessions-list').addEventListener('click', (e) => {
@@ -1284,6 +1306,12 @@ $('#saved-sessions-list').addEventListener('click', (e) => {
     e.stopPropagation();
     const session = savedSessionsState.sessions.find(s => s.id === continueBtn.dataset.id);
     if (session) resumeSavedSession(session);
+    return;
+  }
+  const deleteBtn = e.target.closest('.saved-session-delete-btn');
+  if (deleteBtn) {
+    e.stopPropagation();
+    deleteSavedSession(deleteBtn.dataset.id);
     return;
   }
   const card = e.target.closest('.saved-session-card');
@@ -1310,6 +1338,10 @@ $('#saved-session-back-btn').addEventListener('click', () => showView('saved-ses
 $('#saved-session-continue-btn').addEventListener('click', () => {
   const session = savedSessionsState.sessions.find(s => s.id === savedSessionsState.viewingId);
   if (session) resumeSavedSession(session);
+});
+
+$('#saved-session-delete-btn').addEventListener('click', () => {
+  if (savedSessionsState.viewingId) deleteSavedSession(savedSessionsState.viewingId);
 });
 
 function resumeSavedSession(session) {
