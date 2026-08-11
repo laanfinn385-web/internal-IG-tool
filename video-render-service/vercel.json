@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "api/render.js": {
+      "maxDuration": 300,
+      "includeFiles": "assets/**"
+    }
+  }
+}

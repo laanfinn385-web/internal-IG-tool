@@ -9,6 +9,11 @@ app.use(express.static(path.join(__dirname, 'public')));
 const { neon } = require('@neondatabase/serverless');
 const sql = neon(process.env.DATABASE_URL);
 
+// The video-render-service is a separate Vercel deployment (see
+// video-render-service/README.md) — these point this app at it.
+const RENDER_SERVICE_URL = process.env.RENDER_SERVICE_URL;
+const RENDER_SERVICE_SECRET = process.env.RENDER_SERVICE_SECRET;
+
 // Safety net: if any route handler ever forgets asyncRoute (see below) and
 // throws inside an async function, Node treats that as an unhandled
 // rejection and — since Node 15 — kills the whole process by default. This
@@ -370,7 +375,11 @@ function mapLeadRow(r) {
     everPositiveReply: r.ever_positive_reply,
     everCallBooked: r.ever_call_booked,
     createdAt: r.created_at,
-    updatedAt: r.updated_at
+    updatedAt: r.updated_at,
+    personalizedVideoUrl: r.personalized_video_url,
+    personalizedVideoStatus: r.personalized_video_status,
+    personalizedVideoError: r.personalized_video_error,
+    personalizedVideoName: r.personalized_video_name
   };
 }
 
@@ -564,6 +573,65 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
     throw e;
   }
   res.json({ ok: true });
+}));
+
+// Renders a personalized "Hey {name}" video for one lead by calling the
+// separate video-render-service (kept out of this app's own deployment so
+// ffmpeg's binary size doesn't bloat every route's cold start — see
+// video-render-service/README.md). One lead per call, called directly by the
+// browser once per lead in a batch, so a slow/failed render never blocks the
+// rest of a batch and each call stays within its own timeout budget.
+app.post('/api/leads/:id/render-video', asyncRoute(async (req, res) => {
+  const { id } = req.params;
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name is required' });
+
+  const [lead] = await sql`SELECT id FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
+  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+
+  if (!RENDER_SERVICE_URL || !RENDER_SERVICE_SECRET) {
+    return res.status(500).json({ error: 'Video rendering is not configured (RENDER_SERVICE_URL / RENDER_SERVICE_SECRET missing).' });
+  }
+
+  await sql`
+    UPDATE leads SET personalized_video_status = 'rendering', personalized_video_error = NULL, updated_at = now()
+    WHERE id = ${id}
+  `;
+
+  // Generous timeout — this is a real ffmpeg render on the other end, not a
+  // quick API call, and it has its own 300s ceiling on the render service.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 280000);
+  try {
+    const renderRes = await fetch(RENDER_SERVICE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-render-secret': RENDER_SERVICE_SECRET },
+      body: JSON.stringify({ name, leadId: id }),
+      signal: controller.signal
+    });
+    const data = await renderRes.json().catch(() => ({}));
+    if (!renderRes.ok) {
+      const errMsg = data.error || `Render service error (${renderRes.status})`;
+      await sql`UPDATE leads SET personalized_video_status = 'error', personalized_video_error = ${errMsg}, updated_at = now() WHERE id = ${id}`;
+      return res.status(502).json({ error: errMsg });
+    }
+    await sql`
+      UPDATE leads SET
+        personalized_video_status = 'done',
+        personalized_video_url = ${data.url},
+        personalized_video_name = ${name},
+        personalized_video_error = NULL,
+        updated_at = now()
+      WHERE id = ${id}
+    `;
+    res.json({ url: data.url, name });
+  } catch (err) {
+    const errMsg = err.name === 'AbortError' ? 'Render service timed out.' : (err.message || 'Video render failed.');
+    await sql`UPDATE leads SET personalized_video_status = 'error', personalized_video_error = ${errMsg}, updated_at = now() WHERE id = ${id}`;
+    res.status(502).json({ error: errMsg });
+  } finally {
+    clearTimeout(timer);
+  }
 }));
 
 app.post('/api/leads/delete', asyncRoute(async (req, res) => {

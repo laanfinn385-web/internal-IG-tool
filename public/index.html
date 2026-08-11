@@ -129,6 +129,11 @@
         <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
       </div>
 
+      <div class="video-batch-row">
+        <button id="video-batch-generate-btn" class="btn-secondary" type="button">🎬 Generate videos for this session</button>
+        <span class="muted" id="video-batch-status"></span>
+      </div>
+
       <div class="dash-nav">
         <button id="prev-btn" class="icon-btn" title="Previous profile">←</button>
         <a id="profile-link" href="#" target="ig_preview" rel="noopener" class="profile-link-btn">Open profile on Instagram ↗</a>
@@ -179,6 +184,19 @@
             <button id="copy-btn" class="btn-secondary">📋 Copy message</button>
             <button id="reshuffle-btn" class="btn-secondary" type="button" title="Keep this template but swap in a different wording">🔀 Different wording</button>
             <a id="dm-link" href="#" target="_blank" rel="noopener" class="btn-secondary">💬 Open Instagram DM ↗</a>
+          </div>
+        </div>
+
+        <div class="card video-card">
+          <h2>Personalized video</h2>
+          <label>Name shown in video
+            <input type="text" id="f-video-name" placeholder="E.g. Brad">
+          </label>
+          <div class="video-status muted" id="video-status">Not generated yet.</div>
+          <video id="video-preview" controls playsinline class="video-preview hidden"></video>
+          <div class="video-actions">
+            <button id="video-generate-btn" class="btn-secondary" type="button">🎬 Generate video</button>
+            <a id="video-download-link" href="#" download class="btn-secondary hidden">⬇ Download video</a>
           </div>
         </div>
 

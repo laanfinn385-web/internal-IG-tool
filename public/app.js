@@ -469,7 +469,11 @@ function leadToProfile(l) {
     template: '',
     message: '',
     done: false,
-    status: null
+    status: null,
+    videoUrl: l.personalizedVideoUrl || null,
+    videoStatus: l.personalizedVideoStatus || null,
+    videoError: l.personalizedVideoError || null,
+    videoName: l.personalizedVideoName || ''
   };
 }
 
@@ -534,6 +538,7 @@ function renderProfile() {
   // otherwise navigating away and back would silently discard a manual override.
   $('#f-template').value = p.template || Object.keys(TEMPLATES)[0];
   updateMessage(!p.template);
+  renderVideoSection();
 
   $('#prev-btn').disabled = state.index === 0;
   $('#next-btn').disabled = state.index === state.profiles.length - 1;
@@ -670,6 +675,123 @@ $('#reshuffle-btn').addEventListener('click', () => {
   p.partIds = pickAllParts(p.template);
   p.partsKey = p.template;
   renderMessageText();
+});
+
+// ---------- Personalized video ----------
+
+function renderVideoSection() {
+  const p = currentProfile();
+  if (!p) return;
+
+  // Only seed the field the first time this profile is shown — once the
+  // user's edited it (or a render has set it), navigating away and back
+  // shouldn't silently discard that in favor of the auto-detected name.
+  if (!p.videoName) p.videoName = buildPlaceholders(p).naam || '';
+  $('#f-video-name').value = p.videoName;
+
+  const statusEl = $('#video-status');
+  const preview = $('#video-preview');
+  const downloadLink = $('#video-download-link');
+  const generateBtn = $('#video-generate-btn');
+
+  statusEl.classList.remove('is-error');
+  if (p.videoStatus === 'rendering') {
+    statusEl.textContent = 'Rendering…';
+    generateBtn.disabled = true;
+  } else if (p.videoStatus === 'error') {
+    statusEl.textContent = `Render failed: ${p.videoError || 'unknown error'}`;
+    statusEl.classList.add('is-error');
+    generateBtn.disabled = false;
+  } else if (p.videoUrl) {
+    statusEl.textContent = `Ready (as "${p.videoName}").`;
+    generateBtn.disabled = false;
+  } else {
+    statusEl.textContent = 'Not generated yet.';
+    generateBtn.disabled = false;
+  }
+  generateBtn.textContent = p.videoUrl ? '🎬 Regenerate' : '🎬 Generate video';
+
+  if (p.videoUrl) {
+    preview.src = p.videoUrl;
+    preview.classList.remove('hidden');
+    downloadLink.href = p.videoUrl;
+    downloadLink.classList.remove('hidden');
+  } else {
+    preview.removeAttribute('src');
+    preview.classList.add('hidden');
+    downloadLink.classList.add('hidden');
+  }
+}
+
+async function renderVideoForProfile(p) {
+  const name = (p === currentProfile() ? $('#f-video-name').value : p.videoName || '').trim();
+  if (!name) {
+    p.videoStatus = 'error';
+    p.videoError = 'No name to put in the video.';
+    if (p === currentProfile()) renderVideoSection();
+    return;
+  }
+  if (!p.leadId) {
+    p.videoStatus = 'error';
+    p.videoError = 'This profile has no lead record to attach a video to.';
+    if (p === currentProfile()) renderVideoSection();
+    return;
+  }
+
+  p.videoName = name;
+  p.videoStatus = 'rendering';
+  p.videoError = null;
+  if (p === currentProfile()) renderVideoSection();
+
+  try {
+    const data = await fetchJson(`/api/leads/${p.leadId}/render-video`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    }, 280000);
+    p.videoUrl = data.url;
+    p.videoStatus = 'done';
+    p.videoError = null;
+  } catch (e) {
+    p.videoStatus = 'error';
+    p.videoError = e.message;
+  }
+  saveSession();
+  if (p === currentProfile()) renderVideoSection();
+}
+
+$('#f-video-name').addEventListener('input', () => {
+  const p = currentProfile();
+  if (!p) return;
+  p.videoName = $('#f-video-name').value;
+  saveSession();
+});
+
+$('#video-generate-btn').addEventListener('click', () => {
+  const p = currentProfile();
+  if (p) renderVideoForProfile(p);
+});
+
+$('#video-batch-generate-btn').addEventListener('click', async () => {
+  const btn = $('#video-batch-generate-btn');
+  const statusEl = $('#video-batch-status');
+  const targets = state.profiles.filter(p => p.videoStatus !== 'done' && p.videoStatus !== 'rendering');
+  if (targets.length === 0) {
+    statusEl.textContent = 'Every profile in this session already has a video.';
+    return;
+  }
+  btn.disabled = true;
+  let done = 0;
+  let failed = 0;
+  for (const p of targets) {
+    statusEl.textContent = `Generating ${done + failed + 1}/${targets.length}…`;
+    await renderVideoForProfile(p);
+    if (p.videoStatus === 'error') failed++; else done++;
+  }
+  statusEl.textContent = failed === 0
+    ? `Done — generated ${done} video${done === 1 ? '' : 's'}.`
+    : `Generated ${done}, ${failed} failed — check each profile's status.`;
+  btn.disabled = false;
 });
 
 $('#prev-btn').addEventListener('click', () => {
