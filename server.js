@@ -602,6 +602,37 @@ function renderFollowupMessage(message, lead, calendarLink) {
     .replace(/\{link\}/g, calendarLink || '');
 }
 
+// Each follow-up step's message is split into 1-3 ordered components (see the
+// migration that seeded followup_template_parts), each with several
+// independently-worded versions. `partsByStep[step]` is an array of component
+// groups in composition order; picking one random version per group and
+// joining them means leads due for the same step at the same time don't all
+// get the literal same nudge. Falls back to the flat template message when a
+// step has no parts (the media-only GIF/meme steps with no caption).
+function composeFollowupMessage(componentGroups, fallbackMessage, lead, calendarLink) {
+  if (!componentGroups || componentGroups.length === 0) {
+    return renderFollowupMessage(fallbackMessage, lead, calendarLink);
+  }
+  const text = componentGroups
+    .map(versions => versions[Math.floor(Math.random() * versions.length)])
+    .join(' ');
+  return renderFollowupMessage(text, lead, calendarLink);
+}
+
+async function getFollowupPartsByPhase(phase) {
+  const rows = await sql`
+    SELECT step, part_order, text FROM followup_template_parts
+    WHERE phase = ${phase} ORDER BY step, part_order, sort_order
+  `;
+  const byStep = {};
+  rows.forEach(r => {
+    if (!byStep[r.step]) byStep[r.step] = [];
+    if (!byStep[r.step][r.part_order]) byStep[r.step][r.part_order] = [];
+    byStep[r.step][r.part_order].push(r.text);
+  });
+  return byStep;
+}
+
 async function getCalendarLink() {
   const rows = await sql`SELECT value FROM app_settings WHERE key = 'calendar_link'`;
   return rows.length ? rows[0].value : '';
@@ -638,7 +669,7 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
   const phase = Number(req.query.phase);
   if (![1, 2, 3].includes(phase)) return res.status(400).json({ error: 'phase must be 1, 2, or 3' });
   const stageVal = 'phase' + phase;
-  const calendarLink = await getCalendarLink();
+  const [calendarLink, partsByStep] = await Promise.all([getCalendarLink(), getFollowupPartsByPhase(phase)]);
 
   const rows = await sql`
     SELECT l.id, l.username, l.profile_url, l.full_name,
@@ -661,7 +692,7 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
     step: r.step,
     type: r.type,
     mediaNote: r.media_note,
-    message: renderFollowupMessage(r.message, r, calendarLink)
+    message: composeFollowupMessage(partsByStep[r.step], r.message, r, calendarLink)
   }));
   res.json({ leads });
 }));

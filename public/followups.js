@@ -288,9 +288,7 @@ function renderSettingsFollowups() {
       ${s.type !== 'text' ? `<label>Media description
         <input type="text" value="${escapeHtml(s.mediaNote || '')}" data-phase="${s.phase}" data-step="${s.step}" data-field="mediaNote" placeholder="What GIF/meme to send">
       </label>` : ''}
-      <label>Message${s.type !== 'text' ? ' (optional, sent alongside the media)' : ''}
-        <textarea rows="2" class="auto-resize" data-phase="${s.phase}" data-step="${s.step}" data-field="message">${escapeHtml(s.message || '')}</textarea>
-      </label>
+      ${s.message ? `<p class="muted settings-followup-composed-note">Wording is composed automatically from several phrasings for this step.</p>` : ''}
     </div>
   `).join('');
   $all('#settings-followups textarea.auto-resize').forEach(autoResizeTextarea);
