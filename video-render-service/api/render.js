@@ -3,9 +3,40 @@ const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
 const { put } = require('@vercel/blob');
+const fontkit = require('fontkit');
 
 const BASE_VIDEO_PATH = path.join(__dirname, '..', 'assets', 'base-video.mp4');
 const FONT_PATH = path.join(__dirname, '..', 'assets', 'Inter.ttf');
+// Inter has no emoji glyphs at all (confirmed: freetype renders a "no glyph"
+// box for U+1F44B) — text-only fonts generally don't ship pictographs. This
+// needs to be a *monochrome/outline* emoji font, not a color one: drawtext's
+// freetype rendering can't do color bitmap or SVG glyphs, only outlines it
+// fills with fontcolor. Noto Emoji (not Noto Color Emoji) is built for
+// exactly this.
+const EMOJI_FONT_PATH = path.join(__dirname, '..', 'assets', 'NotoEmoji.ttf');
+const WAVE_EMOJI = String.fromCodePoint(0x1F44B);
+
+// The base video's dimensions, hardcoded rather than probed at render time
+// (no bundled ffprobe) — update these if base-video.mp4 is ever swapped for
+// a different resolution.
+const BASE_VIDEO_WIDTH = 1080;
+const BASE_VIDEO_HEIGHT = 1920;
+
+const interFont = fontkit.openSync(FONT_PATH);
+const emojiFont = fontkit.openSync(EMOJI_FONT_PATH);
+
+// ffmpeg's drawtext has no way to position one filter's text relative to
+// another's computed width (text_w is only usable within that same filter's
+// own expressions), so getting "Hey {name}" and the wave emoji to sit
+// side-by-side in their own boxes — rather than two separate drawtext calls
+// each self-centering and overlapping — means computing both boxes' pixel
+// widths ourselves, using the exact font files ffmpeg will render with.
+function measureTextWidth(font, text, fontSize) {
+  const run = font.layout(text);
+  let widthInUnits = 0;
+  for (const glyph of run.glyphs) widthInUnits += glyph.advanceWidth;
+  return (widthInUnits / font.unitsPerEm) * fontSize;
+}
 
 // Not bundled with the deployment — a linux64-gpl static build from
 // BtbN/FFmpeg-Builds is ~140MB, over GitHub's 100MB file size limit, so it
@@ -93,7 +124,8 @@ module.exports = async (req, res) => {
   }
 
   const workDir = '/tmp';
-  const textFilePath = path.join(workDir, `text-${crypto.randomUUID()}.txt`);
+  const nameTextPath = path.join(workDir, `text-name-${crypto.randomUUID()}.txt`);
+  const emojiTextPath = path.join(workDir, `text-emoji-${crypto.randomUUID()}.txt`);
   const outputPath = path.join(workDir, `out-${crypto.randomUUID()}.mp4`);
 
   try {
@@ -102,17 +134,43 @@ module.exports = async (req, res) => {
     // textfile= (rather than text='...') sidesteps ffmpeg's filtergraph
     // string-escaping rules entirely — a name with an apostrophe, colon, or
     // accented character would otherwise need careful manual escaping.
-    fs.writeFileSync(textFilePath, `Hey ${name}`, 'utf8');
+    const nameText = `Hey ${name}`;
+    fs.writeFileSync(nameTextPath, nameText, 'utf8');
+    fs.writeFileSync(emojiTextPath, WAVE_EMOJI, 'utf8');
 
-    const drawtext = 'drawtext=' + [
+    const fontSize = BASE_VIDEO_HEIGHT * 0.055;
+    const boxBorderW = 20;
+    const gapPx = 14;
+    const nameWidth = measureTextWidth(interFont, nameText, fontSize);
+    const emojiWidth = measureTextWidth(emojiFont, WAVE_EMOJI, fontSize);
+    const nameBoxWidth = nameWidth + boxBorderW * 2;
+    const emojiBoxWidth = emojiWidth + boxBorderW * 2;
+    const combinedWidth = nameBoxWidth + gapPx + emojiBoxWidth;
+    const nameBoxX = (BASE_VIDEO_WIDTH - combinedWidth) / 2;
+    const emojiBoxX = nameBoxX + nameBoxWidth + gapPx;
+
+    const nameDrawtext = 'drawtext=' + [
       `fontfile=${FONT_PATH}`,
-      `textfile=${textFilePath}`,
+      `textfile=${nameTextPath}`,
       'fontcolor=white',
-      'fontsize=(h*0.055)',
+      `fontsize=${fontSize}`,
       'box=1',
       'boxcolor=black@0.5',
-      'boxborderw=20',
-      'x=(w-text_w)/2',
+      `boxborderw=${boxBorderW}`,
+      `x=${nameBoxX + boxBorderW}`,
+      'y=h*0.08',
+      "enable='between(t,0,3)'"
+    ].join(':');
+
+    const emojiDrawtext = 'drawtext=' + [
+      `fontfile=${EMOJI_FONT_PATH}`,
+      `textfile=${emojiTextPath}`,
+      'fontcolor=white',
+      `fontsize=${fontSize}`,
+      'box=1',
+      'boxcolor=black@0.5',
+      `boxborderw=${boxBorderW}`,
+      `x=${emojiBoxX + boxBorderW}`,
       'y=h*0.08',
       "enable='between(t,0,3)'"
     ].join(':');
@@ -120,7 +178,7 @@ module.exports = async (req, res) => {
     await runFfmpeg(ffmpegPath, [
       '-y',
       '-i', BASE_VIDEO_PATH,
-      '-vf', drawtext,
+      '-vf', `${nameDrawtext},${emojiDrawtext}`,
       '-c:v', 'libx264',
       '-preset', 'superfast',
       '-crf', '23',
@@ -142,7 +200,7 @@ module.exports = async (req, res) => {
   } finally {
     // /tmp can persist across warm invocations of the same instance, so
     // clean up rather than letting temp files accumulate.
-    for (const p of [textFilePath, outputPath]) {
+    for (const p of [nameTextPath, emojiTextPath, outputPath]) {
       try { fs.unlinkSync(p); } catch (e) { /* not created, or already gone */ }
     }
   }

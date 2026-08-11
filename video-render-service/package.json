@@ -4,6 +4,7 @@
   "private": true,
   "description": "Isolated Vercel project that renders a personalized 'Hey {name}' text overlay onto a base DM video and uploads it to Vercel Blob. Kept separate from the main outreach tool so ffmpeg's binary size/cold-start cost doesn't affect every other route.",
   "dependencies": {
-    "@vercel/blob": "^2.8.0"
+    "@vercel/blob": "^2.8.0",
+    "fontkit": "^2.0.4"
   }
 }
