@@ -496,10 +496,13 @@ function beginSessionWithLeads(leads, opts = {}) {
   state.sentCount = 0;
   state.outOfLeads = false;
   saveSession();
-  // Must happen synchronously, before any await — including the one inside
-  // preloadSessionVideos() — or the browser's popup blocker silently kills
-  // it once this click's user-gesture activation lapses.
-  openProfileTab(state.profiles[0].profileUrl);
+  // Reserve the tab now (synchronous, before any await — including the one
+  // inside preloadSessionVideos() — or the browser's popup blocker silently
+  // kills it once this click's user-gesture activation lapses) but don't
+  // navigate it to the actual profile yet. preloadSessionVideos() does that
+  // once rendering finishes, so the user isn't dropped into Instagram while
+  // videos are still generating.
+  window.open('', 'ig_preview');
   preloadSessionVideos();
 }
 
@@ -849,9 +852,32 @@ $('#video-batch-generate-btn').addEventListener('click', async () => {
 // actually starts, rather than making the user wait mid-session per profile.
 let videoPreloadSkipped = false;
 
+// Rough warm-instance average with the current preset — used only for the
+// up-front estimate shown before any real timing data exists. A cold start
+// (ffmpeg binary re-download) runs well past this; the estimate corrects
+// itself using actual elapsed time as soon as the first video finishes.
+const ASSUMED_SECONDS_PER_VIDEO = 8;
+
+function formatDuration(totalSeconds) {
+  const s = Math.max(0, Math.round(totalSeconds));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  const rem = s % 60;
+  return rem > 0 ? `${m}m ${rem}s` : `${m}m`;
+}
+
+// Navigates the tab reserved by beginSessionWithLeads/resumeSavedSession —
+// called only once the session is actually ready to look at, not before, so
+// the user isn't dropped into Instagram while videos are still rendering.
+function openFirstProfileTab() {
+  const first = state.profiles[0];
+  if (first) openProfileTab(first.profileUrl);
+}
+
 async function preloadSessionVideos() {
   const targets = state.profiles.filter(p => p.leadId && p.videoStatus !== 'done' && p.videoStatus !== 'rendering');
   if (targets.length === 0) {
+    openFirstProfileTab();
     showView('dashboard');
     renderProfile();
     return;
@@ -861,19 +887,35 @@ async function preloadSessionVideos() {
   showView('video-preload');
   const fillEl = $('#preload-progress-fill');
   const textEl = $('#preload-progress-text');
+  const etaEl = $('#preload-eta-text');
   fillEl.style.width = '0%';
   textEl.textContent = `Generating 0/${targets.length}`;
+  const initialEstimateSec = Math.ceil((targets.length / VIDEO_BATCH_CONCURRENCY) * ASSUMED_SECONDS_PER_VIDEO);
+  etaEl.textContent = `Estimated time: about ${formatDuration(initialEstimateSec)}`;
 
+  const batchStart = Date.now();
   await renderVideoBatch(targets, (done, failed, total) => {
     const completed = done + failed;
     fillEl.style.width = `${Math.round((completed / total) * 100)}%`;
     textEl.textContent = `Generating ${completed}/${total}`;
+
+    const remainingCount = total - completed;
+    if (remainingCount === 0) {
+      etaEl.textContent = 'Done.';
+    } else if (completed > 0) {
+      // Replaces the up-front guess with a live estimate from actual timing
+      // once there's real data to base it on.
+      const avgSecPerVideo = (Date.now() - batchStart) / 1000 / completed;
+      const remainingSec = (avgSecPerVideo * remainingCount) / VIDEO_BATCH_CONCURRENCY;
+      etaEl.textContent = `About ${formatDuration(remainingSec)} left`;
+    }
   });
 
   // The skip button may have already moved the user on (possibly into a
   // different session entirely) by the time every render settles — don't
   // yank them back to the dashboard out from under whatever they're doing.
   if (!videoPreloadSkipped) {
+    openFirstProfileTab();
     showView('dashboard');
     renderProfile();
   }
@@ -881,6 +923,7 @@ async function preloadSessionVideos() {
 
 $('#preload-skip-btn').addEventListener('click', () => {
   videoPreloadSkipped = true;
+  openFirstProfileTab();
   showView('dashboard');
   renderProfile();
 });
@@ -1358,9 +1401,11 @@ function resumeSavedSession(session) {
   state.sentCount = session.sentCount || 0;
   state.outOfLeads = false;
   saveSession();
-  // Must stay synchronous, before any await (including the one inside
-  // preloadSessionVideos) — see the same note in beginSessionWithLeads.
-  openProfileTab(state.profiles[0].profileUrl);
+  // Reserve the tab now (synchronous, before any await) but don't navigate
+  // it yet — same reserve-now-navigate-later pattern as
+  // beginSessionWithLeads, so resuming doesn't dump the user into Instagram
+  // before the (re-run) video preload has actually finished.
+  window.open('', 'ig_preview');
   // Consumed — remove it so it doesn't linger in the list while it's being
   // worked on again. Best-effort/not awaited: a failure here just leaves an
   // unused row behind (harmless clutter), not worth blocking on.
