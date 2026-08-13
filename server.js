@@ -565,9 +565,16 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
       const enteringPositive = POSITIVE_REPLY_STAGES.includes(b.stage);
       const leavingPositive = POSITIVE_REPLY_STAGES.includes(current.stage) && !enteringPositive;
 
+      // ON CONFLICT DO NOTHING against the (lead_id, event) unique index
+      // below is the real guarantee that a lead can never rack up more than
+      // one positive_reply/call_booked/dead row — the `!current.ever_*`
+      // checks are just there to skip a redundant no-op UPDATE, not to be
+      // the only thing standing between here and a double-counted lead
+      // (e.g. two in-flight PATCHes racing each other would both pass a
+      // flag check based on stale data; they can't both pass the DB).
       if (enteringPositive && !current.ever_positive_reply) {
         sets.push('ever_positive_reply = true');
-        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'positive_reply', ${today})`;
+        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'positive_reply', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
       }
       if (leavingPositive) {
         sets.push('ever_positive_reply = false');
@@ -576,7 +583,7 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
 
       if (b.stage === 'call_booked' && !current.ever_call_booked) {
         sets.push('ever_call_booked = true');
-        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'call_booked', ${today})`;
+        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'call_booked', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
       }
       if (current.stage === 'call_booked' && b.stage !== 'call_booked') {
         sets.push('ever_call_booked = false');
@@ -588,7 +595,7 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
       // stages above, or un-deading a lead (e.g. undoing a misclick) leaves
       // it permanently stuck counting as a reply forever.
       if (b.stage === 'dead') {
-        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'dead', ${today})`;
+        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'dead', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
       }
       if (current.stage === 'dead' && b.stage !== 'dead') {
         await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'dead'`;
