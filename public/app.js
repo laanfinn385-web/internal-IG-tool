@@ -180,6 +180,7 @@ const PHASE_BREAKDOWN_STAGES = [
   { key: 'phase1', label: 'Phase 1', color: 'var(--stage-phase1)' },
   { key: 'phase2', label: 'Phase 2', color: 'var(--stage-phase2)' },
   { key: 'phase3', label: 'Phase 3', color: 'var(--stage-phase3)' },
+  { key: 'in_conversation', label: 'In conversation', color: 'var(--stage-in-conversation)' },
   { key: 'call_booked', label: 'Call booked', color: 'var(--stage-call-booked)' },
   { key: 'dead', label: 'Dead', color: 'var(--stage-dead)' },
   { key: 'cant_message', label: "Can't receive messages", color: 'var(--stage-cant-message)' }

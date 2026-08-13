@@ -54,6 +54,7 @@ const STAGE_OPTIONS = [
   { value: 'phase1', label: 'Phase 1' },
   { value: 'phase2', label: 'Phase 2' },
   { value: 'phase3', label: 'Phase 3' },
+  { value: 'in_conversation', label: 'In conversation' },
   { value: 'call_booked', label: 'Call booked' },
   { value: 'dead', label: 'Dead' },
   { value: 'cant_message', label: "Can't receive messages" }
@@ -74,6 +75,7 @@ function stageLabel(lead) {
   if (stage === 'call_booked') return 'Call booked';
   if (stage === 'dead') return 'Dead';
   if (stage === 'cant_message') return "Can't receive messages";
+  if (stage === 'in_conversation') return 'In conversation';
   return 'New';
 }
 
@@ -82,6 +84,7 @@ function stageClass(stage) {
   if (stage === 'phase1' || stage === 'phase2' || stage === 'phase3') return stage;
   if (stage === 'call_booked') return 'call-booked';
   if (stage === 'dead') return 'dead';
+  if (stage === 'in_conversation') return 'in-conversation';
   if (stage === 'cant_message') return 'cant-message';
   return '';
 }

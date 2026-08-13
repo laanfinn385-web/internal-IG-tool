@@ -112,6 +112,7 @@ function followupCardHtml(lead) {
       ${fallbackLine}
       <div class="followup-card-actions">
         <button type="button" class="btn-accept followup-sent-btn" data-id="${lead.id}">✓ Sent</button>
+        <button type="button" class="followup-in-conversation-btn" data-id="${lead.id}">💬 In conversation</button>
         <button type="button" class="btn-reject followup-delete-btn" data-id="${lead.id}">✕ Delete lead</button>
       </div>
     </div>`;
@@ -184,6 +185,25 @@ $('#followup-list').addEventListener('click', async (e) => {
     } catch (err) {
       alert(`Could not mark as sent: ${err.message}`);
       sentBtn.disabled = false;
+    }
+    return;
+  }
+
+  const conversationBtn = e.target.closest('.followup-in-conversation-btn');
+  if (conversationBtn) {
+    const id = conversationBtn.dataset.id;
+    conversationBtn.disabled = true;
+    try {
+      await fetchJson(`/api/leads/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage: 'in_conversation' })
+      });
+      removeFollowupCard(id);
+      loadNotifications();
+    } catch (err) {
+      alert(`Could not update stage: ${err.message}`);
+      conversationBtn.disabled = false;
     }
     return;
   }

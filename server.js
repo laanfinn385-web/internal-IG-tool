@@ -172,7 +172,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
 
   const [{ count }] = await sql`SELECT count(*) FROM leads WHERE deleted_at IS NULL AND stage = 'new'`;
   const stageRows = await sql`SELECT stage, count(*) FROM leads WHERE deleted_at IS NULL GROUP BY stage`;
-  const stageCounts = { new: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0, cant_message: 0 };
+  const stageCounts = { new: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0, cant_message: 0, in_conversation: 0 };
   stageRows.forEach(r => { if (r.stage in stageCounts) stageCounts[r.stage] = Number(r.count); });
 
   // All-time funnel rates — same definitions/formulas /api/analytics uses
@@ -521,8 +521,11 @@ const FOLLOWUP_STAGES = ['phase1', 'phase2', 'phase3'];
 // Stages that imply "this lead has given a positive reply" — phase3 and
 // call_booked are downstream of phase2, so staying anywhere in this set
 // keeps the Positive Replies credit; call_booked is its own narrower set
-// for Appointments Set.
-const POSITIVE_REPLY_STAGES = ['phase2', 'phase3', 'call_booked'];
+// for Appointments Set. in_conversation is a reply too (that's the whole
+// point of the stage — an active conversation, not silence), it's just
+// deliberately outside FOLLOWUP_STAGES so it stops the automated follow-up
+// clock instead of nagging someone you're already talking to.
+const POSITIVE_REPLY_STAGES = ['phase2', 'phase3', 'call_booked', 'in_conversation'];
 
 app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   const { id } = req.params;
@@ -547,13 +550,14 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
         sets.push('phase_started_at = now()');
       }
       // The video is done being useful once the lead leaves active-outreach
-      // limbo — either it's already been sent (entering a follow-up phase)
-      // or it never can be (can't receive messages). Clean it up rather than
-      // let it sit in Blob's 5GB free tier forever.
+      // limbo — either it's already been sent (entering a follow-up phase),
+      // it never can be (can't receive messages), or they've already
+      // replied and moved past needing it (in conversation). Clean it up
+      // rather than let it sit in Blob's 5GB free tier forever.
       // Awaited: fire-and-forget here risked the function freezing/recycling
       // right after the response was sent, before the delete fetch actually
       // completed — confirmed happening in testing on /api/leads/delete.
-      if ((FOLLOWUP_STAGES.includes(b.stage) || b.stage === 'cant_message') && current.personalized_video_url) {
+      if ((FOLLOWUP_STAGES.includes(b.stage) || b.stage === 'cant_message' || b.stage === 'in_conversation') && current.personalized_video_url) {
         await deleteVideoBlobs([current.personalized_video_url]);
         sets.push('personalized_video_url = NULL', 'personalized_video_status = NULL', 'personalized_video_name = NULL');
       }
