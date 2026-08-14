@@ -213,6 +213,8 @@ $('#sidebar-toggle').addEventListener('click', () => {
 // ---------- HOME ----------
 const PHASE_BREAKDOWN_STAGES = [
   { key: 'new', label: 'New', color: 'var(--stage-new)' },
+  { key: 'engaged', label: 'Engaged', color: 'var(--stage-engaged)' },
+  { key: 'connection_sent', label: 'Connection sent', color: 'var(--stage-connection-sent)' },
   { key: 'phase1', label: 'Phase 1', color: 'var(--stage-phase1)' },
   { key: 'phase2', label: 'Phase 2', color: 'var(--stage-phase2)' },
   { key: 'phase3', label: 'Phase 3', color: 'var(--stage-phase3)' },
@@ -364,15 +366,29 @@ function renderSendsTrendDelta(pctChange) {
   el.className = 'overview-chart-delta ' + (pctChange > 0 ? 'positive' : pctChange < 0 ? 'negative' : 'neutral');
 }
 
+let homePlatformFilter = 'all';
+
+$('#home-platform-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.range-tab');
+  if (!btn) return;
+  $all('#home-platform-tabs .range-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  homePlatformFilter = btn.dataset.platform;
+  loadHome();
+});
+
 async function loadHome() {
   try {
-    const data = await fetchJson('/api/home');
+    const data = await fetchJson(`/api/home?platform=${homePlatformFilter}`);
     $('#streak-value').textContent = data.streak;
     $('#week-value').textContent = data.last7Days;
     $('#available-leads-value').textContent = data.availableLeads.toLocaleString('en-US');
     $('#reply-rate-value').textContent = pctText(data.replyRate);
     $('#prr-value').textContent = pctText(data.prr);
     $('#asr-value').textContent = pctText(data.asr);
+    $('#connections-sent-value').textContent = data.connectionsSent.toLocaleString('en-US');
+    $('#connections-accepted-value').textContent = data.connectionsAccepted.toLocaleString('en-US');
+    $('#car-value').textContent = pctText(data.car);
     renderSendsTrendDelta(data.last7DaysPctChange);
     renderPipelineDonut(data.stageCounts);
     renderSendsSparkline(data.sendsTrend);
@@ -383,6 +399,9 @@ async function loadHome() {
     $('#reply-rate-value').textContent = '–';
     $('#prr-value').textContent = '–';
     $('#asr-value').textContent = '–';
+    $('#connections-sent-value').textContent = '–';
+    $('#connections-accepted-value').textContent = '–';
+    $('#car-value').textContent = '–';
   }
 }
 
@@ -1965,13 +1984,17 @@ function resumeSavedSession(session) {
 // ---------- ANALYTICS ----------
 let currentRange = 'today';
 
-$all('.range-tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    $all('.range-tab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    currentRange = tab.dataset.range;
-    loadAnalytics(currentRange);
-  });
+// Scoped to #range-tabs specifically (not a blanket $all('.range-tab')) —
+// that class is now reused by every platform/type toggle across the app
+// (Leads, Home, Saved Sessions, Settings' phase tabs), and a page-wide
+// selector here would attach this click handler to all of them too.
+$('#range-tabs').addEventListener('click', (e) => {
+  const tab = e.target.closest('.range-tab');
+  if (!tab) return;
+  $all('#range-tabs .range-tab').forEach(t => t.classList.remove('active'));
+  tab.classList.add('active');
+  currentRange = tab.dataset.range;
+  loadAnalytics(currentRange);
 });
 
 const RANGE_LABELS = {
@@ -1983,9 +2006,20 @@ const RANGE_LABELS = {
   all: ''
 };
 
+let analyticsPlatformFilter = 'all';
+
+$('#analytics-platform-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.range-tab');
+  if (!btn) return;
+  $all('#analytics-platform-tabs .range-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  analyticsPlatformFilter = btn.dataset.platform;
+  loadAnalytics(currentRange);
+});
+
 async function loadAnalytics(range) {
   try {
-    const data = await fetchJson(`/api/analytics?range=${range}`);
+    const data = await fetchJson(`/api/analytics?range=${range}&platform=${analyticsPlatformFilter}`);
     $('#an-total').textContent = data.total;
     $('#an-change-label').textContent = RANGE_LABELS[range] || '';
     if (data.pctChange === null) {
@@ -2014,6 +2048,9 @@ function renderFunnel(funnel) {
   $('#fn-prr').textContent = pctText(funnel.prr);
   $('#fn-appts').textContent = funnel.appointmentsSet;
   $('#fn-asr').textContent = pctText(funnel.asr);
+  $('#fn-conn-sent').textContent = funnel.connectionsSent;
+  $('#fn-conn-accepted').textContent = funnel.connectionsAccepted;
+  $('#fn-car').textContent = pctText(funnel.car);
 }
 
 function showChartTooltip(barEl, s) {

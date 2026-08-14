@@ -48,6 +48,15 @@
 
     <!-- HOME -->
     <section id="view-home" class="view">
+      <div class="row-between leads-header">
+        <h1 class="page-title">Overview</h1>
+        <div class="range-tabs" id="home-platform-tabs">
+          <button type="button" class="range-tab" data-platform="instagram">Instagram</button>
+          <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
+          <button type="button" class="range-tab active" data-platform="all">All</button>
+        </div>
+      </div>
+
       <div class="overview-grid overview-grid-3">
         <div class="overview-tile highlight">
           <div class="overview-tile-label">🔥 Day streak</div>
@@ -97,6 +106,21 @@
         <div class="overview-tile">
           <div class="overview-tile-label">📅 Appointment set rate</div>
           <div class="overview-tile-value" id="asr-value">–</div>
+        </div>
+      </div>
+
+      <div class="overview-grid overview-grid-3">
+        <div class="overview-tile">
+          <div class="overview-tile-label">🔗 Connection requests sent</div>
+          <div class="overview-tile-value" id="connections-sent-value">–</div>
+        </div>
+        <div class="overview-tile">
+          <div class="overview-tile-label">🤝 Connection requests accepted</div>
+          <div class="overview-tile-value" id="connections-accepted-value">–</div>
+        </div>
+        <div class="overview-tile">
+          <div class="overview-tile-label">📈 Connection accept rate</div>
+          <div class="overview-tile-value" id="car-value">–</div>
         </div>
       </div>
 
@@ -584,7 +608,14 @@
 
     <!-- ANALYTICS -->
     <section id="view-analytics" class="view hidden">
-      <h1 class="page-title">Analytics</h1>
+      <div class="row-between leads-header">
+        <h1 class="page-title">Analytics</h1>
+        <div class="range-tabs" id="analytics-platform-tabs">
+          <button type="button" class="range-tab" data-platform="instagram">Instagram</button>
+          <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
+          <button type="button" class="range-tab active" data-platform="all">All</button>
+        </div>
+      </div>
       <div class="range-tabs" id="range-tabs">
         <button data-range="today" class="range-tab active">Today</button>
         <button data-range="week" class="range-tab">This week</button>
@@ -621,6 +652,9 @@
           <div class="funnel-tile"><div class="funnel-value" id="fn-prr">–</div><div class="funnel-label">PRR %</div></div>
           <div class="funnel-tile"><div class="funnel-value" id="fn-appts">–</div><div class="funnel-label">Appointments Set</div></div>
           <div class="funnel-tile"><div class="funnel-value" id="fn-asr">–</div><div class="funnel-label">ASR %</div></div>
+          <div class="funnel-tile"><div class="funnel-value" id="fn-conn-sent">–</div><div class="funnel-label">Connections Sent</div></div>
+          <div class="funnel-tile"><div class="funnel-value" id="fn-conn-accepted">–</div><div class="funnel-label">Connections Accepted</div></div>
+          <div class="funnel-tile"><div class="funnel-value" id="fn-car">–</div><div class="funnel-label">CAR %</div></div>
         </div>
       </div>
     </section>
