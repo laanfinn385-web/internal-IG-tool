@@ -82,8 +82,14 @@ function sanitizeUrl(v) {
   return /^https?:\/\//i.test(url) ? url : '';
 }
 
-async function loadData() {
-  const rows = await sql`SELECT * FROM outreaches`;
+// platform: 'instagram' | 'linkedin' | 'all' (default) — every platform-
+// scoped query in this file uses this same three-value convention.
+function platformClause(platform) {
+  return platform === 'all' ? sql`` : sql`AND platform = ${platform}`;
+}
+
+async function loadData(platform = 'all') {
+  const rows = await sql`SELECT * FROM outreaches WHERE true ${platformClause(platform)}`;
   return {
     outreaches: rows.map(r => ({
       id: r.id,
@@ -99,7 +105,8 @@ async function loadData() {
       avgViews: r.avg_views,
       template: r.template,
       message: r.message,
-      status: r.status
+      status: r.status,
+      platform: r.platform
     }))
   };
 }
@@ -147,7 +154,8 @@ function computeStreak(sentDateSet) {
 }
 
 app.get('/api/home', asyncRoute(async (req, res) => {
-  const data = await loadData();
+  const platform = ['instagram', 'linkedin'].includes(req.query.platform) ? req.query.platform : 'all';
+  const data = await loadData(platform);
   const sent = data.outreaches.filter(o => o.status === 'sent');
   const sentDateSet = new Set(sent.map(o => o.date));
   const streak = computeStreak(sentDateSet);
@@ -170,25 +178,35 @@ app.get('/api/home', asyncRoute(async (req, res) => {
     sendsTrend.push({ date: ds, count: sent.filter(o => o.date === ds).length });
   }
 
-  const [{ count }] = await sql`SELECT count(*) FROM leads WHERE deleted_at IS NULL AND stage = 'new'`;
-  const stageRows = await sql`SELECT stage, count(*) FROM leads WHERE deleted_at IS NULL GROUP BY stage`;
-  const stageCounts = { new: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0, cant_message: 0, in_conversation: 0 };
+  const [{ count }] = await sql`SELECT count(*) FROM leads WHERE deleted_at IS NULL AND stage = 'new' ${platformClause(platform)}`;
+  const stageRows = await sql`SELECT stage, count(*) FROM leads WHERE deleted_at IS NULL ${platformClause(platform)} GROUP BY stage`;
+  const stageCounts = { new: 0, engaged: 0, connection_sent: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0, cant_message: 0, in_conversation: 0 };
   stageRows.forEach(r => { if (r.stage in stageCounts) stageCounts[r.stage] = Number(r.count); });
 
   // All-time funnel rates — same definitions/formulas /api/analytics uses
   // (replies = positive_reply + dead events; PRR/ASR against total sends),
   // just unscoped by date range here for always-current headline numbers.
-  const eventRows = await sql`SELECT event, count(*) FROM lead_events WHERE event IN ('positive_reply', 'dead', 'call_booked') GROUP BY event`;
-  const eventCounts = { positive_reply: 0, dead: 0, call_booked: 0 };
+  // lead_events has no platform column of its own (see the dedup-fix
+  // migration) — scoped via a join to leads instead.
+  const eventRows = await sql`
+    SELECT e.event, count(*) FROM lead_events e
+    JOIN leads l ON l.id = e.lead_id
+    WHERE e.event IN ('positive_reply', 'dead', 'call_booked', 'connection_sent', 'connection_accepted')
+    ${platform === 'all' ? sql`` : sql`AND l.platform = ${platform}`}
+    GROUP BY e.event
+  `;
+  const eventCounts = { positive_reply: 0, dead: 0, call_booked: 0, connection_sent: 0, connection_accepted: 0 };
   eventRows.forEach(r => { eventCounts[r.event] = Number(r.count); });
   const rate = (num, denom) => (denom > 0 ? Math.round((num / denom) * 1000) / 10 : null);
   const replyRate = rate(eventCounts.positive_reply + eventCounts.dead, sent.length);
   const prr = rate(eventCounts.positive_reply, sent.length);
   const asr = rate(eventCounts.call_booked, sent.length);
+  const car = rate(eventCounts.connection_accepted, eventCounts.connection_sent);
 
   res.json({
     streak, last7Days, last7DaysPctChange, availableLeads: Number(count), stageCounts,
-    sendsTrend, replyRate, prr, asr
+    sendsTrend, replyRate, prr, asr,
+    connectionsSent: eventCounts.connection_sent, connectionsAccepted: eventCounts.connection_accepted, car
   });
 }));
 
@@ -219,7 +237,8 @@ app.post('/api/outreach', asyncRoute(async (req, res) => {
 }));
 
 app.get('/api/analytics', asyncRoute(async (req, res) => {
-  const data = await loadData();
+  const platform = ['instagram', 'linkedin'].includes(req.query.platform) ? req.query.platform : 'all';
+  const data = await loadData(platform);
   const range = req.query.range || 'month';
   const sent = data.outreaches.filter(o => o.status === 'sent');
   // Built from todayStr() (Amsterdam-anchored) rather than `new Date()`
@@ -343,15 +362,25 @@ app.get('/api/analytics', asyncRoute(async (req, res) => {
       : Math.round(((total - prevTotal) / prevTotal) * 1000) / 10;
   }
 
-  const [[{ count: followupsCount }], [{ count: positiveReplyCount }], [{ count: deadCount }], [{ count: appointmentsCount }]] = await Promise.all([
-    sql`SELECT count(*) FROM followup_sends WHERE date >= ${currentStart} AND date <= ${currentEnd}`,
-    sql`SELECT count(*) FROM lead_events WHERE event = 'positive_reply' AND date >= ${currentStart} AND date <= ${currentEnd}`,
-    sql`SELECT count(*) FROM lead_events WHERE event = 'dead' AND date >= ${currentStart} AND date <= ${currentEnd}`,
-    sql`SELECT count(*) FROM lead_events WHERE event = 'call_booked' AND date >= ${currentStart} AND date <= ${currentEnd}`
+  // followup_sends/lead_events have no platform column of their own (see the
+  // dedup-fix migration and the followup content migration) — both are
+  // scoped via a join to leads instead of a flat WHERE.
+  const [
+    [{ count: followupsCount }], [{ count: positiveReplyCount }], [{ count: deadCount }],
+    [{ count: appointmentsCount }], [{ count: connectionsSentCount }], [{ count: connectionsAcceptedCount }]
+  ] = await Promise.all([
+    sql`SELECT count(*) FROM followup_sends fs JOIN leads l ON l.id = fs.lead_id WHERE fs.date >= ${currentStart} AND fs.date <= ${currentEnd} ${platformClause(platform)}`,
+    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'positive_reply' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
+    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'dead' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
+    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'call_booked' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
+    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'connection_sent' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
+    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'connection_accepted' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`
   ]);
 
   const positiveReplies = Number(positiveReplyCount);
   const appointmentsSet = Number(appointmentsCount);
+  const connectionsSent = Number(connectionsSentCount);
+  const connectionsAccepted = Number(connectionsAcceptedCount);
   // Replies = Positive Replies + Dead (a "no" is still a reply; going
   // completely unanswered is not) — see the analytics tracking discussion.
   const replies = positiveReplies + Number(deadCount);
@@ -365,7 +394,10 @@ app.get('/api/analytics', asyncRoute(async (req, res) => {
     positiveReplies,
     prr: rate(positiveReplies, total),
     appointmentsSet,
-    asr: rate(appointmentsSet, total)
+    asr: rate(appointmentsSet, total),
+    connectionsSent,
+    connectionsAccepted,
+    car: rate(connectionsAccepted, connectionsSent)
   };
 
   res.json({ range, total, prevTotal, pctChange, series, funnel });
@@ -393,10 +425,12 @@ const MAX_NEXT_COUNT = 500;
 function mapLeadRow(r) {
   return {
     id: r.id,
+    platform: r.platform,
     profileUrl: r.profile_url,
     username: r.username,
     fullName: r.full_name,
     bio: r.bio,
+    headline: r.headline,
     followers: r.followers,
     stage: r.stage,
     notes: r.notes,
@@ -436,17 +470,18 @@ app.post('/api/leads/next', asyncRoute(async (req, res) => {
   // back 15 leads instead of the Math.max(1, ...) floor doing that job.
   const parsedCount = parseInt(body.count, 10);
   const count = Math.max(1, Math.min(MAX_NEXT_COUNT, Number.isFinite(parsedCount) ? parsedCount : 15));
+  const platform = body.platform === 'linkedin' ? 'linkedin' : 'instagram';
   const excludeIds = Array.isArray(body.excludeIds) ? body.excludeIds.filter(id => typeof id === 'string') : [];
   const rows = excludeIds.length > 0
     ? await sql`
         SELECT * FROM leads
-        WHERE deleted_at IS NULL AND stage = 'new' AND NOT (id = ANY(${excludeIds}))
+        WHERE deleted_at IS NULL AND stage = 'new' AND platform = ${platform} AND NOT (id = ANY(${excludeIds}))
         ORDER BY seq ASC
         LIMIT ${count}
       `
     : await sql`
         SELECT * FROM leads
-        WHERE deleted_at IS NULL AND stage = 'new'
+        WHERE deleted_at IS NULL AND stage = 'new' AND platform = ${platform}
         ORDER BY seq ASC
         LIMIT ${count}
       `;
@@ -460,14 +495,21 @@ app.post('/api/leads/next', asyncRoute(async (req, res) => {
 // too, not just against rows already on disk.
 app.post('/api/leads', asyncRoute(async (req, res) => {
   const b = req.body;
-  if (!b.username && !b.profileUrl) {
+  const platform = b.platform === 'linkedin' ? 'linkedin' : 'instagram';
+  // LinkedIn leads have no username concept — a profile URL or full name is
+  // the minimum needed instead.
+  if (platform === 'linkedin') {
+    if (!b.fullName && !b.profileUrl) {
+      return res.status(400).json({ error: 'A lead needs at least a full name or profile URL.' });
+    }
+  } else if (!b.username && !b.profileUrl) {
     return res.status(400).json({ error: 'A lead needs at least a username or profile URL.' });
   }
   const id = crypto.randomUUID();
   const rows = await sql`
-    INSERT INTO leads (id, profile_url, username, full_name, bio, followers, notes)
-    VALUES (${id}, ${sanitizeUrl(b.profileUrl)}, ${b.username || ''}, ${b.fullName || ''}, ${b.bio || ''},
-      ${toNullableInt(b.followers)}, ${b.notes || ''})
+    INSERT INTO leads (id, platform, profile_url, username, full_name, bio, headline, followers, notes)
+    VALUES (${id}, ${platform}, ${sanitizeUrl(b.profileUrl)}, ${b.username || ''}, ${b.fullName || ''}, ${b.bio || ''},
+      ${b.headline || ''}, ${toNullableInt(b.followers)}, ${b.notes || ''})
     ON CONFLICT (lower(username)) WHERE deleted_at IS NULL AND username <> '' DO NOTHING
     RETURNING id
   `;
@@ -478,26 +520,31 @@ app.post('/api/leads', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/leads/bulk', asyncRoute(async (req, res) => {
-  // Rows with neither a username nor a profile URL (e.g. a trailing blank
-  // line in a CSV) are dropped rather than sent to the DB — an empty lead
-  // is never useful and previously could be inserted with no validation.
+  // One platform per import batch — the CSV mapping modal picks it up front.
+  const platform = req.body.platform === 'linkedin' ? 'linkedin' : 'instagram';
+  // Rows with nothing usable to identify them (e.g. a trailing blank line in
+  // a CSV) are dropped rather than sent to the DB — an empty lead is never
+  // useful and previously could be inserted with no validation. LinkedIn
+  // leads have no username, so full name stands in for that check.
   const leads = (Array.isArray(req.body.leads) ? req.body.leads : [])
-    .filter(l => l.username || l.profileUrl);
+    .filter(l => (platform === 'linkedin' ? (l.fullName || l.profileUrl) : (l.username || l.profileUrl)));
   if (leads.length === 0) return res.json({ ok: true, inserted: 0, duplicates: 0 });
   if (leads.length > MAX_BULK_BATCH) {
     return res.status(400).json({ error: `Batch too large (${leads.length} rows) — send at most ${MAX_BULK_BATCH} at a time.` });
   }
 
   const ids = leads.map(() => crypto.randomUUID());
+  const platforms = leads.map(() => platform);
   const profileUrls = leads.map(l => sanitizeUrl(l.profileUrl));
   const usernames = leads.map(l => l.username || '');
   const fullNames = leads.map(l => l.fullName || '');
   const bios = leads.map(l => l.bio || '');
+  const headlines = leads.map(l => l.headline || '');
   const followersArr = leads.map(l => toNullableInt(l.followers));
 
   const rows = await sql`
-    INSERT INTO leads (id, profile_url, username, full_name, bio, followers)
-    SELECT * FROM unnest(${ids}::uuid[], ${profileUrls}::text[], ${usernames}::text[], ${fullNames}::text[], ${bios}::text[], ${followersArr}::integer[])
+    INSERT INTO leads (id, platform, profile_url, username, full_name, bio, headline, followers)
+    SELECT * FROM unnest(${ids}::uuid[], ${platforms}::text[], ${profileUrls}::text[], ${usernames}::text[], ${fullNames}::text[], ${bios}::text[], ${headlines}::text[], ${followersArr}::integer[])
     ON CONFLICT (lower(username)) WHERE deleted_at IS NULL AND username <> '' DO NOTHING
     RETURNING id
   `;
@@ -512,6 +559,7 @@ const LEAD_PATCH_FIELDS = {
   username: 'username',
   fullName: 'full_name',
   bio: 'bio',
+  headline: 'headline',
   followers: 'followers',
   stage: 'stage',
   notes: 'notes'
@@ -547,6 +595,12 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
     if (current && current.stage !== b.stage) {
       if (FOLLOWUP_STAGES.includes(b.stage)) {
         sets.push(`phase_step = $${i++}`); params.push(0);
+        sets.push('phase_started_at = now()');
+      }
+      // LinkedIn-only: 'engaged' needs its own fresh clock too (read by the
+      // connection-request due query below) — it isn't a follow-up phase, so
+      // it doesn't get phase_step reset along with it.
+      if (b.stage === 'engaged') {
         sets.push('phase_started_at = now()');
       }
       // The video is done being useful once the lead leaves active-outreach
@@ -599,6 +653,43 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
       }
       if (current.stage === 'dead' && b.stage !== 'dead') {
         await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'dead'`;
+      }
+
+      // LinkedIn funnel milestones. Unlike positive_reply/dead/call_booked
+      // above (which describe a lead's *current* status and should stop
+      // counting the moment a lead leaves every stage that implies them),
+      // engaged/connection_sent/connection_accepted are one-time passages
+      // through the funnel — a lead that gets engaged, has a connection
+      // request sent, and then moves on to phase1 is still, historically,
+      // "a lead whose connection request was sent". Deleting on every
+      // departure (matching the pattern above) would erase that the instant
+      // the lead progresses, making connectionsSent/connectionsAccepted
+      // collapse into just "currently sitting in that stage" and the
+      // acceptance rate impossible to compute. So the delete side here is
+      // deliberately narrow: only the exact reverse transition (an explicit
+      // undo of the last stage move) un-counts it, not any forward move.
+      if (b.stage === 'engaged') {
+        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'engaged', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
+      }
+      if (current.stage === 'engaged' && b.stage === 'new') {
+        await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'engaged'`;
+      }
+      if (b.stage === 'connection_sent') {
+        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'connection_sent', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
+      }
+      if (current.stage === 'connection_sent' && b.stage === 'engaged') {
+        await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'connection_sent'`;
+      }
+      // "Accepted" can't be detected automatically (see /api/linkedin —
+      // there's no notification for this step) — starting a phase1 message
+      // session on a connection_sent lead and getting a "sent" decision out
+      // of it *is* the acceptance signal, so this fires on exactly that
+      // transition rather than a separate button.
+      if (current.stage === 'connection_sent' && b.stage === 'phase1') {
+        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'connection_accepted', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
+      }
+      if (current.stage === 'phase1' && b.stage === 'connection_sent') {
+        await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'connection_accepted'`;
       }
     }
   }
@@ -770,8 +861,6 @@ app.delete('/api/saved-sessions/:id', asyncRoute(async (req, res) => {
 
 // ---------- FOLLOW-UP SEQUENCING ----------
 
-const PHASE_MAX_STEP = { 1: 2, 2: 9, 3: 9 };
-
 function firstName(fullName, username) {
   const base = (fullName || username || '').trim();
   return base.split(' ')[0] || username;
@@ -801,10 +890,10 @@ function composeFollowupMessage(componentGroups, fallbackMessage, lead, calendar
   return renderFollowupMessage(text, lead, calendarLink);
 }
 
-async function getFollowupPartsByPhase(phase) {
+async function getFollowupPartsByPhase(phase, platform) {
   const rows = await sql`
     SELECT step, part_order, text FROM followup_template_parts
-    WHERE phase = ${phase} ORDER BY step, part_order, sort_order
+    WHERE phase = ${phase} AND platform = ${platform} ORDER BY step, part_order, sort_order
   `;
   const byStep = {};
   rows.forEach(r => {
@@ -820,46 +909,76 @@ async function getCalendarLink() {
   return rows.length ? rows[0].value : '';
 }
 
-// Which leads have a follow-up due right now, grouped by phase. A lead is
-// "due" once phase_started_at + the next step's day_offset has passed —
-// works for both on-time and overdue (haven't opened the app in days).
+async function getLinkedinConnectionDelayDays() {
+  const rows = await sql`SELECT value FROM app_settings WHERE key = 'linkedin_connection_delay_days'`;
+  const n = rows.length ? Number(rows[0].value) : NaN;
+  return Number.isFinite(n) && n >= 0 ? n : 2;
+}
+
+// Which leads have a follow-up due right now, grouped by (platform, phase). A
+// lead is "due" once phase_started_at + the next step's day_offset has
+// passed — works for both on-time and overdue (haven't opened the app in
+// days). Instagram and LinkedIn each have their own phase1/2/3 content (see
+// the platform column on followup_templates), so the join has to match
+// platform too or a LinkedIn lead could pick up Instagram's day-offsets.
 app.get('/api/notifications', asyncRoute(async (req, res) => {
-  const rows = await sql`
-    SELECT
-      CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END AS phase,
-      l.phase_started_at + make_interval(days => ft.day_offset) AS due_at
-    FROM leads l
-    JOIN followup_templates ft
-      ON ft.phase = CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END
-     AND ft.step = l.phase_step + 1
-    WHERE l.deleted_at IS NULL
-      AND l.stage IN ('phase1', 'phase2', 'phase3')
-      AND l.phase_started_at + make_interval(days => ft.day_offset) <= now()
-  `;
-  const byPhase = {};
-  rows.forEach(r => {
-    const p = r.phase;
-    if (!byPhase[p]) byPhase[p] = { phase: p, count: 0, earliestDue: r.due_at };
-    byPhase[p].count++;
-    if (new Date(r.due_at) < new Date(byPhase[p].earliestDue)) byPhase[p].earliestDue = r.due_at;
+  const [followupRows, connectionDelayDays] = await Promise.all([
+    sql`
+      SELECT
+        l.platform,
+        CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END AS phase,
+        l.phase_started_at + make_interval(days => ft.day_offset) AS due_at
+      FROM leads l
+      JOIN followup_templates ft
+        ON ft.platform = l.platform
+       AND ft.phase = CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END
+       AND ft.step = l.phase_step + 1
+      WHERE l.deleted_at IS NULL
+        AND l.stage IN ('phase1', 'phase2', 'phase3')
+        AND l.phase_started_at + make_interval(days => ft.day_offset) <= now()
+    `,
+    getLinkedinConnectionDelayDays()
+  ]);
+
+  const byKey = {};
+  followupRows.forEach(r => {
+    const key = `${r.platform}:${r.phase}`;
+    if (!byKey[key]) byKey[key] = { type: 'followup', platform: r.platform, phase: r.phase, count: 0, earliestDue: r.due_at };
+    byKey[key].count++;
+    if (new Date(r.due_at) < new Date(byKey[key].earliestDue)) byKey[key].earliestDue = r.due_at;
   });
-  res.json({ notifications: Object.values(byPhase).sort((a, b) => a.phase - b.phase) });
+
+  const connectionRows = await sql`
+    SELECT phase_started_at + make_interval(days => ${connectionDelayDays}) AS due_at
+    FROM leads
+    WHERE deleted_at IS NULL AND platform = 'linkedin' AND stage = 'engaged'
+      AND phase_started_at + make_interval(days => ${connectionDelayDays}) <= now()
+  `;
+  if (connectionRows.length > 0) {
+    const earliestDue = connectionRows.reduce((min, r) => (new Date(r.due_at) < new Date(min) ? r.due_at : min), connectionRows[0].due_at);
+    byKey['linkedin:connections'] = { type: 'connections', platform: 'linkedin', count: connectionRows.length, earliestDue };
+  }
+
+  const notifications = Object.values(byKey).sort((a, b) => (a.platform === b.platform ? (a.phase || 0) - (b.phase || 0) : a.platform.localeCompare(b.platform)));
+  res.json({ notifications });
 }));
 
-// The due leads for one phase, each with its exact next message pre-rendered.
+// The due leads for one platform+phase, each with its exact next message pre-rendered.
 app.get('/api/followups/due', asyncRoute(async (req, res) => {
   const phase = Number(req.query.phase);
+  const platform = req.query.platform === 'linkedin' ? 'linkedin' : 'instagram';
   if (![1, 2, 3].includes(phase)) return res.status(400).json({ error: 'phase must be 1, 2, or 3' });
   const stageVal = 'phase' + phase;
-  const [calendarLink, partsByStep] = await Promise.all([getCalendarLink(), getFollowupPartsByPhase(phase)]);
+  const [calendarLink, partsByStep] = await Promise.all([getCalendarLink(), getFollowupPartsByPhase(phase, platform)]);
 
   const rows = await sql`
     SELECT l.id, l.username, l.profile_url, l.full_name,
            ft.step, ft.type, ft.message, ft.media_note,
            l.phase_started_at + make_interval(days => ft.day_offset) AS due_at
     FROM leads l
-    JOIN followup_templates ft ON ft.phase = ${phase} AND ft.step = l.phase_step + 1
+    JOIN followup_templates ft ON ft.platform = ${platform} AND ft.phase = ${phase} AND ft.step = l.phase_step + 1
     WHERE l.deleted_at IS NULL
+      AND l.platform = ${platform}
       AND l.stage = ${stageVal}
       AND l.phase_started_at + make_interval(days => ft.day_offset) <= now()
     ORDER BY due_at ASC
@@ -877,6 +996,21 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
     message: composeFollowupMessage(partsByStep[r.step], r.message, r, calendarLink)
   }));
   res.json({ leads });
+}));
+
+// The LinkedIn leads whose connection-request delay has elapsed since being
+// marked "Engaged" — no message to compose, this just drives the simple
+// swipeable "Connected / Delete" session (see public/app.js).
+app.get('/api/linkedin/connections/due', asyncRoute(async (req, res) => {
+  const connectionDelayDays = await getLinkedinConnectionDelayDays();
+  const rows = await sql`
+    SELECT id, full_name, profile_url, headline
+    FROM leads
+    WHERE deleted_at IS NULL AND platform = 'linkedin' AND stage = 'engaged'
+      AND phase_started_at + make_interval(days => ${connectionDelayDays}) <= now()
+    ORDER BY phase_started_at ASC
+  `;
+  res.json({ leads: rows.map(r => ({ id: r.id, fullName: r.full_name, profileUrl: r.profile_url, headline: r.headline })) });
 }));
 
 // Logs the send (for analytics) and advances the lead to that step.
@@ -907,7 +1041,8 @@ app.post('/api/leads/:id/followup-sent', asyncRoute(async (req, res) => {
 // slot's version count, without ever mixing a slot from one category into
 // another (see pickPart() there).
 app.get('/api/settings/templates', asyncRoute(async (req, res) => {
-  const templates = await sql`SELECT id, label FROM message_templates ORDER BY sort_order`;
+  const platform = req.query.platform === 'linkedin' ? 'linkedin' : 'instagram';
+  const templates = await sql`SELECT id, label FROM message_templates WHERE platform = ${platform} ORDER BY sort_order`;
   const parts = await sql`SELECT id, template_id, slot, text FROM message_template_parts ORDER BY template_id, slot, sort_order`;
   res.json({
     templates: templates.map(t => {
@@ -930,7 +1065,8 @@ app.put('/api/settings/templates/:id', asyncRoute(async (req, res) => {
 }));
 
 app.get('/api/settings/followups', asyncRoute(async (req, res) => {
-  const rows = await sql`SELECT phase, step, day_offset, type, message, media_note FROM followup_templates ORDER BY phase, step`;
+  const platform = req.query.platform === 'linkedin' ? 'linkedin' : 'instagram';
+  const rows = await sql`SELECT phase, step, day_offset, type, message, media_note FROM followup_templates WHERE platform = ${platform} ORDER BY phase, step`;
   res.json({
     followups: rows.map(r => ({
       phase: r.phase, step: r.step, dayOffset: r.day_offset,
@@ -942,6 +1078,7 @@ app.get('/api/settings/followups', asyncRoute(async (req, res) => {
 app.put('/api/settings/followups/:phase/:step', asyncRoute(async (req, res) => {
   const phase = Number(req.params.phase);
   const step = Number(req.params.step);
+  const platform = req.body.platform === 'linkedin' ? 'linkedin' : 'instagram';
   const { dayOffset, type, message, mediaNote } = req.body;
   const sets = []; const params = []; let i = 1;
   if (dayOffset !== undefined) {
@@ -956,8 +1093,8 @@ app.put('/api/settings/followups/:phase/:step', asyncRoute(async (req, res) => {
   if (mediaNote !== undefined) { sets.push(`media_note = $${i++}`); params.push(mediaNote); }
   if (sets.length === 0) return res.json({ ok: true });
   sets.push('updated_at = now()');
-  params.push(phase, step);
-  await sql.query(`UPDATE followup_templates SET ${sets.join(', ')} WHERE phase = $${i++} AND step = $${i}`, params);
+  params.push(platform, phase, step);
+  await sql.query(`UPDATE followup_templates SET ${sets.join(', ')} WHERE platform = $${i++} AND phase = $${i++} AND step = $${i}`, params);
   res.json({ ok: true });
 }));
 
@@ -969,7 +1106,7 @@ app.get('/api/settings/app', asyncRoute(async (req, res) => {
 }));
 
 app.put('/api/settings/app', asyncRoute(async (req, res) => {
-  const { calendarLink, viewsThreshold } = req.body;
+  const { calendarLink, viewsThreshold, linkedinConnectionDelayDays } = req.body;
   if (calendarLink !== undefined) {
     await sql`
       INSERT INTO app_settings (key, value) VALUES ('calendar_link', ${calendarLink})
@@ -980,6 +1117,13 @@ app.put('/api/settings/app', asyncRoute(async (req, res) => {
     await sql`
       INSERT INTO app_settings (key, value) VALUES ('views_threshold', ${String(viewsThreshold)})
       ON CONFLICT (key) DO UPDATE SET value = ${String(viewsThreshold)}
+    `;
+  }
+  if (linkedinConnectionDelayDays !== undefined) {
+    const clamped = Math.max(0, Math.round(Number(linkedinConnectionDelayDays)) || 0);
+    await sql`
+      INSERT INTO app_settings (key, value) VALUES ('linkedin_connection_delay_days', ${String(clamped)})
+      ON CONFLICT (key) DO UPDATE SET value = ${String(clamped)}
     `;
   }
   res.json({ ok: true });
