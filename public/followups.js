@@ -22,6 +22,8 @@ async function loadNotifications() {
   }
 }
 
+const PLATFORM_LABELS = { instagram: 'Instagram', linkedin: 'LinkedIn' };
+
 function renderNotifications(notifications) {
   const badge = $('#notif-badge');
   const list = $('#notif-list');
@@ -37,22 +39,37 @@ function renderNotifications(notifications) {
   badge.classList.remove('hidden');
   badge.textContent = notifications.length;
   empty.classList.add('hidden');
-  list.innerHTML = notifications.map(n => `
-    <button type="button" class="notif-item" data-phase="${n.phase}">
-      <div class="notif-item-main">
-        <span class="notif-item-phase">${PHASE_NAMES[n.phase]}</span>
-        <span class="notif-item-count">${n.count} lead${n.count === 1 ? '' : 's'} to follow up with</span>
-      </div>
-      <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
-    </button>
-  `).join('');
+  list.innerHTML = notifications.map(n => {
+    if (n.type === 'connections') {
+      return `
+        <button type="button" class="notif-item" data-type="connections" data-platform="${n.platform}">
+          <div class="notif-item-main">
+            <span class="notif-item-phase">LinkedIn connections</span>
+            <span class="notif-item-count">${n.count} lead${n.count === 1 ? '' : 's'} ready for a connection request</span>
+          </div>
+          <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
+        </button>`;
+    }
+    return `
+      <button type="button" class="notif-item" data-type="followup" data-phase="${n.phase}" data-platform="${n.platform}">
+        <div class="notif-item-main">
+          <span class="notif-item-phase">${PLATFORM_LABELS[n.platform]} ${PHASE_NAMES[n.phase]}</span>
+          <span class="notif-item-count">${n.count} lead${n.count === 1 ? '' : 's'} to follow up with</span>
+        </div>
+        <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
+      </button>`;
+  }).join('');
 }
 
 $('#notif-list').addEventListener('click', (e) => {
   const item = e.target.closest('.notif-item');
   if (!item) return;
   $('#notif-dropdown').classList.add('hidden');
-  openFollowupSession(Number(item.dataset.phase));
+  if (item.dataset.type === 'connections') {
+    openConnectionSession();
+  } else {
+    openFollowupSession(Number(item.dataset.phase), item.dataset.platform);
+  }
 });
 
 $('#notif-bell').addEventListener('click', (e) => {
@@ -65,21 +82,39 @@ document.addEventListener('click', (e) => {
 
 // ---------- Follow-up session ----------
 
-const followupState = { phase: null, leads: [] };
+const followupState = { phase: null, platform: 'instagram', leads: [] };
 
-async function openFollowupSession(phase) {
+async function openFollowupSession(phase, platform) {
   followupState.phase = phase;
-  $('#followup-title').textContent = `${PHASE_NAMES[phase]} Follow-ups`;
+  followupState.platform = platform === 'linkedin' ? 'linkedin' : 'instagram';
+  $('#followup-title').textContent = `${PLATFORM_LABELS[followupState.platform]} ${PHASE_NAMES[phase]} Follow-ups`;
   $('#followup-list').innerHTML = '<p class="muted">Loading…</p>';
   $('#followup-sub').textContent = '';
   $('#followup-empty').classList.add('hidden');
   showView('followup');
   try {
-    const data = await fetchJson(`/api/followups/due?phase=${phase}`);
+    const data = await fetchJson(`/api/followups/due?phase=${phase}&platform=${followupState.platform}`);
     followupState.leads = data.leads || [];
     renderFollowupList();
   } catch (e) {
     $('#followup-list').innerHTML = `<p class="import-error">Could not load follow-ups: ${escapeHtml(e.message)}</p>`;
+  }
+}
+
+// LinkedIn's connection-request session — notification-driven only, uses the
+// same simple swipeable session view as engagement sessions (see app.js).
+async function openConnectionSession() {
+  try {
+    const data = await fetchJson('/api/linkedin/connections/due');
+    const leads = data.leads || [];
+    if (leads.length === 0) {
+      alert('No LinkedIn connection requests due right now.');
+      loadNotifications();
+      return;
+    }
+    beginSessionWithLeads(leads.map(l => ({ ...l, platform: 'linkedin' })), { kind: 'li_connection' });
+  } catch (e) {
+    alert(`Could not load due connection requests: ${e.message}`);
   }
 }
 
@@ -104,7 +139,7 @@ function followupCardHtml(lead) {
   return `
     <div class="card followup-card" data-id="${lead.id}">
       <div class="followup-card-head">
-        <span class="followup-username">@${escapeHtml(lead.username)}</span>
+        <span class="followup-username">${escapeHtml(leadDisplayName(lead))}</span>
         <span class="muted">Step ${lead.step}</span>
       </div>
       ${mediaLine}
@@ -163,7 +198,7 @@ $('#followup-list').addEventListener('click', async (e) => {
           })
           .catch(err => console.error('Clipboard write failed', err));
       }
-      window.open(lead.username ? `https://ig.me/m/${lead.username}` : lead.profileUrl, 'ig_preview');
+      window.open(leadDmUrl(lead), 'ig_preview');
     }
     return;
   }

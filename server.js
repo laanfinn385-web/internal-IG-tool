@@ -988,6 +988,7 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
 
   const leads = rows.map(r => ({
     id: r.id,
+    platform,
     username: r.username,
     profileUrl: r.profile_url,
     fullName: r.full_name,
