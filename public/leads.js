@@ -7,16 +7,22 @@ const leadsState = {
   selected: new Set(),
   page: 0,
   search: '',
+  platformFilter: 'all', // 'instagram' | 'linkedin' | 'all'
   stageFilter: new Set() // empty = no filter, show every stage
 };
 
-// Full list of {lead, originalIndex} pairs matching the current search and
-// stage filter — originalIndex keeps the "#" column anchored to true row
-// position even while the view is narrowed or reordered.
+// Full list of {lead, originalIndex} pairs matching the current search,
+// platform, and stage filters — originalIndex keeps the "#" column anchored
+// to true row position even while the view is narrowed or reordered.
 function getFilteredLeads() {
   const q = leadsState.search.trim().toLowerCase();
   let items = leadsState.leads.map((lead, i) => ({ lead, originalIndex: i }));
-  if (q) items = items.filter(({ lead }) => (lead.username || '').toLowerCase().includes(q));
+  if (leadsState.platformFilter !== 'all') {
+    items = items.filter(({ lead }) => lead.platform === leadsState.platformFilter);
+  }
+  if (q) {
+    items = items.filter(({ lead }) => (lead.username || '').toLowerCase().includes(q) || (lead.fullName || '').toLowerCase().includes(q));
+  }
 
   if (leadsState.stageFilter.size > 0) {
     items = items.filter(({ lead }) => leadsState.stageFilter.has(lead.stage));
@@ -30,45 +36,79 @@ function getFilteredLeads() {
   return items;
 }
 
-const csvState = { headers: [], rows: [], mapping: {}, leadsToImport: null, importedCount: 0, duplicatesSkipped: 0 };
+const csvState = { platform: 'instagram', headers: [], rows: [], mapping: {}, leadsToImport: null, importedCount: 0, duplicatesSkipped: 0 };
 
 let pendingUndo = null; // { ids, timer }
 // fetchJson is defined in app.js (loaded first) and shared globally.
 
-const LEAD_FIELDS = [
-  { key: 'profileUrl', label: 'Profile URL', required: true, patterns: [/profile.?url/i, /^url$/i, /link/i] },
-  { key: 'username', label: 'Username', required: true, patterns: [/username/i, /handle/i, /^user$/i] },
-  { key: 'fullName', label: 'Full name', required: false, patterns: [/full.?name/i, /^name$/i] },
-  { key: 'bio', label: 'Bio', required: false, patterns: [/bio/i, /about/i] },
-  { key: 'followers', label: 'Followers', required: false, patterns: [/follower/i] }
-];
+const LEAD_FIELDS_BY_PLATFORM = {
+  instagram: [
+    { key: 'profileUrl', label: 'Profile URL', required: true, patterns: [/profile.?url/i, /^url$/i, /link/i] },
+    { key: 'username', label: 'Username', required: true, patterns: [/username/i, /handle/i, /^user$/i] },
+    { key: 'fullName', label: 'Full name', required: false, patterns: [/full.?name/i, /^name$/i] },
+    { key: 'bio', label: 'Bio', required: false, patterns: [/bio/i, /about/i] },
+    { key: 'followers', label: 'Followers', required: false, patterns: [/follower/i] }
+  ],
+  linkedin: [
+    { key: 'profileUrl', label: 'Profile URL', required: true, patterns: [/profile.?url/i, /^url$/i, /link/i] },
+    { key: 'fullName', label: 'Full name', required: true, patterns: [/full.?name/i, /^name$/i] },
+    { key: 'headline', label: 'Headline', required: false, patterns: [/headline/i, /title/i] },
+    { key: 'additionalInfo', label: 'Additional info', required: false, patterns: [/additional/i, /info/i, /note/i] }
+  ]
+};
 
 function escapeHtml(str) {
   return String(str ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
-const PHASE_MAX_STEP = { 1: 2, 2: 9, 3: 9 };
+const PHASE_MAX_STEP_BY_PLATFORM = {
+  instagram: { 1: 2, 2: 9, 3: 9 },
+  linkedin: { 1: 2, 2: 2, 3: 3 }
+};
 
-const STAGE_OPTIONS = [
-  { value: 'new', label: 'New' },
-  { value: 'phase1', label: 'Phase 1' },
-  { value: 'phase2', label: 'Phase 2' },
-  { value: 'phase3', label: 'Phase 3' },
-  { value: 'in_conversation', label: 'In conversation' },
-  { value: 'call_booked', label: 'Call booked' },
-  { value: 'dead', label: 'Dead' },
-  { value: 'cant_message', label: "Can't receive messages" }
-];
+const STAGE_OPTIONS_BY_PLATFORM = {
+  instagram: [
+    { value: 'new', label: 'New' },
+    { value: 'phase1', label: 'Phase 1' },
+    { value: 'phase2', label: 'Phase 2' },
+    { value: 'phase3', label: 'Phase 3' },
+    { value: 'in_conversation', label: 'In conversation' },
+    { value: 'call_booked', label: 'Call booked' },
+    { value: 'dead', label: 'Dead' },
+    { value: 'cant_message', label: "Can't receive messages" }
+  ],
+  linkedin: [
+    { value: 'new', label: 'New' },
+    { value: 'engaged', label: 'Engaged' },
+    { value: 'connection_sent', label: 'Connection sent' },
+    { value: 'phase1', label: 'Phase 1' },
+    { value: 'phase2', label: 'Phase 2' },
+    { value: 'phase3', label: 'Phase 3' },
+    { value: 'in_conversation', label: 'In conversation' },
+    { value: 'call_booked', label: 'Call booked' },
+    { value: 'dead', label: 'Dead' },
+    { value: 'cant_message', label: "Can't receive messages" }
+  ]
+};
+// 'All' needs every stage either platform can have — LinkedIn's list is
+// already that superset (Instagram has no stage LinkedIn doesn't).
+STAGE_OPTIONS_BY_PLATFORM.all = STAGE_OPTIONS_BY_PLATFORM.linkedin;
+
+function stageOptionsFor(platform) {
+  return STAGE_OPTIONS_BY_PLATFORM[platform] || STAGE_OPTIONS_BY_PLATFORM.instagram;
+}
 
 // Pipeline position, lowest first — drives the group ordering when the
-// stage filter has multiple stages selected.
-const STAGE_ORDER = Object.fromEntries(STAGE_OPTIONS.map((o, i) => [o.value, i]));
+// stage filter has multiple stages selected. Built from the superset list so
+// it's a single flat lookup regardless of which platform a given lead is.
+const STAGE_ORDER = Object.fromEntries(STAGE_OPTIONS_BY_PLATFORM.all.map((o, i) => [o.value, i]));
 
 function stageLabel(lead) {
   const stage = lead.stage;
   if (stage === 'phase1' || stage === 'phase2' || stage === 'phase3') {
     const phase = Number(stage.slice(-1));
-    const max = PHASE_MAX_STEP[phase];
+    const maxSteps = PHASE_MAX_STEP_BY_PLATFORM[lead.platform] || PHASE_MAX_STEP_BY_PLATFORM.instagram;
+    const max = maxSteps[phase];
     const step = Math.min(lead.phaseStep || 0, max);
     return `Phase ${phase} · ${step}/${max}`;
   }
@@ -76,6 +116,8 @@ function stageLabel(lead) {
   if (stage === 'dead') return 'Dead';
   if (stage === 'cant_message') return "Can't receive messages";
   if (stage === 'in_conversation') return 'In conversation';
+  if (stage === 'engaged') return 'Engaged';
+  if (stage === 'connection_sent') return 'Connection sent';
   return 'New';
 }
 
@@ -86,6 +128,8 @@ function stageClass(stage) {
   if (stage === 'dead') return 'dead';
   if (stage === 'in_conversation') return 'in-conversation';
   if (stage === 'cant_message') return 'cant-message';
+  if (stage === 'engaged') return 'engaged';
+  if (stage === 'connection_sent') return 'connection-sent';
   return '';
 }
 
@@ -128,20 +172,27 @@ function leadRowHtml(lead, index) {
   const selected = leadsState.selected.has(lead.id);
   const stageCls = stageClass(lead.stage);
   const hasNote = !!(lead.notes && lead.notes.trim());
+  const isLinkedin = lead.platform === 'linkedin';
   const rowClasses = ['leads-row', 'leads-row-body', stageCls, selected ? 'selected' : ''].filter(Boolean).join(' ');
+  // LinkedIn leads have no username — the same column position instead edits
+  // full name directly, since that's the closest equivalent identifier.
+  const nameField = isLinkedin
+    ? `<input type="text" value="${escapeHtml(lead.fullName)}" data-field="fullName" placeholder="Full name">`
+    : `<input type="text" value="${escapeHtml(lead.username)}" data-field="username" placeholder="username">`;
+  const options = stageOptionsFor(lead.platform);
   const row = `
     <div class="${rowClasses}" data-id="${lead.id}">
       <div class="lc lc-check"><input type="checkbox" class="row-select" ${selected ? 'checked' : ''}></div>
       <div class="lc lc-num">${index + 1}</div>
       <div class="lc lc-url">${urlCellHtml(lead)}</div>
       <div class="lc lc-username">
-        <input type="text" value="${escapeHtml(lead.username)}" data-field="username" placeholder="username">
+        ${nameField}
         ${hasNote ? '<span class="note-dot" title="Has a note"></span>' : ''}
       </div>
       <div class="lc lc-expand"><button type="button" class="expand-btn${expanded ? ' expanded' : ''}" title="Show details">&rsaquo;</button></div>
       <div class="lc lc-stage">
         <select class="stage-badge${stageCls ? ' ' + stageCls : ''}" data-field="stage">
-          ${STAGE_OPTIONS.map(o => {
+          ${options.map(o => {
             const isSelected = lead.stage === o.value;
             // The selected option's own text is what a closed <select> shows,
             // so give it the step-aware label ("Phase 2 · 4/9"); the rest of
@@ -153,7 +204,21 @@ function leadRowHtml(lead, index) {
       </div>
       <div class="lc lc-trash"><button type="button" class="trash-btn" title="Delete lead">🗑</button></div>
     </div>`;
-  const detail = `
+  // Full name already lives in the main row for LinkedIn (see nameField
+  // above), so its detail panel shows Headline + Additional info instead —
+  // no Followers field either, LinkedIn leads don't have one.
+  const detail = isLinkedin ? `
+    <div class="lead-detail${expanded ? '' : ' hidden'}" data-detail-id="${lead.id}">
+      <label class="lead-detail-full">Headline
+        <input type="text" value="${escapeHtml(lead.headline)}" data-field="headline">
+      </label>
+      <label class="lead-detail-full">Additional info
+        <textarea rows="2" data-field="bio" class="auto-resize">${escapeHtml(lead.bio)}</textarea>
+      </label>
+      <label class="lead-detail-full">Note
+        <textarea rows="2" data-field="notes" class="auto-resize" placeholder="Anything worth remembering about this lead...">${escapeHtml(lead.notes)}</textarea>
+      </label>
+    </div>` : `
     <div class="lead-detail${expanded ? '' : ' hidden'}" data-detail-id="${lead.id}">
       <label>Full name
         <input type="text" value="${escapeHtml(lead.fullName)}" data-field="fullName">
@@ -244,6 +309,23 @@ $('#leads-search').addEventListener('input', (e) => {
   renderLeadsTable();
 });
 
+// ---------- Platform filter ----------
+
+$('#leads-platform-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.range-tab');
+  if (!btn) return;
+  $all('#leads-platform-tabs .range-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  leadsState.platformFilter = btn.dataset.platform;
+  // The stage set differs per platform (LinkedIn has engaged/connection_sent
+  // Instagram doesn't) — a stage filter carried over from the other platform
+  // could silently hide everything, so it's cleared on every switch.
+  leadsState.stageFilter.clear();
+  leadsState.page = 0;
+  updateStageFilterButton();
+  renderLeadsTable();
+});
+
 // ---------- Stage filter ----------
 
 function updateStageFilterButton() {
@@ -259,6 +341,19 @@ function closeStageFilterDropdown() {
   $('#stage-filter-dropdown').classList.add('hidden');
 }
 
+// The available stages depend on the active platform tab (LinkedIn has
+// engaged/connection_sent, Instagram doesn't) — rendered fresh whenever the
+// platform tab changes rather than a static list that would drift out of
+// sync with STAGE_OPTIONS_BY_PLATFORM.
+function renderStageFilterOptions() {
+  const options = stageOptionsFor(leadsState.platformFilter);
+  $('#stage-filter-options').innerHTML = options.map(o => `
+    <label class="stage-filter-option">
+      <input type="checkbox" value="${o.value}"${leadsState.stageFilter.has(o.value) ? ' checked' : ''}> ${escapeHtml(o.label)}
+    </label>
+  `).join('');
+}
+
 $('#stage-filter-btn').addEventListener('click', (e) => {
   e.stopPropagation();
   const dropdown = $('#stage-filter-dropdown');
@@ -266,6 +361,7 @@ $('#stage-filter-btn').addEventListener('click', (e) => {
     closeStageFilterDropdown();
     return;
   }
+  renderStageFilterOptions();
   // position:fixed, placed from the button's own rect — independent of
   // any ancestor's overflow/clipping, so a short or filtered-down table
   // can never cut it off.
@@ -342,7 +438,7 @@ function updateStageStyling(id, lead) {
   const select = row.querySelector('.stage-badge');
   if (!select) return;
   select.className = 'stage-badge' + (stageCls ? ` ${stageCls}` : '');
-  select.innerHTML = STAGE_OPTIONS.map(o => {
+  select.innerHTML = stageOptionsFor(lead.platform).map(o => {
     const isSelected = lead.stage === o.value;
     const label = isSelected ? stageLabel(lead) : o.label;
     return `<option value="${o.value}"${isSelected ? ' selected' : ''}>${escapeHtml(label)}</option>`;
@@ -630,32 +726,68 @@ $('#delete-confirm-btn').addEventListener('click', () => {
 
 // ---------- Add lead modal ----------
 
+function updateAddModalFieldsForPlatform() {
+  const isLinkedin = $('#add-platform-linkedin').checked;
+  $('#add-username-row').classList.toggle('hidden', isLinkedin);
+  $('#add-followers-row').classList.toggle('hidden', isLinkedin);
+  $('#add-headline-row').classList.toggle('hidden', !isLinkedin);
+  $('#add-bio-label').textContent = isLinkedin ? 'Additional info' : 'Bio';
+  $('#add-profileUrl').placeholder = isLinkedin ? 'https://www.linkedin.com/in/username/' : 'https://www.instagram.com/username/';
+}
+
+$('#add-platform-row').addEventListener('change', (e) => {
+  if (e.target.name !== 'add-platform') return;
+  updateAddModalFieldsForPlatform();
+});
+
 $('#leads-add-btn').addEventListener('click', () => {
-  ['profileUrl', 'username', 'fullName', 'bio', 'followers', 'notes'].forEach(f => {
+  ['profileUrl', 'username', 'fullName', 'headline', 'bio', 'followers', 'notes'].forEach(f => {
     const el = $(`#add-${f}`);
     if (el) el.value = '';
   });
+  $('#add-platform-instagram').checked = leadsState.platformFilter !== 'linkedin';
+  $('#add-platform-linkedin').checked = leadsState.platformFilter === 'linkedin';
+  updateAddModalFieldsForPlatform();
   $('#leads-add-modal').classList.remove('hidden');
 });
 
 $('#add-cancel-btn').addEventListener('click', () => $('#leads-add-modal').classList.add('hidden'));
 
 $('#add-confirm-btn').addEventListener('click', async () => {
+  const platform = $('#add-platform-linkedin').checked ? 'linkedin' : 'instagram';
   const profileUrl = $('#add-profileUrl').value.trim();
-  const username = $('#add-username').value.trim().replace('@', '');
-  if (!profileUrl && !username) {
-    alert('Enter at least a profile URL or username.');
-    return;
+  let body;
+  if (platform === 'linkedin') {
+    const fullName = $('#add-fullName').value.trim();
+    if (!profileUrl && !fullName) {
+      alert('Enter at least a profile URL or full name.');
+      return;
+    }
+    body = {
+      platform,
+      profileUrl,
+      fullName,
+      headline: $('#add-headline').value.trim(),
+      bio: $('#add-bio').value,
+      notes: $('#add-notes').value
+    };
+  } else {
+    const username = $('#add-username').value.trim().replace('@', '');
+    if (!profileUrl && !username) {
+      alert('Enter at least a profile URL or username.');
+      return;
+    }
+    const usernameMatch = profileUrl.match(/instagram\.com\/([a-zA-Z0-9._]+)/);
+    body = {
+      platform,
+      profileUrl: profileUrl || (username ? `https://www.instagram.com/${username}/` : ''),
+      username: username || (usernameMatch ? usernameMatch[1] : ''),
+      fullName: $('#add-fullName').value.trim(),
+      bio: $('#add-bio').value,
+      followers: $('#add-followers').value,
+      notes: $('#add-notes').value
+    };
   }
-  const usernameMatch = profileUrl.match(/instagram\.com\/([a-zA-Z0-9._]+)/);
-  const body = {
-    profileUrl: profileUrl || (username ? `https://www.instagram.com/${username}/` : ''),
-    username: username || (usernameMatch ? usernameMatch[1] : ''),
-    fullName: $('#add-fullName').value.trim(),
-    bio: $('#add-bio').value,
-    followers: $('#add-followers').value,
-    notes: $('#add-notes').value
-  };
   const btn = $('#add-confirm-btn');
   btn.disabled = true;
   try {
@@ -686,6 +818,9 @@ function resetCsvState() {
 
 function handleCsvFile(file) {
   resetCsvState();
+  // Defaults to the page's active platform tab (falling back to Instagram
+  // when viewing "All", since a single CSV import is always one platform).
+  csvState.platform = leadsState.platformFilter === 'linkedin' ? 'linkedin' : 'instagram';
   const reader = new FileReader();
   reader.onload = () => {
     const text = String(reader.result || '');
@@ -722,10 +857,10 @@ leadsFileInput.addEventListener('change', e => {
   if (file) handleCsvFile(file);
 });
 
-function autoMapColumns(headers) {
+function autoMapColumns(headers, platform) {
   const used = new Set();
   const mapping = {};
-  LEAD_FIELDS.forEach(field => {
+  LEAD_FIELDS_BY_PLATFORM[platform].forEach(field => {
     let found = -1;
     for (const pattern of field.patterns) {
       const idx = headers.findIndex((h, i) => !used.has(i) && pattern.test(h));
@@ -738,11 +873,18 @@ function autoMapColumns(headers) {
 }
 
 function openMappingModal() {
+  $('#mapping-platform-instagram').checked = csvState.platform === 'instagram';
+  $('#mapping-platform-linkedin').checked = csvState.platform === 'linkedin';
+  renderMappingGrid();
+  $('#leads-mapping-modal').classList.remove('hidden');
+}
+
+function renderMappingGrid() {
   const grid = $('#mapping-grid');
   grid.innerHTML = '';
-  csvState.mapping = autoMapColumns(csvState.headers);
+  csvState.mapping = autoMapColumns(csvState.headers, csvState.platform);
 
-  LEAD_FIELDS.forEach(field => {
+  LEAD_FIELDS_BY_PLATFORM[csvState.platform].forEach(field => {
     const wrap = document.createElement('label');
     wrap.textContent = field.label + (field.required ? ' *' : '');
     const sel = document.createElement('select');
@@ -766,15 +908,21 @@ function openMappingModal() {
   });
 
   renderMappingPreview();
-  $('#leads-mapping-modal').classList.remove('hidden');
 }
+
+$('#mapping-platform-row').addEventListener('change', (e) => {
+  if (e.target.name !== 'mapping-platform') return;
+  csvState.platform = e.target.value;
+  renderMappingGrid();
+});
 
 function renderMappingPreview() {
   const table = $('#mapping-preview');
+  const fields = LEAD_FIELDS_BY_PLATFORM[csvState.platform];
   const previewRows = csvState.rows.slice(0, 4);
-  let html = '<tr>' + LEAD_FIELDS.map(f => `<th>${escapeHtml(f.label)}</th>`).join('') + '</tr>';
+  let html = '<tr>' + fields.map(f => `<th>${escapeHtml(f.label)}</th>`).join('') + '</tr>';
   previewRows.forEach(row => {
-    html += '<tr>' + LEAD_FIELDS.map(f => {
+    html += '<tr>' + fields.map(f => {
       const idx = csvState.mapping[f.key];
       const val = idx >= 0 ? (row[idx] || '') : '';
       return `<td>${escapeHtml(val)}</td>`;
@@ -798,6 +946,18 @@ $('#mapping-cancel-btn').addEventListener('click', closeMappingModal);
 
 function buildLeadsFromMapping() {
   const mapping = csvState.mapping;
+  if (csvState.platform === 'linkedin') {
+    const leads = csvState.rows.map(row => ({
+      profileUrl: mapping.profileUrl >= 0 ? (row[mapping.profileUrl] || '').trim() : '',
+      fullName: mapping.fullName >= 0 ? (row[mapping.fullName] || '').trim() : '',
+      headline: mapping.headline >= 0 ? (row[mapping.headline] || '').trim() : '',
+      // "Additional info" is LinkedIn's equivalent of Instagram's bio field
+      // (same underlying column server-side — see LEAD_PATCH_FIELDS).
+      bio: mapping.additionalInfo >= 0 ? (row[mapping.additionalInfo] || '') : ''
+    })).filter(l => l.profileUrl || l.fullName);
+    return leads;
+  }
+
   const leads = csvState.rows.map(row => ({
     profileUrl: mapping.profileUrl >= 0 ? (row[mapping.profileUrl] || '').trim() : '',
     username: mapping.username >= 0 ? (row[mapping.username] || '').trim().replace('@', '') : '',
@@ -850,7 +1010,7 @@ async function importLeadsInChunks() {
       const data = await fetchJson('/api/leads/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ leads: chunk })
+        body: JSON.stringify({ leads: chunk, platform: csvState.platform })
       }, 30000);
       csvState.importedCount += chunk.length;
       csvState.duplicatesSkipped += data.duplicates || 0;
@@ -876,8 +1036,9 @@ async function importLeadsInChunks() {
 $('#mapping-confirm-btn').addEventListener('click', async () => {
   if (!csvState.leadsToImport) {
     const mapping = csvState.mapping;
-    if (mapping.profileUrl < 0 && mapping.username < 0) {
-      alert('Map at least Profile URL or Username.');
+    const idField = csvState.platform === 'linkedin' ? 'fullName' : 'username';
+    if (mapping.profileUrl < 0 && mapping[idField] < 0) {
+      alert(`Map at least Profile URL or ${csvState.platform === 'linkedin' ? 'Full name' : 'Username'}.`);
       return;
     }
     const leads = buildLeadsFromMapping();

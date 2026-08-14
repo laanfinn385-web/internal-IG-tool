@@ -35,6 +35,11 @@
      to a booked call — distinct warm tone rather than reusing green or the
      blue ramp (phase2 already uses amber). */
   --stage-in-conversation: #db2777;
+  /* LinkedIn-only pre-phase1 stages — teal/violet, deliberately outside the
+     Instagram phase ramp (blue/amber/cyan) since they're a different funnel
+     stage entirely, not an Instagram phase equivalent. */
+  --stage-engaged: #0d9488;
+  --stage-connection-sent: #7c3aed;
 }
 
 /* Deliberately no dark-mode media query — this app should always render the
@@ -693,6 +698,7 @@ input:focus, textarea:focus, select:focus {
 .leads-header { margin-bottom: 18px; align-items: flex-start; }
 .leads-header h1 { margin: 0; }
 .leads-header .muted { margin: 2px 0 0; }
+.leads-header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 .leads-toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
 
 .leads-search-row { margin-bottom: 14px; }
@@ -1049,6 +1055,16 @@ input:focus, textarea:focus, select:focus {
   color: var(--stage-cant-message);
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%2371717a' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
 }
+.stage-badge.engaged {
+  background-color: rgba(13, 148, 136, 0.13);
+  color: var(--stage-engaged);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%230d9488' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.stage-badge.connection-sent {
+  background-color: rgba(124, 58, 237, 0.13);
+  color: var(--stage-connection-sent);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%237c3aed' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
 
 .lead-detail {
   padding: 14px 16px 18px 70px;
@@ -1101,6 +1117,8 @@ input:focus, textarea:focus, select:focus {
   cursor: pointer;
 }
 .radio-label input { width: auto; margin: 0; }
+.radio-row { display: flex; gap: 10px; margin-bottom: 12px; }
+.radio-row .radio-label { flex: 1; margin-bottom: 0; justify-content: center; }
 .range-inputs { display: flex; gap: 12px; margin: 6px 0 4px 34px; }
 .range-inputs label { flex: 1; }
 

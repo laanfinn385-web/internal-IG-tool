@@ -311,10 +311,17 @@
           <h1 class="page-title">Leads</h1>
           <p class="muted" id="leads-total-count"></p>
         </div>
-        <div class="leads-toolbar" id="leads-toolbar-actions">
-          <button id="leads-add-btn" class="btn-secondary">+ Add lead</button>
-          <button id="leads-import-btn" class="btn-secondary">⬆ Import CSV</button>
-          <button id="leads-delete-btn" class="btn-secondary btn-danger-outline">🗑 Delete leads</button>
+        <div class="leads-header-right">
+          <div class="range-tabs" id="leads-platform-tabs">
+            <button type="button" class="range-tab" data-platform="instagram">Instagram</button>
+            <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
+            <button type="button" class="range-tab active" data-platform="all">All</button>
+          </div>
+          <div class="leads-toolbar" id="leads-toolbar-actions">
+            <button id="leads-add-btn" class="btn-secondary">+ Add lead</button>
+            <button id="leads-import-btn" class="btn-secondary">⬆ Import CSV</button>
+            <button id="leads-delete-btn" class="btn-secondary btn-danger-outline">🗑 Delete leads</button>
+          </div>
         </div>
       </div>
 
@@ -345,7 +352,7 @@
             <div class="lc lc-check"><input type="checkbox" id="leads-select-all"></div>
             <div class="lc lc-num">#</div>
             <div class="lc lc-url">Profile URL</div>
-            <div class="lc lc-username">Username</div>
+            <div class="lc lc-username">Name</div>
             <div class="lc lc-expand"></div>
             <div class="lc lc-stage">
               <span>Stage</span>
@@ -368,14 +375,12 @@
 
       <!-- Positioned via JS (fixed, computed from the filter button's own
            rect) instead of CSS-anchored inside the table, so it can never
-           get clipped by the table's own rounded-corner overflow:hidden. -->
+           get clipped by the table's own rounded-corner overflow:hidden.
+           Checkbox options are rendered by JS (renderStageFilterOptions) —
+           the available stages depend on the active platform tab, so a
+           static list here would drift out of sync with STAGE_OPTIONS_BY_PLATFORM. -->
       <div id="stage-filter-dropdown" class="stage-filter-dropdown hidden">
-        <label class="stage-filter-option"><input type="checkbox" value="new"> New</label>
-        <label class="stage-filter-option"><input type="checkbox" value="phase1"> Phase 1</label>
-        <label class="stage-filter-option"><input type="checkbox" value="phase2"> Phase 2</label>
-        <label class="stage-filter-option"><input type="checkbox" value="phase3"> Phase 3</label>
-        <label class="stage-filter-option"><input type="checkbox" value="call_booked"> Call booked</label>
-        <label class="stage-filter-option"><input type="checkbox" value="dead"> Dead</label>
+        <div id="stage-filter-options"></div>
         <button type="button" id="stage-filter-clear" class="stage-filter-clear-btn">Clear filter</button>
       </div>
 
@@ -383,6 +388,16 @@
       <div id="leads-mapping-modal" class="modal-overlay hidden">
         <div class="modal">
           <h3>Map your columns</h3>
+          <div class="radio-row" id="mapping-platform-row">
+            <label class="radio-label">
+              <input type="radio" name="mapping-platform" value="instagram" id="mapping-platform-instagram" checked>
+              Instagram
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="mapping-platform" value="linkedin" id="mapping-platform-linkedin">
+              LinkedIn
+            </label>
+          </div>
           <p class="muted">Match the fields the tool needs to a column from your CSV.</p>
           <div class="mapping-grid" id="mapping-grid"></div>
           <p class="muted mapping-preview-label">Preview</p>
@@ -405,19 +420,32 @@
       <div id="leads-add-modal" class="modal-overlay hidden">
         <div class="modal">
           <h3>Add lead</h3>
+          <div class="radio-row" id="add-platform-row">
+            <label class="radio-label">
+              <input type="radio" name="add-platform" value="instagram" id="add-platform-instagram" checked>
+              Instagram
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="add-platform" value="linkedin" id="add-platform-linkedin">
+              LinkedIn
+            </label>
+          </div>
           <label>Profile URL
             <input type="text" id="add-profileUrl" placeholder="https://www.instagram.com/username/">
           </label>
-          <label>Username
+          <label id="add-username-row">Username
             <input type="text" id="add-username" placeholder="username">
           </label>
           <label>Full name
             <input type="text" id="add-fullName" placeholder="E.g. John Smith">
           </label>
-          <label>Bio
+          <label id="add-headline-row" class="hidden">Headline
+            <input type="text" id="add-headline" placeholder="E.g. Fitness Coach at Acme">
+          </label>
+          <label id="add-bio-row"><span id="add-bio-label">Bio</span>
             <textarea id="add-bio" rows="3" placeholder="Bio text..."></textarea>
           </label>
-          <label>Followers
+          <label id="add-followers-row">Followers
             <input type="number" id="add-followers" min="0" placeholder="E.g. 3200">
           </label>
           <label>Note (optional)

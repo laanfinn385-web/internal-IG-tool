@@ -49,6 +49,24 @@ function clearSession() {
 function $(sel) { return document.querySelector(sel); }
 function $all(sel) { return Array.from(document.querySelectorAll(sel)); }
 
+// ---------- Shared platform helpers ----------
+// LinkedIn leads have no username (there's no equivalent handle concept) and
+// no public DM deep-link scheme the way ig.me/m/ exists for Instagram — these
+// two helpers are the one place that distinction lives, used everywhere the
+// code would otherwise hardcode "@username" or an ig.me link (leads table,
+// follow-up cards, end-screen/saved-session result lists, the dashboard DM
+// button). `entry` is any lead-shaped object (a lead record, a session
+// profile, a follow-up-due row) with platform/username/fullName/profileUrl.
+function leadDisplayName(entry) {
+  if (entry.platform === 'linkedin') return entry.fullName || entry.profileUrl || 'Unknown';
+  return entry.username ? `@${entry.username}` : (entry.fullName || 'Unknown');
+}
+
+function leadDmUrl(entry) {
+  if (entry.platform === 'linkedin') return entry.profileUrl || '#';
+  return entry.username ? `https://ig.me/m/${entry.username}` : (entry.profileUrl || '#');
+}
+
 // ---------- Message composition & wording rotation ----------
 // Instagram can flag near-identical DMs sent over and over. Each template
 // category is split into 4 sentence slots — opener/hook/value/cta — each with
