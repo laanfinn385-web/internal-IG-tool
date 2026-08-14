@@ -1,6 +1,11 @@
 // Populated from the server (Settings page) so templates are editable
 // without a code change. {naam}, {views}, {months} are placeholders.
 let TEMPLATES = {};
+// LinkedIn has exactly one template (no stats-based suggestion — see
+// suggestTemplate below, which only makes sense for Instagram's
+// posts/week+views data). Kept in a separate object rather than merged into
+// TEMPLATES so Instagram's dropdown/suggestion code never sees it.
+let TEMPLATES_LINKEDIN = {};
 
 function renderTemplateString(str, placeholders) {
   return String(str || '')
@@ -11,12 +16,12 @@ function renderTemplateString(str, placeholders) {
 
 const MESSAGE_SLOTS = ['opener', 'hook', 'value', 'cta'];
 
-async function loadTemplatesFromServer() {
+async function loadTemplatesFromServer(platform = 'instagram') {
   try {
     // fetchJson (app.js) times out instead of hanging forever — this call
     // is awaited during app init, so an unprotected stalled request here
     // would leave the whole app stuck on a blank shell with no fallback.
-    const data = await fetchJson('/api/settings/templates', undefined, 10000);
+    const data = await fetchJson(`/api/settings/templates?platform=${platform}`, undefined, 10000);
     const map = {};
     (data.templates || []).forEach(t => {
       // Each category is built from 4 sentence slots (opener/hook/value/cta),
@@ -33,9 +38,10 @@ async function loadTemplatesFromServer() {
       });
       map[t.id] = { label: t.label, parts };
     });
-    TEMPLATES = map;
+    if (platform === 'linkedin') TEMPLATES_LINKEDIN = map;
+    else TEMPLATES = map;
   } catch (e) {
-    console.error('Could not load message templates', e);
+    console.error(`Could not load ${platform} message templates`, e);
   }
 }
 

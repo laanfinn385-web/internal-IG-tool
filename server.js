@@ -215,6 +215,7 @@ app.post('/api/outreach', asyncRoute(async (req, res) => {
     id: crypto.randomUUID(),
     date: todayStr(),
     createdAt: new Date().toISOString(),
+    platform: req.body.platform === 'linkedin' ? 'linkedin' : 'instagram',
     username: req.body.username || '',
     profileUrl: req.body.profileUrl || '',
     fullName: req.body.fullName || '',
@@ -229,8 +230,8 @@ app.post('/api/outreach', asyncRoute(async (req, res) => {
   };
 
   await sql`
-    INSERT INTO outreaches (id, date, created_at, username, profile_url, full_name, bio, followers, last_post_weeks, posts_per_week, avg_views, template, message, status)
-    VALUES (${record.id}, ${record.date}, ${record.createdAt}, ${record.username}, ${record.profileUrl}, ${record.fullName}, ${record.bio}, ${record.followers}, ${record.lastPostWeeks}, ${record.postsPerWeek}, ${record.avgViews}, ${record.template}, ${record.message}, ${record.status})
+    INSERT INTO outreaches (id, date, created_at, platform, username, profile_url, full_name, bio, followers, last_post_weeks, posts_per_week, avg_views, template, message, status)
+    VALUES (${record.id}, ${record.date}, ${record.createdAt}, ${record.platform}, ${record.username}, ${record.profileUrl}, ${record.fullName}, ${record.bio}, ${record.followers}, ${record.lastPostWeeks}, ${record.postsPerWeek}, ${record.avgViews}, ${record.template}, ${record.message}, ${record.status})
   `;
 
   res.json({ ok: true, record });
@@ -829,6 +830,7 @@ function mapSavedSessionRow(r) {
   return {
     id: r.id,
     createdAt: r.created_at,
+    sessionKind: r.session_kind,
     sessionMode: r.session_mode,
     sessionTarget: r.session_target,
     sentCount: r.sent_count,
@@ -838,13 +840,13 @@ function mapSavedSessionRow(r) {
 }
 
 app.post('/api/saved-sessions', asyncRoute(async (req, res) => {
-  const { sessionMode, sessionTarget, sentCount, results, remainingProfiles } = req.body;
+  const { sessionKind, sessionMode, sessionTarget, sentCount, results, remainingProfiles } = req.body;
   const remaining = Array.isArray(remainingProfiles) ? remainingProfiles : [];
   if (remaining.length === 0) return res.status(400).json({ error: 'Nothing to save — no remaining profiles.' });
   const id = crypto.randomUUID();
   await sql`
-    INSERT INTO saved_sessions (id, session_mode, session_target, sent_count, results, remaining_profiles)
-    VALUES (${id}, ${sessionMode || 'fixed'}, ${sessionTarget ?? null}, ${sentCount || 0}, ${JSON.stringify(Array.isArray(results) ? results : [])}, ${JSON.stringify(remaining)})
+    INSERT INTO saved_sessions (id, session_kind, session_mode, session_target, sent_count, results, remaining_profiles)
+    VALUES (${id}, ${sessionKind || 'ig_message'}, ${sessionMode || 'fixed'}, ${sessionTarget ?? null}, ${sentCount || 0}, ${JSON.stringify(Array.isArray(results) ? results : [])}, ${JSON.stringify(remaining)})
   `;
   res.json({ ok: true, id });
 }));

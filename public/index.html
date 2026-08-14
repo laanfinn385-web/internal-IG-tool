@@ -103,18 +103,40 @@
       <div class="card">
         <h2>Start new session</h2>
         <p class="muted">Pulls the next leads from your <a href="#" data-nav="leads" class="inline-link">Leads</a> list that haven't been contacted yet.</p>
-        <div class="session-size-row">
-          <div class="session-size-presets" id="session-size-presets">
-            <button type="button" class="preset-btn" data-size="10">10</button>
-            <button type="button" class="preset-btn active" data-size="15">15</button>
-            <button type="button" class="preset-btn" data-size="25">25</button>
-            <button type="button" class="preset-btn" data-size="50">50</button>
-            <button type="button" class="preset-btn" data-size="100">100</button>
-          </div>
-          <label class="session-size-custom">Leads
-            <input type="number" id="session-size-input" min="1" value="15">
-          </label>
+
+        <div class="range-tabs" id="home-session-platform-tabs">
+          <button type="button" class="range-tab active" data-session-platform="instagram">Instagram session</button>
+          <button type="button" class="range-tab" data-session-platform="linkedin">LinkedIn session</button>
+          <button type="button" class="range-tab" data-session-platform="combi">Combi session</button>
         </div>
+
+        <div id="home-session-single">
+          <div class="session-size-row">
+            <div class="session-size-presets" id="session-size-presets">
+              <button type="button" class="preset-btn" data-size="10">10</button>
+              <button type="button" class="preset-btn active" data-size="15">15</button>
+              <button type="button" class="preset-btn" data-size="25">25</button>
+              <button type="button" class="preset-btn" data-size="50">50</button>
+              <button type="button" class="preset-btn" data-size="100">100</button>
+            </div>
+            <label class="session-size-custom">Leads
+              <input type="number" id="session-size-input" min="1" value="15">
+            </label>
+          </div>
+        </div>
+
+        <div id="home-session-combi" class="hidden">
+          <p class="muted">Goes through all Instagram leads first, then LinkedIn.</p>
+          <div class="combi-size-row">
+            <label>Instagram leads
+              <input type="number" id="combi-ig-size-input" min="1" value="15">
+            </label>
+            <label>LinkedIn leads
+              <input type="number" id="combi-li-size-input" min="1" value="15">
+            </label>
+          </div>
+        </div>
+
         <div class="row-between">
           <span class="muted">&nbsp;</span>
           <button id="start-session-btn" class="btn-primary">Start session →</button>
@@ -133,6 +155,62 @@
         <div class="muted" id="preload-eta-text"></div>
         <button id="preload-continue-btn" class="btn-secondary" type="button">Skip waiting →</button>
       </div>
+    </section>
+
+    <!-- COMBI INTERSTITIAL -->
+    <section id="view-combi-interstitial" class="view hidden">
+      <div class="end-hero">
+        <div class="end-emoji">✅</div>
+        <h1>Finished all Instagram leads</h1>
+        <p class="end-sub" id="combi-interstitial-summary"></p>
+      </div>
+      <div class="decision-row">
+        <button id="combi-save-li-btn" class="btn-secondary">💾 Save LinkedIn leads for later</button>
+        <button id="combi-continue-li-btn" class="btn-primary">Move on to LinkedIn leads →</button>
+      </div>
+    </section>
+
+    <!-- SIMPLE SESSION (LinkedIn engagement / connection-request sessions —
+         just a name, a clickable profile link, and two buttons) -->
+    <section id="view-simple-session" class="view hidden">
+      <div class="progress-wrap">
+        <div class="progress-main">
+          <div class="progress-label"><span id="simple-progress-current">1</span> / <span id="simple-progress-total">15</span></div>
+          <div class="progress-bar"><div class="progress-fill" id="simple-progress-fill"></div></div>
+        </div>
+        <button id="simple-quit-save-btn" class="btn-quit-save" type="button" title="Save the rest of this session for later">⏸ Quit &amp; save</button>
+      </div>
+
+      <div class="card simple-session-card">
+        <h2 id="simple-session-title">LinkedIn session</h2>
+        <div class="simple-session-name" id="simple-session-fullname">–</div>
+        <a id="simple-session-link" href="#" target="li_preview" rel="noopener" class="profile-link-btn">Open profile on LinkedIn ↗</a>
+      </div>
+
+      <div class="decision-row">
+        <button id="simple-negative-btn" class="btn-reject">✕ Not qualified</button>
+        <button id="simple-positive-btn" class="btn-accept">✓ Engaged</button>
+      </div>
+    </section>
+
+    <!-- SIMPLE SESSION END SCREEN -->
+    <section id="view-simple-end" class="view hidden">
+      <div class="end-hero">
+        <div class="end-emoji">🎉</div>
+        <h1>Well done!</h1>
+        <p class="end-sub" id="simple-end-summary-line"></p>
+      </div>
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="stat-value" id="simple-end-positive-count">0</div>
+          <div class="stat-label" id="simple-end-positive-label">engaged</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="simple-end-negative-count">0</div>
+          <div class="stat-label" id="simple-end-negative-label">not qualified</div>
+        </div>
+      </div>
+      <button id="simple-end-back-btn" class="btn-primary">← Back to home</button>
     </section>
 
     <!-- DASHBOARD -->
@@ -163,10 +241,13 @@
           <label>Full name
             <input type="text" id="f-fullname" placeholder="E.g. John Smith">
           </label>
-          <label>Username
+          <label id="f-username-row">Username
             <input type="text" id="f-username" placeholder="username">
           </label>
-          <label>Bio
+          <label id="f-headline-row" class="hidden">Headline
+            <input type="text" id="f-headline" placeholder="E.g. Fitness Coach at Acme">
+          </label>
+          <label><span id="f-bio-label">Bio</span>
             <textarea id="f-bio" rows="3" placeholder="Bio text..."></textarea>
           </label>
         </div>
@@ -189,10 +270,12 @@
 
         <div class="card message-card">
           <h2>Message</h2>
-          <label>Selected template
-            <select id="f-template"></select>
-          </label>
-          <div class="suggestion-reason muted" id="suggestion-reason"></div>
+          <div id="template-select-row">
+            <label>Selected template
+              <select id="f-template"></select>
+            </label>
+            <div class="suggestion-reason muted" id="suggestion-reason"></div>
+          </div>
           <label>Message (editable)
             <textarea id="f-message" rows="7"></textarea>
           </label>

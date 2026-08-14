@@ -594,9 +594,38 @@ $('#leads-selection-delete').addEventListener('click', () => {
 $('#leads-selection-start').addEventListener('click', () => {
   const selectedLeads = leadsState.leads.filter(l => leadsState.selected.has(l.id));
   if (selectedLeads.length === 0) return;
+
+  // A session is one kind of UI for its whole run — mixing platforms (or
+  // LinkedIn stages that imply different session kinds) has no single right
+  // answer, so it's rejected outright rather than guessed at.
+  const platforms = new Set(selectedLeads.map(l => l.platform));
+  if (platforms.size > 1) {
+    alert('Select leads from only one platform at a time to start a session.');
+    return;
+  }
+  const platform = selectedLeads[0].platform;
+
+  let kind = 'ig_message';
+  if (platform === 'linkedin') {
+    const stages = new Set(selectedLeads.map(l => l.stage));
+    if (stages.size > 1) {
+      alert('Select leads that are all in the same stage to start a session.');
+      return;
+    }
+    const stage = selectedLeads[0].stage;
+    if (stage === 'new') {
+      kind = 'li_engagement';
+    } else if (stage === 'connection_sent') {
+      kind = 'li_message';
+    } else {
+      alert("Select either brand-new leads (for an engagement session) or leads whose connection request was accepted (for a phase 1 message session) to start a session here. Other stages don't have a session — use the stage dropdown to move a lead directly.");
+      return;
+    }
+  }
+
   leadsState.selected.clear();
   updateSelectionBar();
-  beginSessionWithLeads(selectedLeads);
+  beginSessionWithLeads(selectedLeads, { kind });
 });
 
 // ---------- Delete + undo ----------

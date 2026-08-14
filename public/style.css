@@ -366,6 +366,8 @@ input:focus, textarea:focus, select:focus {
 .preset-btn.active { background: linear-gradient(135deg, var(--purple), var(--purple-light)); color: white; border-color: transparent; }
 .session-size-custom { margin-bottom: 0; min-width: 90px; }
 .session-size-custom input { text-align: center; font-weight: 700; }
+.combi-size-row { display: flex; gap: 16px; margin: 10px 0 4px; }
+.combi-size-row label { flex: 1; }
 
 /* Dashboard */
 .progress-wrap { margin: 16px 0 10px; display: flex; align-items: center; gap: 14px; }
@@ -448,6 +450,19 @@ input:focus, textarea:focus, select:focus {
   gap: 16px;
 }
 .message-card { grid-column: 1 / -1; }
+
+/* Simple session (LinkedIn engagement/connection) — just a name and a link,
+   so it gets a single centered card instead of the dense dashboard-grid. */
+.simple-session-card {
+  text-align: center;
+  padding: 48px 24px;
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.simple-session-card h2 { color: var(--muted); font-size: 0.95rem; margin-bottom: 18px; }
+.simple-session-name { font-size: 1.6rem; font-weight: 800; font-family: var(--font-display); margin-bottom: 20px; }
+.simple-session-card .profile-link-btn { display: inline-block; padding: 12px 22px; }
 
 /* Clearance so the sticky decision-row (an always-visible action bar)
    never visually covers the bottom of the message card above it. */

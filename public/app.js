@@ -3,6 +3,10 @@ const state = {
   index: 0,           // current profile index
   results: [],         // {profile, status, template, message} for finished profiles this session
   viewsThreshold: 1000,  // overwritten from the server (Settings page) during init
+  // Which session UI this is: 'ig_message' | 'li_message' (full swipeable
+  // dashboard, with or without the IG-specific stats/suggestion UI) or
+  // 'li_engagement' | 'li_connection' (the simple name+link+2-buttons card).
+  sessionKind: 'ig_message',
   // Home's "reach N sent" flow vs the Leads page's "selected leads only" flow.
   // 'fixed' = exactly this list, no top-up (leads-selection). 'goal' = keep
   // fetching replacement leads on every disqualify until sentCount reaches
@@ -10,7 +14,10 @@ const state = {
   sessionMode: 'fixed',
   sessionTarget: null,
   sentCount: 0,
-  outOfLeads: false
+  outOfLeads: false,
+  // Set only for a combi session: { liLeads } — the not-yet-started LinkedIn
+  // batch, held here until the Instagram portion (state.profiles) finishes.
+  combi: null
 };
 
 const SESSION_KEY = 'outreach_session_v1';
@@ -24,10 +31,12 @@ function saveSession() {
       profiles: state.profiles,
       index: state.index,
       results: state.results,
+      sessionKind: state.sessionKind,
       sessionMode: state.sessionMode,
       sessionTarget: state.sessionTarget,
       sentCount: state.sentCount,
-      outOfLeads: state.outOfLeads
+      outOfLeads: state.outOfLeads,
+      combi: state.combi
     }));
   } catch (e) { /* storage full or unavailable — non-fatal */ }
 }
@@ -108,11 +117,20 @@ function shuffle(arr) {
   return a;
 }
 
+// TEMPLATES (Instagram, 6 categories x 4 slots each, picked by
+// suggestTemplate) vs TEMPLATES_LINKEDIN (one fixed opener, no suggestion —
+// see templates.js) are kept as separate objects so Instagram's dropdown
+// never sees the LinkedIn entry; this is the one place that picks between them.
+function templatesFor(platform) {
+  return platform === 'linkedin' ? TEMPLATES_LINKEDIN : TEMPLATES;
+}
+
 // Picks the next wording id for one slot (opener/hook/value/cta) of one
 // template category, drawing from a shuffled "bag" that's refilled (and
 // reshuffled) once emptied.
-function pickPart(key, slot) {
-  const parts = TEMPLATES[key] && TEMPLATES[key].parts && TEMPLATES[key].parts[slot];
+function pickPart(key, slot, platform) {
+  const templates = templatesFor(platform);
+  const parts = templates[key] && templates[key].parts && templates[key].parts[slot];
   if (!parts || parts.length === 0) return null;
   const allIds = parts.map(p => p.id);
   if (allIds.length === 1) return allIds[0];
@@ -137,9 +155,9 @@ function pickPart(key, slot) {
 
 // Draws a fresh id for every slot of a template category — used whenever the
 // category changes or the user asks for a different wording.
-function pickAllParts(key) {
+function pickAllParts(key, platform) {
   const partIds = {};
-  MESSAGE_SLOTS.forEach(slot => { partIds[slot] = pickPart(key, slot); });
+  MESSAGE_SLOTS.forEach(slot => { partIds[slot] = pickPart(key, slot, platform); });
   return partIds;
 }
 
@@ -436,12 +454,83 @@ function hideHomeError() { $('#home-session-error').classList.add('hidden'); }
 // one go" apart from "you genuinely don't have that many uncontacted leads".
 const MAX_SESSION_SIZE = 500;
 
-$('#start-session-btn').addEventListener('click', async () => {
+// Which of the three "Start new session" tabs is active. LinkedIn always
+// means an engagement session (per the user's spec — connection/message
+// sessions are notification- or selection-driven, never started from here).
+let homeSessionPlatform = 'instagram';
+
+$('#home-session-platform-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.range-tab');
+  if (!btn) return;
+  $all('#home-session-platform-tabs .range-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  homeSessionPlatform = btn.dataset.sessionPlatform;
+  $('#home-session-single').classList.toggle('hidden', homeSessionPlatform === 'combi');
+  $('#home-session-combi').classList.toggle('hidden', homeSessionPlatform !== 'combi');
   hideHomeError();
+});
+
+async function startSinglePlatformSession(platform) {
   // `|| 15` would treat an explicit "0" in the field as unset and silently
   // start a 15-profile session instead of rejecting/clamping it.
   const rawCount = Number($('#session-size-input').value);
   const count = Math.max(1, Number.isFinite(rawCount) && rawCount > 0 ? Math.round(rawCount) : 15);
+  const data = await fetchJson('/api/leads/next', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ count, platform })
+  });
+  const leads = data.leads || [];
+  if (leads.length < count) {
+    if (count > MAX_SESSION_SIZE && leads.length === MAX_SESSION_SIZE) {
+      showHomeError(`${MAX_SESSION_SIZE}+ (capped at ${MAX_SESSION_SIZE} per session)`, count);
+    } else {
+      showHomeError(leads.length, count);
+    }
+    return;
+  }
+  // Home means "reach N sent/engaged", not "show me N profiles" — decide()/
+  // decideSimple() keeps topping this session up with fresh leads on every
+  // disqualify until sentCount hits `count`, or the available-leads pool
+  // runs dry.
+  beginSessionWithLeads(leads, { mode: 'goal', target: count, kind: platform === 'linkedin' ? 'li_engagement' : 'ig_message' });
+}
+
+// Fetches both batches up front (rather than pulling LinkedIn leads only once
+// the Instagram portion finishes) so "Save LinkedIn leads for later" on the
+// interstitial screen has concrete leads to save — not just a number.
+async function startCombiSession() {
+  const rawIgCount = Number($('#combi-ig-size-input').value);
+  const igCount = Math.max(1, Number.isFinite(rawIgCount) && rawIgCount > 0 ? Math.round(rawIgCount) : 15);
+  const rawLiCount = Number($('#combi-li-size-input').value);
+  const liCount = Math.max(1, Number.isFinite(rawLiCount) && rawLiCount > 0 ? Math.round(rawLiCount) : 15);
+
+  const [igData, liData] = await Promise.all([
+    fetchJson('/api/leads/next', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: igCount, platform: 'instagram' }) }),
+    fetchJson('/api/leads/next', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ count: liCount, platform: 'linkedin' }) })
+  ]);
+  const igLeads = igData.leads || [];
+  const liLeads = liData.leads || [];
+  if (igLeads.length < igCount) {
+    showHomeError(igLeads.length, igCount);
+    return;
+  }
+  if (liLeads.length < liCount) {
+    showHomeError(liLeads.length, liCount);
+    return;
+  }
+
+  // The LinkedIn batch sits here — already converted to profile shape, same
+  // shape every other state.combi.liLeads consumer expects (see
+  // resumeSavedSession's 'combi' branch, which reconstructs this same shape
+  // from a saved session) — untouched until the Instagram portion ends (see
+  // the goalReached/hasNext branch in decide()).
+  state.combi = { liLeads: liLeads.map(leadToProfile) };
+  beginSessionWithLeads(igLeads, { mode: 'goal', target: igCount, kind: 'ig_message' });
+}
+
+$('#start-session-btn').addEventListener('click', async () => {
+  hideHomeError();
   const btn = $('#start-session-btn');
   btn.disabled = true;
   // No tab reservation here (there used to be one) — no tab opens anywhere
@@ -449,24 +538,11 @@ $('#start-session-btn').addEventListener('click', async () => {
   // this early would just sit there unused, which is exactly the stray
   // about:blank tab this used to leave behind.
   try {
-    const data = await fetchJson('/api/leads/next', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ count })
-    });
-    const leads = data.leads || [];
-    if (leads.length < count) {
-      if (count > MAX_SESSION_SIZE && leads.length === MAX_SESSION_SIZE) {
-        showHomeError(`${MAX_SESSION_SIZE}+ (capped at ${MAX_SESSION_SIZE} per session)`, count);
-      } else {
-        showHomeError(leads.length, count);
-      }
-      return;
+    if (homeSessionPlatform === 'combi') {
+      await startCombiSession();
+    } else {
+      await startSinglePlatformSession(homeSessionPlatform);
     }
-    // Home means "reach N sent messages", not "show me N profiles" — decide()
-    // keeps topping this session up with fresh leads on every disqualify
-    // until sentCount hits `count`, or the available-leads pool runs dry.
-    beginSessionWithLeads(leads, { mode: 'goal', target: count });
   } catch (e) {
     alert(`Could not start session: ${e.message}`);
   } finally {
@@ -477,9 +553,11 @@ $('#start-session-btn').addEventListener('click', async () => {
 function leadToProfile(l) {
   return {
     leadId: l.id,
+    platform: l.platform || 'instagram',
     username: l.username,
     profileUrl: l.profileUrl,
     fullName: l.fullName,
+    headline: l.headline || '',
     bio: l.bio,
     followers: l.followers ?? '',
     lastPostWeeks: '',
@@ -501,18 +579,33 @@ function leadToProfile(l) {
   };
 }
 
+// 'message' kinds (ig_message/li_message) go through the video-preload
+// screen (if applicable) then the full swipeable dashboard. 'simple' kinds
+// (LinkedIn engagement/connection) skip straight to the lightweight
+// swipeable card — neither renders a video or composes a message.
+const SIMPLE_SESSION_KINDS = ['li_engagement', 'li_connection'];
+
 // Shared by the home "next N" flow (goal mode — opts = {mode:'goal', target})
 // and the Leads page's "start session with selected" flow (fixed mode —
-// opts omitted, exactly this list, no top-up).
+// opts omitted, exactly this list, no top-up). opts.kind selects which UI
+// this session uses (default ig_message, the original/only kind before
+// LinkedIn support existed). opts.alreadyProfiles skips the leadToProfile
+// mapping for callers that already have profile-shaped objects (the combi
+// "move on to LinkedIn" transition — see state.combi.liLeads).
 function beginSessionWithLeads(leads, opts = {}) {
-  state.profiles = leads.map(leadToProfile);
+  state.profiles = opts.alreadyProfiles ? leads : leads.map(leadToProfile);
   state.index = 0;
   state.results = [];
+  state.sessionKind = opts.kind || 'ig_message';
   state.sessionMode = opts.mode || 'fixed';
   state.sessionTarget = opts.target || null;
   state.sentCount = 0;
   state.outOfLeads = false;
   saveSession();
+  if (SIMPLE_SESSION_KINDS.includes(state.sessionKind)) {
+    enterSimpleSession();
+    return;
+  }
   // No tab is opened here at all — preloadSessionVideos() shows a "GO!"
   // button once rendering is actually ready, and that click (a fresh,
   // direct user gesture) is what opens the first profile's tab. Opening
@@ -537,6 +630,7 @@ function openProfileTab(url) {
 function renderProfile() {
   const p = currentProfile();
   if (!p) return;
+  const isLinkedin = p.platform === 'linkedin';
 
   // Goal mode's profile count grows as the queue tops itself up, so "current
   // / total profiles" would be a moving, confusing target — show progress
@@ -552,19 +646,41 @@ function renderProfile() {
   }
 
   $('#profile-link').href = p.profileUrl;
+  $('#profile-link').textContent = isLinkedin ? 'Open profile on LinkedIn ↗' : 'Open profile on Instagram ↗';
   $('#f-fullname').value = p.fullName;
-  $('#f-username').value = p.username;
+  $('#f-username').value = p.username || '';
+  $('#f-headline').value = p.headline || '';
   $('#f-bio').value = p.bio;
+  $('#f-bio-label').textContent = isLinkedin ? 'Additional info' : 'Bio';
   $('#f-followers').value = p.followers;
   $('#f-lastpost').value = p.lastPostWeeks;
   $('#f-postsperweek').value = p.postsPerWeek;
   $('#f-avgviews').value = p.avgViews;
 
-  populateTemplateSelect();
-  // Only auto-suggest for a profile that hasn't had a template chosen yet —
-  // otherwise navigating away and back would silently discard a manual override.
-  $('#f-template').value = p.template || Object.keys(TEMPLATES)[0];
-  updateMessage(!p.template);
+  // LinkedIn leads have no username/stats/multi-template-suggestion —
+  // Instagram's fields for those don't apply, so the rows are hidden rather
+  // than shown empty. See leadDmUrl/leadDisplayName (app.js) for the same
+  // per-platform split applied everywhere else in the app.
+  $('#f-username-row').classList.toggle('hidden', isLinkedin);
+  $('#f-headline-row').classList.toggle('hidden', !isLinkedin);
+  $('.stats-card').classList.toggle('hidden', isLinkedin);
+  $('#template-select-row').classList.toggle('hidden', isLinkedin);
+  // No public LinkedIn DM deep link exists (see leadDmUrl) — "Open DM" would
+  // just duplicate the profile-link button above for a LinkedIn profile.
+  $('#dm-link').classList.toggle('hidden', isLinkedin);
+  // LinkedIn has exactly one wording (no bag to reshuffle from) — the button
+  // would visibly do nothing, which reads as broken rather than "already varied".
+  $('#reshuffle-btn').classList.toggle('hidden', isLinkedin);
+
+  if (isLinkedin) {
+    updateMessage(false);
+  } else {
+    populateTemplateSelect();
+    // Only auto-suggest for a profile that hasn't had a template chosen yet —
+    // otherwise navigating away and back would silently discard a manual override.
+    $('#f-template').value = p.template || Object.keys(TEMPLATES)[0];
+    updateMessage(!p.template);
+  }
   renderVideoSection();
   renderLeadStatusSection();
 
@@ -596,6 +712,19 @@ function updateMessage(useSuggestion) {
   const p = currentProfile();
   if (!p) return;
 
+  // LinkedIn has exactly one template and no stats to suggest from — always
+  // that one key, no dropdown/suggestion-reason UI (hidden in renderProfile).
+  if (p.platform === 'linkedin') {
+    const key = Object.keys(TEMPLATES_LINKEDIN)[0];
+    p.template = key;
+    if (key && (p.partsKey !== key || !p.partIds)) {
+      p.partIds = pickAllParts(key, 'linkedin');
+      p.partsKey = key;
+    }
+    renderMessageText();
+    return;
+  }
+
   if (useSuggestion) {
     const suggestion = suggestTemplate({
       lastPostWeeks: p.lastPostWeeks,
@@ -616,7 +745,7 @@ function updateMessage(useSuggestion) {
   // this profile otherwise (so paging back/forth or editing an unrelated
   // field doesn't keep reshuffling the wording under you).
   if (p.partsKey !== key || !p.partIds) {
-    p.partIds = pickAllParts(key);
+    p.partIds = pickAllParts(key, p.platform);
     p.partsKey = key;
   }
   renderMessageText();
@@ -631,7 +760,8 @@ function renderMessageText() {
   if (!p) return;
   const key = p.template;
   const placeholders = buildPlaceholders(p);
-  const parts = TEMPLATES[key] && TEMPLATES[key].parts;
+  const templates = templatesFor(p.platform);
+  const parts = templates[key] && templates[key].parts;
   // Guards against TEMPLATES still being {} if loadTemplatesFromServer()
   // hasn't resolved yet (or failed), or a cached part id no longer existing —
   // without this a stray click during that window throws mid-render and
@@ -650,13 +780,15 @@ function renderMessageText() {
   p.message = text;
   $('#f-message').value = text;
 
-  const dmLink = $('#dm-link');
-  dmLink.href = p.username ? `https://ig.me/m/${p.username}` : '#';
+  // Hidden for LinkedIn (see renderProfile) — nothing to point it at anyway.
+  if (p.platform !== 'linkedin') {
+    $('#dm-link').href = leadDmUrl(p);
+  }
   saveSession();
 }
 
 // field listeners -> keep state + message in sync
-['f-bio', 'f-followers'].forEach(id => {
+['f-bio', 'f-followers', 'f-headline'].forEach(id => {
   $(`#${id}`).addEventListener('input', syncFieldsToState);
 });
 // naam placeholder in the message depends on these two, so re-render the message text
@@ -678,6 +810,7 @@ function syncFieldsToState() {
   if (!p) return;
   p.fullName = $('#f-fullname').value;
   p.username = $('#f-username').value;
+  p.headline = $('#f-headline').value;
   p.bio = $('#f-bio').value;
   p.followers = $('#f-followers').value;
   p.lastPostWeeks = $('#f-lastpost').value;
@@ -1089,6 +1222,7 @@ async function decide(status) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          platform: p.platform,
           username: p.username,
           profileUrl: p.profileUrl,
           fullName: p.fullName,
@@ -1125,6 +1259,7 @@ async function decide(status) {
           profileUrl: p.profileUrl,
           username: p.username,
           fullName: p.fullName,
+          headline: p.headline,
           bio: p.bio,
           followers: p.followers,
           stage: 'phase1'
@@ -1142,6 +1277,7 @@ async function decide(status) {
   }
 
   state.results.push({
+    platform: p.platform,
     username: p.username,
     fullName: p.fullName,
     profileUrl: p.profileUrl,
@@ -1159,7 +1295,7 @@ async function decide(status) {
       const data = await fetchJson('/api/leads/next', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ count: 1, excludeIds })
+        body: JSON.stringify({ count: 1, excludeIds, platform: p.platform })
       });
       const newLeads = data.leads || [];
       if (newLeads.length > 0) {
@@ -1186,6 +1322,11 @@ async function decide(status) {
   if (!goalReached && hasNext) {
     state.index++;
     renderProfile();
+  } else if (state.combi && state.sessionKind === 'ig_message') {
+    // Instagram portion of a combi session just ended (goal reached, or ran
+    // out of Instagram leads) — the LinkedIn batch is already fetched and
+    // waiting in state.combi.liLeads (see startCombiSession).
+    showCombiInterstitial();
   } else {
     showEndScreen();
   }
@@ -1208,7 +1349,12 @@ function showEndScreen(opts = {}) {
   $('#end-cant-message-count').textContent = cantMessage.length;
 
   let lines;
-  if (opts.savedForLater) {
+  if (opts.combiLinkedInSaved) {
+    lines = [
+      `Instagram portion done — ${sent.length} message${sent.length === 1 ? '' : 's'} sent.`,
+      `Your LinkedIn leads are saved — pick them up anytime from Saved Sessions.`
+    ];
+  } else if (opts.savedForLater) {
     lines = [
       `Here's what you got through before quitting — ${state.results.length} profile${state.results.length === 1 ? '' : 's'} decided.`,
       `The rest of this session is saved — pick it up anytime from Saved Sessions.`
@@ -1236,30 +1382,76 @@ function showEndScreen(opts = {}) {
   // every other place in the app that renders lead-supplied text.
   const sentList = $('#end-sent-list');
   sentList.innerHTML = sent.length
-    ? sent.map(r => `<li><strong>@${escapeHtml(r.username)}</strong> ${r.fullName ? `(${escapeHtml(r.fullName)})` : ''} — ${escapeHtml(TEMPLATES[r.template]?.label || r.template)}</li>`).join('')
+    ? sent.map(r => `<li><strong>${escapeHtml(leadDisplayName(r))}</strong> ${r.fullName && r.platform !== 'linkedin' ? `(${escapeHtml(r.fullName)})` : ''} — ${escapeHtml(templatesFor(r.platform)[r.template]?.label || r.template)}</li>`).join('')
     : '<li class="muted">None</li>';
 
   const rejList = $('#end-rejected-list');
   rejList.innerHTML = rejected.length
-    ? rejected.map(r => `<li><strong>@${escapeHtml(r.username)}</strong> ${r.fullName ? `(${escapeHtml(r.fullName)})` : ''}</li>`).join('')
+    ? rejected.map(r => `<li><strong>${escapeHtml(leadDisplayName(r))}</strong> ${r.fullName && r.platform !== 'linkedin' ? `(${escapeHtml(r.fullName)})` : ''}</li>`).join('')
     : '<li class="muted">None</li>';
 
   const cantMessageList = $('#end-cant-message-list');
   cantMessageList.innerHTML = cantMessage.length
-    ? cantMessage.map(r => `<li><strong>@${escapeHtml(r.username)}</strong> ${r.fullName ? `(${escapeHtml(r.fullName)})` : ''}</li>`).join('')
+    ? cantMessage.map(r => `<li><strong>${escapeHtml(leadDisplayName(r))}</strong> ${r.fullName && r.platform !== 'linkedin' ? `(${escapeHtml(r.fullName)})` : ''}</li>`).join('')
     : '<li class="muted">None</li>';
 
   showView('end');
 }
 
+// ---------- COMBI INTERSTITIAL ----------
+// Shown once the Instagram half of a combi session ends (goal reached or ran
+// out of Instagram leads) — the LinkedIn batch is already sitting fetched in
+// state.combi.liLeads, waiting for one of these two choices.
+function showCombiInterstitial() {
+  const liCount = state.combi.liLeads.length;
+  $('#combi-interstitial-summary').textContent =
+    `${state.sentCount} sent on Instagram. ${liCount} LinkedIn lead${liCount === 1 ? '' : 's'} ready to go whenever you are.`;
+  showView('combi-interstitial');
+}
+
+$('#combi-continue-li-btn').addEventListener('click', () => {
+  const liProfiles = state.combi.liLeads; // already profile-shaped — see startCombiSession
+  const target = liProfiles.length;
+  state.combi = null;
+  beginSessionWithLeads(liProfiles, { mode: 'goal', target, kind: 'li_engagement', alreadyProfiles: true });
+});
+
+$('#combi-save-li-btn').addEventListener('click', async () => {
+  const btn = $('#combi-save-li-btn');
+  btn.disabled = true;
+  try {
+    await fetchJson('/api/saved-sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionKind: 'li_engagement',
+        sessionMode: 'goal',
+        sessionTarget: state.combi.liLeads.length,
+        sentCount: 0,
+        results: [],
+        remainingProfiles: state.combi.liLeads
+      })
+    });
+  } catch (e) {
+    btn.disabled = false;
+    alert(`Could not save the LinkedIn leads for later (${e.message}). Try again.`);
+    return;
+  }
+  state.combi = null;
+  btn.disabled = false;
+  showEndScreen({ combiLinkedInSaved: true });
+});
+
 function resetSessionState() {
   state.profiles = [];
   state.results = [];
   state.index = 0;
+  state.sessionKind = 'ig_message';
   state.sessionMode = 'fixed';
   state.sessionTarget = null;
   state.sentCount = 0;
   state.outOfLeads = false;
+  state.combi = null;
 }
 
 $('#back-home-btn').addEventListener('click', () => {
@@ -1278,7 +1470,15 @@ $('#quit-save-btn').addEventListener('click', async () => {
     return;
   }
 
-  const remainingProfiles = state.profiles.slice(state.index);
+  // Mid-combi, "remaining" spans two different session kinds: whatever's
+  // left of the Instagram portion, plus the LinkedIn batch that hasn't
+  // started at all yet. Each profile is tagged with its own sessionKind so
+  // resumeSavedSession can split them back apart later — see the 'combi'
+  // branch there.
+  const remainingProfiles = state.combi
+    ? state.profiles.slice(state.index).map(p => ({ ...p, sessionKind: 'ig_message' }))
+        .concat(state.combi.liLeads.map(p => ({ ...p, sessionKind: 'li_engagement' }))) // already profile-shaped — see startCombiSession
+    : state.profiles.slice(state.index);
   const btn = $('#quit-save-btn');
   btn.disabled = true;
   if (remainingProfiles.length > 0) {
@@ -1287,6 +1487,7 @@ $('#quit-save-btn').addEventListener('click', async () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          sessionKind: state.combi ? 'combi' : state.sessionKind,
           sessionMode: state.sessionMode,
           sessionTarget: state.sessionTarget,
           sentCount: state.sentCount,
@@ -1302,6 +1503,193 @@ $('#quit-save-btn').addEventListener('click', async () => {
   }
   btn.disabled = false;
   showEndScreen({ savedForLater: remainingProfiles.length > 0 });
+});
+
+// ---------- SIMPLE SESSION (LinkedIn engagement / connection) ----------
+// Both kinds share this exact same UI (name + clickable link + two buttons)
+// — only the labels and the stage the positive button targets differ. The
+// negative button is always a soft-delete, same "not qualified" semantics
+// the message-session dashboard already uses.
+const SIMPLE_SESSION_CONFIG = {
+  li_engagement: { title: 'Engagement session', positiveLabel: '✓ Engaged', negativeLabel: '✕ Not qualified', positiveStage: 'engaged' },
+  li_connection: { title: 'Connection session', positiveLabel: '✓ Connected', negativeLabel: '✕ Delete', positiveStage: 'connection_sent' }
+};
+
+function currentSimpleConfig() {
+  return SIMPLE_SESSION_CONFIG[state.sessionKind] || SIMPLE_SESSION_CONFIG.li_engagement;
+}
+
+function enterSimpleSession() {
+  showView('simple-session');
+  renderSimpleSessionProfile();
+}
+
+function renderSimpleSessionProfile() {
+  const p = currentProfile();
+  if (!p) return;
+  const cfg = currentSimpleConfig();
+
+  if (state.sessionMode === 'goal') {
+    $('#simple-progress-current').textContent = state.sentCount;
+    $('#simple-progress-total').textContent = state.sessionTarget;
+    $('#simple-progress-fill').style.width = `${Math.min(100, (state.sentCount / state.sessionTarget) * 100)}%`;
+  } else {
+    $('#simple-progress-current').textContent = state.index + 1;
+    $('#simple-progress-total').textContent = state.profiles.length;
+    $('#simple-progress-fill').style.width = `${(state.index / state.profiles.length) * 100}%`;
+  }
+
+  $('#simple-session-title').textContent = cfg.title;
+  $('#simple-session-fullname').textContent = p.fullName || 'Unknown';
+  $('#simple-session-link').href = p.profileUrl || '#';
+  $('#simple-positive-btn').textContent = cfg.positiveLabel;
+  $('#simple-negative-btn').textContent = cfg.negativeLabel;
+}
+
+async function decideSimple(positive) {
+  const p = currentProfile();
+  if (!p) return;
+  const cfg = currentSimpleConfig();
+  const status = positive ? cfg.positiveStage : 'not_qualified';
+
+  const positiveBtn = $('#simple-positive-btn');
+  const negativeBtn = $('#simple-negative-btn');
+  positiveBtn.disabled = true;
+  negativeBtn.disabled = true;
+
+  // Goal mode (Home's "reach N engaged") tops the queue back up on a
+  // disqualify the same way the message-session dashboard's decide() does —
+  // see the comment there for why the tab-reservation dance isn't needed
+  // here (no tab is opened automatically in a simple session at all).
+  const sentCountAfterThis = state.sentCount + (positive ? 1 : 0);
+  const willNeedTopUp = state.sessionMode === 'goal'
+    && state.index >= state.profiles.length - 1
+    && sentCountAfterThis < state.sessionTarget;
+
+  if (p.leadId) {
+    try {
+      if (positive) {
+        await fetchJson(`/api/leads/${p.leadId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stage: cfg.positiveStage })
+        });
+      } else {
+        await deleteLeads([p.leadId]);
+      }
+    } catch (e) {
+      alert(`Could not save that: ${e.message}`);
+      positiveBtn.disabled = false;
+      negativeBtn.disabled = false;
+      return;
+    }
+  }
+  loadNotifications();
+
+  state.results.push({ platform: p.platform, fullName: p.fullName, profileUrl: p.profileUrl, status });
+  if (positive) state.sentCount++;
+
+  if (willNeedTopUp) {
+    try {
+      const excludeIds = state.profiles.map(pr => pr.leadId).filter(Boolean);
+      const data = await fetchJson('/api/leads/next', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ count: 1, excludeIds, platform: p.platform })
+      });
+      const newLeads = data.leads || [];
+      if (newLeads.length > 0) {
+        state.profiles.push(leadToProfile(newLeads[0]));
+      } else {
+        state.outOfLeads = true;
+      }
+    } catch (e) {
+      console.error('Could not fetch more leads to keep this session going', e);
+      state.outOfLeads = true;
+    }
+  }
+
+  positiveBtn.disabled = false;
+  negativeBtn.disabled = false;
+
+  const goalReached = state.sessionMode === 'goal' && state.sentCount >= state.sessionTarget;
+  const hasNext = state.index < state.profiles.length - 1;
+  if (!goalReached && hasNext) {
+    state.index++;
+    saveSession();
+    renderSimpleSessionProfile();
+  } else {
+    showSimpleSessionEndScreen();
+  }
+}
+
+$('#simple-positive-btn').addEventListener('click', () => decideSimple(true));
+$('#simple-negative-btn').addEventListener('click', () => decideSimple(false));
+
+function showSimpleSessionEndScreen(opts = {}) {
+  const cfg = currentSimpleConfig();
+  const positive = state.results.filter(r => r.status === cfg.positiveStage);
+  const negative = state.results.filter(r => r.status !== cfg.positiveStage);
+
+  clearSession();
+  $('#simple-progress-fill').style.width = '100%';
+  $('#simple-end-positive-count').textContent = positive.length;
+  $('#simple-end-positive-label').textContent = cfg.positiveLabel.replace(/^[^\w]*/, '').toLowerCase();
+  $('#simple-end-negative-count').textContent = negative.length;
+  $('#simple-end-negative-label').textContent = cfg.negativeLabel.replace(/^[^\w]*/, '').toLowerCase();
+
+  let line;
+  if (opts.savedForLater) {
+    line = `Here's what you got through before quitting — ${state.results.length} lead${state.results.length === 1 ? '' : 's'} decided. The rest of this session is saved — pick it up anytime from Saved Sessions.`;
+  } else if (state.sessionMode === 'goal' && state.sentCount >= state.sessionTarget) {
+    line = `Goal reached — ${cfg.positiveLabel.replace(/^[^\w]*/, '').toLowerCase()} ${state.sentCount} of your target ${state.sessionTarget}.`;
+  } else if (state.sessionMode === 'goal' && state.outOfLeads) {
+    line = `Ran out of available leads before reaching your target — ${cfg.positiveLabel.replace(/^[^\w]*/, '').toLowerCase()} ${state.sentCount} of ${state.sessionTarget}. Import more leads to keep going.`;
+  } else {
+    line = `You've made it through all ${state.results.length} lead${state.results.length === 1 ? '' : 's'}.`;
+  }
+  $('#simple-end-summary-line').textContent = line;
+
+  showView('simple-end');
+}
+
+$('#simple-quit-save-btn').addEventListener('click', async () => {
+  if (state.results.length === 0) {
+    resetSessionState();
+    clearSession();
+    showView('home');
+    return;
+  }
+  const remainingProfiles = state.profiles.slice(state.index);
+  const btn = $('#simple-quit-save-btn');
+  btn.disabled = true;
+  if (remainingProfiles.length > 0) {
+    try {
+      await fetchJson('/api/saved-sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionKind: state.sessionKind,
+          sessionMode: state.sessionMode,
+          sessionTarget: state.sessionTarget,
+          sentCount: state.sentCount,
+          results: state.results,
+          remainingProfiles
+        })
+      });
+    } catch (e) {
+      btn.disabled = false;
+      alert(`Could not save the rest of this session (${e.message}). Nothing was lost — you're still where you were, try again.`);
+      return;
+    }
+  }
+  btn.disabled = false;
+  showSimpleSessionEndScreen({ savedForLater: remainingProfiles.length > 0 });
+});
+
+$('#simple-end-back-btn').addEventListener('click', () => {
+  resetSessionState();
+  showView('home');
 });
 
 // ---------- SAVED SESSIONS ----------
@@ -1418,27 +1806,52 @@ $('#saved-session-delete-btn').addEventListener('click', () => {
   if (savedSessionsState.viewingId) deleteSavedSession(savedSessionsState.viewingId);
 });
 
+// Resumes a plain (non-combi) saved session — always exactly one kind, so
+// this is the shared tail end of resumeSavedSession/resumeSavedSessionPortion.
+function enterResumedSession(profiles, sessionKind, sessionMode, sessionTarget, sentCount) {
+  state.profiles = profiles;
+  state.index = 0;
+  state.sessionKind = sessionKind;
+  state.sessionMode = sessionMode;
+  state.sessionTarget = sessionTarget;
+  state.sentCount = sentCount;
+  state.outOfLeads = false;
+  saveSession();
+  if (SIMPLE_SESSION_KINDS.includes(sessionKind)) {
+    enterSimpleSession();
+    return;
+  }
+  // No tab opened here — see the note in beginSessionWithLeads. The re-run
+  // preload's "GO!" button is what opens it once ready.
+  preloadSessionVideos();
+}
+
 function resumeSavedSession(session) {
   if (!session.remainingProfiles || session.remainingProfiles.length === 0) {
     fetchJson(`/api/saved-sessions/${session.id}`, { method: 'DELETE' }).catch(() => {});
     showView('home');
     return;
   }
-  state.profiles = session.remainingProfiles;
-  state.index = 0;
   state.results = session.results || [];
-  state.sessionMode = session.sessionMode || 'fixed';
-  state.sessionTarget = session.sessionTarget ?? null;
-  state.sentCount = session.sentCount || 0;
-  state.outOfLeads = false;
-  saveSession();
-  // No tab opened here — see the note in beginSessionWithLeads. The re-run
-  // preload's "GO!" button is what opens it once ready.
   // Consumed — remove it so it doesn't linger in the list while it's being
   // worked on again. Best-effort/not awaited: a failure here just leaves an
   // unused row behind (harmless clutter), not worth blocking on.
   fetchJson(`/api/saved-sessions/${session.id}`, { method: 'DELETE' }).catch(e => console.error('Could not remove saved session', e));
-  preloadSessionVideos();
+
+  if (session.sessionKind === 'combi') {
+    // Split back apart by the per-profile sessionKind tag set when this was
+    // quit-saved (see the quit-save-btn handler) — resume straight into
+    // whatever's left of the Instagram portion, with the LinkedIn batch
+    // stashed for the interstitial once that finishes, exactly like a fresh
+    // combi session.
+    const igProfiles = session.remainingProfiles.filter(p => p.sessionKind === 'ig_message');
+    const liProfiles = session.remainingProfiles.filter(p => p.sessionKind === 'li_engagement');
+    state.combi = { liLeads: liProfiles };
+    enterResumedSession(igProfiles, 'ig_message', session.sessionMode || 'goal', session.sessionTarget ?? null, session.sentCount || 0);
+    return;
+  }
+
+  enterResumedSession(session.remainingProfiles, session.sessionKind || 'ig_message', session.sessionMode || 'fixed', session.sessionTarget ?? null, session.sentCount || 0);
 }
 
 // ---------- ANALYTICS ----------
@@ -1589,18 +2002,25 @@ async function loadViewsThreshold() {
 }
 
 (async function init() {
-  await Promise.all([loadTemplatesFromServer(), loadViewsThreshold()]);
+  await Promise.all([loadTemplatesFromServer(), loadTemplatesFromServer('linkedin'), loadViewsThreshold()]);
   const saved = loadSession();
   if (saved && Array.isArray(saved.profiles) && saved.profiles.length > 0 && saved.index < saved.profiles.length) {
     state.profiles = saved.profiles;
     state.index = saved.index;
     state.results = saved.results || [];
+    state.sessionKind = saved.sessionKind || 'ig_message';
     state.sessionMode = saved.sessionMode || 'fixed';
     state.sessionTarget = saved.sessionTarget ?? null;
     state.sentCount = saved.sentCount || 0;
     state.outOfLeads = saved.outOfLeads || false;
-    showView('dashboard');
-    renderProfile();
+    state.combi = saved.combi || null;
+    if (SIMPLE_SESSION_KINDS.includes(state.sessionKind)) {
+      showView('simple-session');
+      renderSimpleSessionProfile();
+    } else {
+      showView('dashboard');
+      renderProfile();
+    }
   } else {
     showView('home');
   }
