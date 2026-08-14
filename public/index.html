@@ -365,6 +365,12 @@
     <section id="view-saved-sessions" class="view hidden">
       <div class="row-between leads-header">
         <h1>Saved Sessions</h1>
+        <div class="range-tabs" id="saved-sessions-type-tabs">
+          <button type="button" class="range-tab active" data-type-filter="all">All</button>
+          <button type="button" class="range-tab" data-type-filter="instagram">Instagram</button>
+          <button type="button" class="range-tab" data-type-filter="linkedin">LinkedIn</button>
+          <button type="button" class="range-tab" data-type-filter="combi">Combi</button>
+        </div>
       </div>
       <p class="muted" id="saved-sessions-empty">No saved sessions — use "Quit &amp; save" mid-session to pick one up later.</p>
       <div id="saved-sessions-list" class="saved-sessions-list"></div>
@@ -384,6 +390,12 @@
       <div class="saved-session-detail-actions">
         <button id="saved-session-continue-btn" class="btn-primary">Continue this session →</button>
         <button id="saved-session-delete-btn" class="btn-quit-save" type="button">🗑 Delete this saved session</button>
+      </div>
+      <!-- Combi sessions only — split the two portions apart instead of
+           resuming both at once. -->
+      <div class="saved-session-detail-actions hidden" id="saved-session-combi-actions">
+        <button id="saved-session-continue-ig-btn" class="btn-secondary">Continue with only IG leads →</button>
+        <button id="saved-session-continue-li-btn" class="btn-secondary">Continue with only LinkedIn leads →</button>
       </div>
     </section>
 

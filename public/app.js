@@ -1515,8 +1515,11 @@ const SIMPLE_SESSION_CONFIG = {
   li_connection: { title: 'Connection session', positiveLabel: '✓ Connected', negativeLabel: '✕ Delete', positiveStage: 'connection_sent' }
 };
 
+function currentSimpleConfigFor(kind) {
+  return SIMPLE_SESSION_CONFIG[kind] || SIMPLE_SESSION_CONFIG.li_engagement;
+}
 function currentSimpleConfig() {
-  return SIMPLE_SESSION_CONFIG[state.sessionKind] || SIMPLE_SESSION_CONFIG.li_engagement;
+  return currentSimpleConfigFor(state.sessionKind);
 }
 
 function enterSimpleSession() {
@@ -1693,16 +1696,42 @@ $('#simple-end-back-btn').addEventListener('click', () => {
 });
 
 // ---------- SAVED SESSIONS ----------
-const savedSessionsState = { sessions: [], viewingId: null };
+const savedSessionsState = { sessions: [], viewingId: null, typeFilter: 'all' };
+
+// Maps the persisted sessionKind to the display type the user asked for
+// ("whether it was an Instagram session, a LinkedIn session or a combi
+// session"). li_message/li_engagement/li_connection are all "LinkedIn" here
+// — the distinction between them only matters once you're inside resuming it.
+function savedSessionTypeCategory(session) {
+  if (session.sessionKind === 'combi') return 'combi';
+  if (session.sessionKind === 'ig_message') return 'instagram';
+  return 'linkedin';
+}
+function savedSessionTypeLabel(session) {
+  const cat = savedSessionTypeCategory(session);
+  return cat === 'combi' ? 'Combi' : cat === 'instagram' ? 'Instagram' : 'LinkedIn';
+}
 
 function savedSessionSummary(session) {
-  const sent = session.results.filter(r => r.status === 'sent').length;
-  const rejected = session.results.filter(r => r.status === 'not_qualified').length;
-  const cantMessage = session.results.filter(r => r.status === 'cant_message').length;
   const parts = [];
-  if (sent) parts.push(`${sent} sent`);
-  if (rejected) parts.push(`${rejected} not qualified`);
-  if (cantMessage) parts.push(`${cantMessage} can't message`);
+  // Simple sessions (engagement/connection) never have a 'sent' status —
+  // decideSimple() records the platform-specific positive stage instead
+  // (engaged/connection_sent), so they need their own bucket labels rather
+  // than the message-session sent/not-qualified/can't-message ones.
+  if (SIMPLE_SESSION_KINDS.includes(session.sessionKind)) {
+    const cfg = currentSimpleConfigFor(session.sessionKind);
+    const positive = session.results.filter(r => r.status === cfg.positiveStage).length;
+    const negative = session.results.length - positive;
+    if (positive) parts.push(`${positive} ${cfg.positiveLabel.replace(/^[^\w]*/, '').toLowerCase()}`);
+    if (negative) parts.push(`${negative} ${cfg.negativeLabel.replace(/^[^\w]*/, '').toLowerCase()}`);
+  } else {
+    const sent = session.results.filter(r => r.status === 'sent').length;
+    const rejected = session.results.filter(r => r.status === 'not_qualified').length;
+    const cantMessage = session.results.filter(r => r.status === 'cant_message').length;
+    if (sent) parts.push(`${sent} sent`);
+    if (rejected) parts.push(`${rejected} not qualified`);
+    if (cantMessage) parts.push(`${cantMessage} can't message`);
+  }
   parts.push(`${session.remainingProfiles.length} remaining`);
   return parts.join(' · ');
 }
@@ -1718,21 +1747,40 @@ async function loadSavedSessions() {
   renderSavedSessionsList();
 }
 
+$('#saved-sessions-type-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.range-tab');
+  if (!btn) return;
+  $all('#saved-sessions-type-tabs .range-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  savedSessionsState.typeFilter = btn.dataset.typeFilter;
+  renderSavedSessionsList();
+});
+
 function renderSavedSessionsList() {
   const list = $('#saved-sessions-list');
   const empty = $('#saved-sessions-empty');
-  if (savedSessionsState.sessions.length === 0) {
+  const filtered = savedSessionsState.typeFilter === 'all'
+    ? savedSessionsState.sessions
+    : savedSessionsState.sessions.filter(s => savedSessionTypeCategory(s) === savedSessionsState.typeFilter);
+
+  if (filtered.length === 0) {
     list.innerHTML = '';
+    empty.textContent = savedSessionsState.sessions.length === 0
+      ? 'No saved sessions — use "Quit & save" mid-session to pick one up later.'
+      : 'No saved sessions match this filter.';
     empty.classList.remove('hidden');
     return;
   }
   empty.classList.add('hidden');
   // username/fullName are freely-editable, possibly CSV-imported text —
   // escaped here like everywhere else this app renders lead-supplied text.
-  list.innerHTML = savedSessionsState.sessions.map(s => `
+  list.innerHTML = filtered.map(s => `
     <div class="saved-session-card" data-id="${s.id}">
       <div class="saved-session-main">
-        <div class="saved-session-date">${escapeHtml(timeAgo(s.createdAt))}</div>
+        <div class="saved-session-date-row">
+          <span class="saved-session-type-badge saved-session-type-${savedSessionTypeCategory(s)}">${escapeHtml(savedSessionTypeLabel(s))}</span>
+          <span class="saved-session-date">${escapeHtml(timeAgo(s.createdAt))}</span>
+        </div>
         <div class="saved-session-summary">${escapeHtml(savedSessionSummary(s))}</div>
       </div>
       <div class="saved-session-card-actions">
@@ -1785,13 +1833,15 @@ function showSavedSessionDetail(id) {
   if (!session) return;
   savedSessionsState.viewingId = id;
   $('#saved-session-summary').innerHTML = `
+    <span class="saved-session-type-badge saved-session-type-${savedSessionTypeCategory(session)}">${escapeHtml(savedSessionTypeLabel(session))}</span>
     <h3>${escapeHtml(timeAgo(session.createdAt))}</h3>
     <p class="muted">${escapeHtml(savedSessionSummary(session))}</p>
   `;
   const list = $('#saved-session-remaining-list');
   list.innerHTML = session.remainingProfiles.length
-    ? session.remainingProfiles.map(p => `<li><strong>@${escapeHtml(p.username || '')}</strong> ${p.fullName ? `(${escapeHtml(p.fullName)})` : ''}</li>`).join('')
+    ? session.remainingProfiles.map(p => `<li><strong>${escapeHtml(leadDisplayName(p))}</strong></li>`).join('')
     : '<li class="muted">None</li>';
+  $('#saved-session-combi-actions').classList.toggle('hidden', session.sessionKind !== 'combi');
   showView('saved-session-detail');
 }
 
@@ -1805,6 +1855,64 @@ $('#saved-session-continue-btn').addEventListener('click', () => {
 $('#saved-session-delete-btn').addEventListener('click', () => {
   if (savedSessionsState.viewingId) deleteSavedSession(savedSessionsState.viewingId);
 });
+
+// Combi detail view only — resumes just one half of a saved combi session.
+// The other half (if any profiles remain on that side) is re-saved as its
+// own fresh saved session first, so choosing "only IG" never silently drops
+// the LinkedIn leads still sitting there.
+async function resumeSavedSessionPortion(kind) {
+  const session = savedSessionsState.sessions.find(s => s.id === savedSessionsState.viewingId);
+  if (!session) return;
+  const chosen = session.remainingProfiles.filter(p => p.sessionKind === kind);
+  const other = session.remainingProfiles.filter(p => p.sessionKind !== kind);
+  if (chosen.length === 0) {
+    alert("There's nothing on that side to continue.");
+    return;
+  }
+
+  if (other.length > 0) {
+    const otherKind = other[0].sessionKind;
+    // The Instagram side may already have partial progress from before this
+    // was quit-saved (session.sentCount/sessionTarget/results always refer
+    // to the Instagram portion — see the quit-save-btn handler); the
+    // LinkedIn side never does, since it hadn't started yet.
+    const otherIsIg = otherKind === 'ig_message';
+    try {
+      await fetchJson('/api/saved-sessions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sessionKind: otherKind,
+          sessionMode: 'goal',
+          sessionTarget: otherIsIg ? session.sessionTarget : other.length,
+          sentCount: otherIsIg ? session.sentCount : 0,
+          results: otherIsIg ? session.results : [],
+          remainingProfiles: other
+        })
+      });
+    } catch (e) {
+      alert(`Could not save the other portion (${e.message}). Nothing was changed — try again.`);
+      return;
+    }
+  }
+
+  try {
+    await fetchJson(`/api/saved-sessions/${session.id}`, { method: 'DELETE' });
+  } catch (e) {
+    console.error('Could not remove the original combi saved session', e);
+  }
+
+  const chosenIsIg = kind === 'ig_message';
+  state.results = chosenIsIg ? (session.results || []) : [];
+  enterResumedSession(
+    chosen, kind, 'goal',
+    chosenIsIg ? session.sessionTarget : chosen.length,
+    chosenIsIg ? (session.sentCount || 0) : 0
+  );
+}
+
+$('#saved-session-continue-ig-btn').addEventListener('click', () => resumeSavedSessionPortion('ig_message'));
+$('#saved-session-continue-li-btn').addEventListener('click', () => resumeSavedSessionPortion('li_engagement'));
 
 // Resumes a plain (non-combi) saved session — always exactly one kind, so
 // this is the shared tail end of resumeSavedSession/resumeSavedSessionPortion.
