@@ -598,14 +598,26 @@
       <div id="leads-delete-modal" class="modal-overlay hidden">
         <div class="modal">
           <h3>Delete leads</h3>
+          <p class="muted" style="margin-top:-8px;">Which platform?</p>
+          <div class="radio-row" id="delete-platform-row">
+            <label class="radio-label">
+              <input type="checkbox" id="delete-platform-instagram" checked>
+              Instagram <span class="muted" id="delete-platform-instagram-count"></span>
+            </label>
+            <label class="radio-label">
+              <input type="checkbox" id="delete-platform-linkedin">
+              LinkedIn <span class="muted" id="delete-platform-linkedin-count"></span>
+            </label>
+          </div>
           <label class="radio-label">
             <input type="radio" name="delete-mode" value="all" id="delete-mode-all" checked>
             Delete all leads <span class="muted" id="delete-all-count"></span>
           </label>
-          <label class="radio-label">
+          <label class="radio-label" id="delete-mode-range-row">
             <input type="radio" name="delete-mode" value="range" id="delete-mode-range">
             Delete a range of rows
           </label>
+          <p class="muted hidden" id="delete-range-unavailable-note">Delete a range of rows isn't available with both platforms selected — a row range only makes sense within one platform at a time.</p>
           <div class="range-inputs hidden" id="delete-range-inputs">
             <label>From row
               <input type="number" id="delete-range-from" min="1">

@@ -537,6 +537,7 @@ input:focus, textarea:focus, select:focus {
 }
 .btn-accept:hover, .btn-reject:hover { filter: brightness(1.08); transform: translateY(-1px); }
 .btn-accept:active, .btn-reject:active { transform: translateY(0) scale(0.98); }
+.btn-accept:disabled, .btn-reject:disabled { opacity: 0.5; cursor: default; filter: none; transform: none; }
 .btn-accept { background: linear-gradient(135deg, var(--green), var(--green-dark)); }
 .btn-reject { background: linear-gradient(135deg, var(--red), var(--red-dark)); }
 .btn-next-grey {

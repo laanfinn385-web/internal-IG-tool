@@ -714,15 +714,72 @@ $('#undo-btn').addEventListener('click', async () => {
 
 // ---------- Delete modal ----------
 
+// Which platform checkboxes are currently checked, as an array of
+// 'instagram'/'linkedin' values (0, 1, or 2 entries).
+function checkedDeletePlatforms() {
+  const platforms = [];
+  if ($('#delete-platform-instagram').checked) platforms.push('instagram');
+  if ($('#delete-platform-linkedin').checked) platforms.push('linkedin');
+  return platforms;
+}
+
+// The leads a delete would apply to, scoped to whichever platform box(es)
+// are checked — everything below (the "all leads" count, the range bounds,
+// and the actual delete) operates on this list, not leadsState.leads directly.
+function deleteModalMatchingLeads() {
+  const platforms = checkedDeletePlatforms();
+  if (platforms.length === 0) return [];
+  return leadsState.leads.filter(l => platforms.includes(l.platform));
+}
+
+// Range-delete only makes sense scoped to exactly one platform — with both
+// checked, "row 5" is ambiguous (5th Instagram lead? 5th LinkedIn lead? 5th
+// overall?), so that option disappears entirely rather than guessing.
+function updateDeleteModalState() {
+  const platforms = checkedDeletePlatforms();
+  const matching = deleteModalMatchingLeads();
+  const igCount = leadsState.leads.filter(l => l.platform === 'instagram').length;
+  const liCount = leadsState.leads.filter(l => l.platform === 'linkedin').length;
+  $('#delete-platform-instagram-count').textContent = `(${igCount})`;
+  $('#delete-platform-linkedin-count').textContent = `(${liCount})`;
+  $('#delete-all-count').textContent = `(${matching.length})`;
+
+  const rangeAvailable = platforms.length === 1;
+  $('#delete-mode-range-row').classList.toggle('hidden', !rangeAvailable);
+  $('#delete-range-unavailable-note').classList.toggle('hidden', rangeAvailable);
+  if (!rangeAvailable && $('#delete-mode-range').checked) {
+    $('#delete-mode-all').checked = true;
+    $('#delete-range-inputs').classList.add('hidden');
+  }
+
+  const errorEl = $('#delete-error');
+  if (platforms.length === 0) {
+    errorEl.textContent = 'Select at least one platform.';
+    errorEl.style.display = 'block';
+    $('#delete-confirm-btn').disabled = true;
+  } else {
+    errorEl.style.display = 'none';
+    $('#delete-confirm-btn').disabled = false;
+  }
+}
+
 $('#leads-delete-btn').addEventListener('click', () => {
-  $('#delete-all-count').textContent = `(${leadsState.leads.length})`;
+  // Pre-checked to match whatever platform tab is currently active on the
+  // Leads page — "All" pre-checks both, which correctly also hides the
+  // range option by default rather than defaulting to a combined-numbering
+  // range that wouldn't mean anything.
+  $('#delete-platform-instagram').checked = leadsState.platformFilter !== 'linkedin';
+  $('#delete-platform-linkedin').checked = leadsState.platformFilter !== 'instagram';
   $('#delete-range-from').value = '';
   $('#delete-range-to').value = '';
   $('#delete-mode-all').checked = true;
   $('#delete-range-inputs').classList.add('hidden');
-  $('#delete-error').style.display = 'none';
+  updateDeleteModalState();
   $('#leads-delete-modal').classList.remove('hidden');
 });
+
+$('#delete-platform-instagram').addEventListener('change', updateDeleteModalState);
+$('#delete-platform-linkedin').addEventListener('change', updateDeleteModalState);
 
 $all('input[name="delete-mode"]').forEach(r => r.addEventListener('change', () => {
   $('#delete-range-inputs').classList.toggle('hidden', !$('#delete-mode-range').checked);
@@ -733,20 +790,27 @@ $('#delete-cancel-btn').addEventListener('click', () => $('#leads-delete-modal')
 $('#delete-confirm-btn').addEventListener('click', () => {
   const errorEl = $('#delete-error');
   errorEl.style.display = 'none';
-  let ids;
-  const total = leadsState.leads.length;
 
+  const platforms = checkedDeletePlatforms();
+  if (platforms.length === 0) {
+    errorEl.textContent = 'Select at least one platform.';
+    errorEl.style.display = 'block';
+    return;
+  }
+  const matching = deleteModalMatchingLeads();
+
+  let ids;
   if ($('#delete-mode-all').checked) {
-    ids = leadsState.leads.map(l => l.id);
+    ids = matching.map(l => l.id);
   } else {
     const from = Number($('#delete-range-from').value);
     const to = Number($('#delete-range-to').value);
-    if (!from || !to || from < 1 || to < from || to > total) {
-      errorEl.textContent = `Enter a valid range between 1 and ${total}.`;
+    if (!from || !to || from < 1 || to < from || to > matching.length) {
+      errorEl.textContent = `Enter a valid row range between 1 and ${matching.length} (within the selected platform).`;
       errorEl.style.display = 'block';
       return;
     }
-    ids = leadsState.leads.slice(from - 1, to).map(l => l.id);
+    ids = matching.slice(from - 1, to).map(l => l.id);
   }
 
   $('#leads-delete-modal').classList.add('hidden');
