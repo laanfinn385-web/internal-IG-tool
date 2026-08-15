@@ -246,6 +246,7 @@ input:focus, textarea:focus, select:focus {
 }
 .btn-primary:hover { filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 8px 20px rgba(67, 0, 116, 0.34); }
 .btn-primary:active { transform: translateY(0) scale(0.98); }
+.btn-primary:disabled { opacity: 0.6; cursor: default; filter: none; transform: none; box-shadow: none; }
 
 .btn-secondary {
   background: var(--bg);
@@ -285,6 +286,27 @@ input:focus, textarea:focus, select:focus {
 
 .inline-link { color: var(--accent); font-weight: 600; text-decoration: none; }
 .inline-link:hover { text-decoration: underline; }
+
+/* ===== Home: daily goal ===== */
+
+.daily-goal-card { margin-bottom: 14px; }
+.daily-goal-row { display: flex; align-items: center; gap: 20px; }
+.daily-goal-main { flex: 1; min-width: 0; }
+.daily-goal-label-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; }
+.daily-goal-title { font-weight: 800; font-family: var(--font-display); font-size: 1rem; }
+.daily-goal-bar-track {
+  display: flex;
+  height: 14px;
+  border-radius: 999px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  overflow: hidden;
+}
+.daily-goal-bar-fill { height: 100%; width: 0%; transition: width 0.4s ease; }
+.daily-goal-bar-instagram { background: linear-gradient(135deg, var(--purple), var(--purple-light)); }
+.daily-goal-bar-linkedin { background: linear-gradient(135deg, var(--stage-engaged), #14b8a6); }
+#daily-goal-session-btn { flex-shrink: 0; }
+#daily-goal-empty-state { margin: 10px 0 0; }
 
 /* ===== Home: overview grid ===== */
 

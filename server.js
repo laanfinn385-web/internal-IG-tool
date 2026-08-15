@@ -203,10 +203,36 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   const asr = rate(eventCounts.call_booked, sent.length);
   const car = rate(eventCounts.connection_accepted, eventCounts.connection_sent);
 
+  // Daily goal — deliberately independent of this endpoint's own `platform`
+  // filter (which only scopes the stats above it): the goal bar always shows
+  // real progress across both platforms, since that's what "Start/Continue
+  // daily goal session" is working toward regardless of which tab is active.
+  const today = todayStr();
+  const [
+    goalSettingRows,
+    [{ count: todaySentInstagram }],
+    [{ count: todayEngagedLinkedin }],
+    [dailyGoalSession]
+  ] = await Promise.all([
+    sql`SELECT key, value FROM app_settings WHERE key IN ('daily_goal_instagram', 'daily_goal_linkedin')`,
+    sql`SELECT count(*) FROM outreaches WHERE platform = 'instagram' AND status = 'sent' AND date = ${today}`,
+    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'engaged' AND l.platform = 'linkedin' AND e.date = ${today}`,
+    sql`SELECT * FROM saved_sessions WHERE is_daily_goal = true ORDER BY created_at DESC LIMIT 1`
+  ]);
+  const goalSettings = {};
+  goalSettingRows.forEach(r => { goalSettings[r.key] = r.value; });
+
   res.json({
     streak, last7Days, last7DaysPctChange, availableLeads: Number(count), stageCounts,
     sendsTrend, replyRate, prr, asr,
-    connectionsSent: eventCounts.connection_sent, connectionsAccepted: eventCounts.connection_accepted, car
+    connectionsSent: eventCounts.connection_sent, connectionsAccepted: eventCounts.connection_accepted, car,
+    dailyGoal: {
+      instagram: Number(goalSettings.daily_goal_instagram) || 0,
+      linkedin: Number(goalSettings.daily_goal_linkedin) || 0,
+      todaySentInstagram: Number(todaySentInstagram),
+      todayEngagedLinkedin: Number(todayEngagedLinkedin),
+      savedSession: dailyGoalSession ? mapSavedSessionRow(dailyGoalSession) : null
+    }
   });
 }));
 
@@ -835,18 +861,19 @@ function mapSavedSessionRow(r) {
     sessionTarget: r.session_target,
     sentCount: r.sent_count,
     results: r.results || [],
-    remainingProfiles: r.remaining_profiles || []
+    remainingProfiles: r.remaining_profiles || [],
+    isDailyGoal: r.is_daily_goal
   };
 }
 
 app.post('/api/saved-sessions', asyncRoute(async (req, res) => {
-  const { sessionKind, sessionMode, sessionTarget, sentCount, results, remainingProfiles } = req.body;
+  const { sessionKind, sessionMode, sessionTarget, sentCount, results, remainingProfiles, isDailyGoal } = req.body;
   const remaining = Array.isArray(remainingProfiles) ? remainingProfiles : [];
   if (remaining.length === 0) return res.status(400).json({ error: 'Nothing to save — no remaining profiles.' });
   const id = crypto.randomUUID();
   await sql`
-    INSERT INTO saved_sessions (id, session_kind, session_mode, session_target, sent_count, results, remaining_profiles)
-    VALUES (${id}, ${sessionKind || 'ig_message'}, ${sessionMode || 'fixed'}, ${sessionTarget ?? null}, ${sentCount || 0}, ${JSON.stringify(Array.isArray(results) ? results : [])}, ${JSON.stringify(remaining)})
+    INSERT INTO saved_sessions (id, session_kind, session_mode, session_target, sent_count, results, remaining_profiles, is_daily_goal)
+    VALUES (${id}, ${sessionKind || 'ig_message'}, ${sessionMode || 'fixed'}, ${sessionTarget ?? null}, ${sentCount || 0}, ${JSON.stringify(Array.isArray(results) ? results : [])}, ${JSON.stringify(remaining)}, ${!!isDailyGoal})
   `;
   res.json({ ok: true, id });
 }));
@@ -1109,7 +1136,7 @@ app.get('/api/settings/app', asyncRoute(async (req, res) => {
 }));
 
 app.put('/api/settings/app', asyncRoute(async (req, res) => {
-  const { calendarLink, viewsThreshold, linkedinConnectionDelayDays } = req.body;
+  const { calendarLink, viewsThreshold, linkedinConnectionDelayDays, dailyGoalInstagram, dailyGoalLinkedin } = req.body;
   if (calendarLink !== undefined) {
     await sql`
       INSERT INTO app_settings (key, value) VALUES ('calendar_link', ${calendarLink})
@@ -1126,6 +1153,20 @@ app.put('/api/settings/app', asyncRoute(async (req, res) => {
     const clamped = Math.max(0, Math.round(Number(linkedinConnectionDelayDays)) || 0);
     await sql`
       INSERT INTO app_settings (key, value) VALUES ('linkedin_connection_delay_days', ${String(clamped)})
+      ON CONFLICT (key) DO UPDATE SET value = ${String(clamped)}
+    `;
+  }
+  if (dailyGoalInstagram !== undefined) {
+    const clamped = Math.max(0, Math.round(Number(dailyGoalInstagram)) || 0);
+    await sql`
+      INSERT INTO app_settings (key, value) VALUES ('daily_goal_instagram', ${String(clamped)})
+      ON CONFLICT (key) DO UPDATE SET value = ${String(clamped)}
+    `;
+  }
+  if (dailyGoalLinkedin !== undefined) {
+    const clamped = Math.max(0, Math.round(Number(dailyGoalLinkedin)) || 0);
+    await sql`
+      INSERT INTO app_settings (key, value) VALUES ('daily_goal_linkedin', ${String(clamped)})
       ON CONFLICT (key) DO UPDATE SET value = ${String(clamped)}
     `;
   }

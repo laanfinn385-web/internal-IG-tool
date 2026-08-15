@@ -57,6 +57,23 @@
         </div>
       </div>
 
+      <div class="card daily-goal-card" id="daily-goal-card">
+        <div class="daily-goal-row">
+          <div class="daily-goal-main">
+            <div class="daily-goal-label-row">
+              <span class="daily-goal-title">🎯 Daily goal</span>
+              <span class="muted" id="daily-goal-text">–</span>
+            </div>
+            <div class="daily-goal-bar-track" id="daily-goal-bar-track">
+              <div class="daily-goal-bar-fill daily-goal-bar-instagram" id="daily-goal-bar-instagram"></div>
+              <div class="daily-goal-bar-fill daily-goal-bar-linkedin" id="daily-goal-bar-linkedin"></div>
+            </div>
+          </div>
+          <button id="daily-goal-session-btn" class="btn-primary">Start daily goal session →</button>
+        </div>
+        <p class="muted hidden" id="daily-goal-empty-state">No daily goal set yet — <a href="#" data-nav="settings" class="inline-link">set one in Settings</a> to track today's progress here.</p>
+      </div>
+
       <div class="overview-grid overview-grid-3">
         <div class="overview-tile highlight">
           <div class="overview-tile-label">🔥 Day streak</div>
@@ -678,6 +695,20 @@
     <!-- SETTINGS -->
     <section id="view-settings" class="view hidden">
       <h1 class="page-title">Settings</h1>
+
+      <div class="card">
+        <h3>Daily goal</h3>
+        <p class="muted" style="margin-top:-8px;">Powers the progress bar and "Start/Continue daily goal session" button on the homepage. 0 means that platform is skipped — set both to run Instagram-only or LinkedIn-only, set one to 0 for a single-platform goal.</p>
+        <div class="combi-size-row">
+          <label>Instagram
+            <input type="number" id="settings-daily-goal-instagram" min="0" step="1">
+          </label>
+          <label>LinkedIn
+            <input type="number" id="settings-daily-goal-linkedin" min="0" step="1">
+          </label>
+        </div>
+        <button id="settings-daily-goal-save" class="btn-secondary">Save</button>
+      </div>
 
       <div class="card">
         <h3>General</h3>

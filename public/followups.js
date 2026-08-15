@@ -274,6 +274,8 @@ async function loadSettingsPage() {
     settingsState.followups = fuData.followups || [];
     $('#settings-calendar-link').value = (appData.settings && appData.settings.calendar_link) || '';
     $('#settings-views-threshold').value = (appData.settings && appData.settings.views_threshold) || 1000;
+    $('#settings-daily-goal-instagram').value = (appData.settings && appData.settings.daily_goal_instagram) || 0;
+    $('#settings-daily-goal-linkedin').value = (appData.settings && appData.settings.daily_goal_linkedin) || 0;
     renderSettingsTemplates();
     renderSettingsFollowups();
   } catch (e) {
@@ -373,6 +375,25 @@ $('#settings-followups').addEventListener('change', async (e) => {
 });
 $('#settings-followups').addEventListener('input', (e) => {
   if (e.target.classList.contains('auto-resize')) autoResizeTextarea(e.target);
+});
+
+$('#settings-daily-goal-save').addEventListener('click', async () => {
+  const btn = $('#settings-daily-goal-save');
+  btn.disabled = true;
+  try {
+    await fetchJson('/api/settings/app', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        dailyGoalInstagram: Number($('#settings-daily-goal-instagram').value) || 0,
+        dailyGoalLinkedin: Number($('#settings-daily-goal-linkedin').value) || 0
+      })
+    });
+  } catch (err) {
+    alert(`Could not save daily goal: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 $('#settings-general-save').addEventListener('click', async () => {

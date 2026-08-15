@@ -17,7 +17,11 @@ const state = {
   outOfLeads: false,
   // Set only for a combi session: { liLeads } — the not-yet-started LinkedIn
   // batch, held here until the Instagram portion (state.profiles) finishes.
-  combi: null
+  combi: null,
+  // True when this session was launched via "Start daily goal session" —
+  // tags any resulting quit-save so Home can find it again and offer
+  // "Continue" instead of "Start" (see loadHome/renderDailyGoal).
+  isDailyGoal: false
 };
 
 const SESSION_KEY = 'outreach_session_v1';
@@ -36,7 +40,8 @@ function saveSession() {
       sessionTarget: state.sessionTarget,
       sentCount: state.sentCount,
       outOfLeads: state.outOfLeads,
-      combi: state.combi
+      combi: state.combi,
+      isDailyGoal: state.isDailyGoal
     }));
   } catch (e) { /* storage full or unavailable — non-fatal */ }
 }
@@ -392,6 +397,7 @@ async function loadHome() {
     renderSendsTrendDelta(data.last7DaysPctChange);
     renderPipelineDonut(data.stageCounts);
     renderSendsSparkline(data.sendsTrend);
+    renderDailyGoal(data.dailyGoal);
   } catch (e) {
     $('#streak-value').textContent = '–';
     $('#week-value').textContent = '–';
@@ -404,6 +410,86 @@ async function loadHome() {
     $('#car-value').textContent = '–';
   }
 }
+
+// ---------- Daily goal ----------
+let homeDailyGoalData = null;
+
+function renderDailyGoal(dailyGoal) {
+  homeDailyGoalData = dailyGoal;
+  const igGoal = dailyGoal.instagram;
+  const liGoal = dailyGoal.linkedin;
+  const totalGoal = igGoal + liGoal;
+  const emptyState = $('#daily-goal-empty-state');
+  const btn = $('#daily-goal-session-btn');
+
+  if (totalGoal === 0) {
+    $('#daily-goal-bar-track').classList.add('hidden');
+    $('#daily-goal-text').classList.add('hidden');
+    btn.classList.add('hidden');
+    emptyState.classList.remove('hidden');
+    return;
+  }
+  $('#daily-goal-bar-track').classList.remove('hidden');
+  $('#daily-goal-text').classList.remove('hidden');
+  btn.classList.remove('hidden');
+  emptyState.classList.add('hidden');
+
+  const igDone = dailyGoal.todaySentInstagram;
+  const liDone = dailyGoal.todayEngagedLinkedin;
+  // Each segment's width is that platform's own completion %, scaled by its
+  // share of the combined goal — so the two segments together always sum to
+  // "how much of the combined daily goal is done", not just their own.
+  const igPct = igGoal > 0 ? Math.min(100, (igDone / igGoal) * 100) : 0;
+  const liPct = liGoal > 0 ? Math.min(100, (liDone / liGoal) * 100) : 0;
+  const igShare = (igGoal / totalGoal) * 100;
+  const liShare = (liGoal / totalGoal) * 100;
+  $('#daily-goal-bar-instagram').style.width = `${(igShare * igPct) / 100}%`;
+  $('#daily-goal-bar-linkedin').style.width = `${(liShare * liPct) / 100}%`;
+
+  const textParts = [];
+  if (igGoal > 0) textParts.push(`${igDone}/${igGoal} Instagram`);
+  if (liGoal > 0) textParts.push(`${liDone}/${liGoal} LinkedIn`);
+  $('#daily-goal-text').textContent = textParts.join(' · ');
+
+  const igRemaining = Math.max(0, igGoal - igDone);
+  const liRemaining = Math.max(0, liGoal - liDone);
+  if (igRemaining === 0 && liRemaining === 0) {
+    btn.textContent = '🎉 Goal reached';
+    btn.disabled = true;
+  } else if (dailyGoal.savedSession) {
+    btn.textContent = 'Continue daily goal session →';
+    btn.disabled = false;
+  } else {
+    btn.textContent = 'Start daily goal session →';
+    btn.disabled = false;
+  }
+}
+
+$('#daily-goal-session-btn').addEventListener('click', async () => {
+  if (!homeDailyGoalData) return;
+  if (homeDailyGoalData.savedSession) {
+    resumeSavedSession(homeDailyGoalData.savedSession);
+    return;
+  }
+  const igRemaining = Math.max(0, homeDailyGoalData.instagram - homeDailyGoalData.todaySentInstagram);
+  const liRemaining = Math.max(0, homeDailyGoalData.linkedin - homeDailyGoalData.todayEngagedLinkedin);
+  if (igRemaining === 0 && liRemaining === 0) return;
+  const btn = $('#daily-goal-session-btn');
+  btn.disabled = true;
+  try {
+    if (igRemaining > 0 && liRemaining > 0) {
+      await startCombiSession(igRemaining, liRemaining, true);
+    } else if (igRemaining > 0) {
+      await startSinglePlatformSession('instagram', igRemaining, true);
+    } else {
+      await startSinglePlatformSession('linkedin', liRemaining, true);
+    }
+  } catch (e) {
+    alert(`Could not start the daily goal session: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 // Tab-delimited tokenizer that understands spreadsheet-style quoting: a cell
 // wrapped in "..." can contain literal tabs/newlines (e.g. a multi-line bio),
@@ -489,10 +575,10 @@ $('#home-session-platform-tabs').addEventListener('click', (e) => {
   hideHomeError();
 });
 
-async function startSinglePlatformSession(platform) {
+async function startSinglePlatformSession(platform, explicitCount, isDailyGoal) {
   // `|| 15` would treat an explicit "0" in the field as unset and silently
   // start a 15-profile session instead of rejecting/clamping it.
-  const rawCount = Number($('#session-size-input').value);
+  const rawCount = explicitCount ?? Number($('#session-size-input').value);
   const count = Math.max(1, Number.isFinite(rawCount) && rawCount > 0 ? Math.round(rawCount) : 15);
   const data = await fetchJson('/api/leads/next', {
     method: 'POST',
@@ -512,16 +598,16 @@ async function startSinglePlatformSession(platform) {
   // decideSimple() keeps topping this session up with fresh leads on every
   // disqualify until sentCount hits `count`, or the available-leads pool
   // runs dry.
-  beginSessionWithLeads(leads, { mode: 'goal', target: count, kind: platform === 'linkedin' ? 'li_engagement' : 'ig_message' });
+  beginSessionWithLeads(leads, { mode: 'goal', target: count, kind: platform === 'linkedin' ? 'li_engagement' : 'ig_message', isDailyGoal });
 }
 
 // Fetches both batches up front (rather than pulling LinkedIn leads only once
 // the Instagram portion finishes) so "Save LinkedIn leads for later" on the
 // interstitial screen has concrete leads to save — not just a number.
-async function startCombiSession() {
-  const rawIgCount = Number($('#combi-ig-size-input').value);
+async function startCombiSession(explicitIgCount, explicitLiCount, isDailyGoal) {
+  const rawIgCount = explicitIgCount ?? Number($('#combi-ig-size-input').value);
   const igCount = Math.max(1, Number.isFinite(rawIgCount) && rawIgCount > 0 ? Math.round(rawIgCount) : 15);
-  const rawLiCount = Number($('#combi-li-size-input').value);
+  const rawLiCount = explicitLiCount ?? Number($('#combi-li-size-input').value);
   const liCount = Math.max(1, Number.isFinite(rawLiCount) && rawLiCount > 0 ? Math.round(rawLiCount) : 15);
 
   const [igData, liData] = await Promise.all([
@@ -545,7 +631,7 @@ async function startCombiSession() {
   // from a saved session) — untouched until the Instagram portion ends (see
   // the goalReached/hasNext branch in decide()).
   state.combi = { liLeads: liLeads.map(leadToProfile) };
-  beginSessionWithLeads(igLeads, { mode: 'goal', target: igCount, kind: 'ig_message' });
+  beginSessionWithLeads(igLeads, { mode: 'goal', target: igCount, kind: 'ig_message', isDailyGoal });
 }
 
 $('#start-session-btn').addEventListener('click', async () => {
@@ -620,6 +706,7 @@ function beginSessionWithLeads(leads, opts = {}) {
   state.sessionTarget = opts.target || null;
   state.sentCount = 0;
   state.outOfLeads = false;
+  state.isDailyGoal = !!opts.isDailyGoal;
   saveSession();
   if (SIMPLE_SESSION_KINDS.includes(state.sessionKind)) {
     enterSimpleSession();
@@ -1431,8 +1518,11 @@ function showCombiInterstitial() {
 $('#combi-continue-li-btn').addEventListener('click', () => {
   const liProfiles = state.combi.liLeads; // already profile-shaped — see startCombiSession
   const target = liProfiles.length;
+  // Captured before beginSessionWithLeads resets state.isDailyGoal — a
+  // daily-goal combi session's LinkedIn half is still part of that same goal.
+  const wasDailyGoal = state.isDailyGoal;
   state.combi = null;
-  beginSessionWithLeads(liProfiles, { mode: 'goal', target, kind: 'li_engagement', alreadyProfiles: true });
+  beginSessionWithLeads(liProfiles, { mode: 'goal', target, kind: 'li_engagement', alreadyProfiles: true, isDailyGoal: wasDailyGoal });
 });
 
 $('#combi-save-li-btn').addEventListener('click', async () => {
@@ -1448,7 +1538,8 @@ $('#combi-save-li-btn').addEventListener('click', async () => {
         sessionTarget: state.combi.liLeads.length,
         sentCount: 0,
         results: [],
-        remainingProfiles: state.combi.liLeads
+        remainingProfiles: state.combi.liLeads,
+        isDailyGoal: state.isDailyGoal
       })
     });
   } catch (e) {
@@ -1471,6 +1562,7 @@ function resetSessionState() {
   state.sentCount = 0;
   state.outOfLeads = false;
   state.combi = null;
+  state.isDailyGoal = false;
 }
 
 $('#back-home-btn').addEventListener('click', () => {
@@ -1511,7 +1603,8 @@ $('#quit-save-btn').addEventListener('click', async () => {
           sessionTarget: state.sessionTarget,
           sentCount: state.sentCount,
           results: state.results,
-          remainingProfiles
+          remainingProfiles,
+          isDailyGoal: state.isDailyGoal
         })
       });
     } catch (e) {
@@ -1696,7 +1789,8 @@ $('#simple-quit-save-btn').addEventListener('click', async () => {
           sessionTarget: state.sessionTarget,
           sentCount: state.sentCount,
           results: state.results,
-          remainingProfiles
+          remainingProfiles,
+          isDailyGoal: state.isDailyGoal
         })
       });
     } catch (e) {
@@ -1906,7 +2000,8 @@ async function resumeSavedSessionPortion(kind) {
           sessionTarget: otherIsIg ? session.sessionTarget : other.length,
           sentCount: otherIsIg ? session.sentCount : 0,
           results: otherIsIg ? session.results : [],
-          remainingProfiles: other
+          remainingProfiles: other,
+          isDailyGoal: session.isDailyGoal
         })
       });
     } catch (e) {
@@ -1926,7 +2021,8 @@ async function resumeSavedSessionPortion(kind) {
   enterResumedSession(
     chosen, kind, 'goal',
     chosenIsIg ? session.sessionTarget : chosen.length,
-    chosenIsIg ? (session.sentCount || 0) : 0
+    chosenIsIg ? (session.sentCount || 0) : 0,
+    session.isDailyGoal
   );
 }
 
@@ -1935,7 +2031,7 @@ $('#saved-session-continue-li-btn').addEventListener('click', () => resumeSavedS
 
 // Resumes a plain (non-combi) saved session — always exactly one kind, so
 // this is the shared tail end of resumeSavedSession/resumeSavedSessionPortion.
-function enterResumedSession(profiles, sessionKind, sessionMode, sessionTarget, sentCount) {
+function enterResumedSession(profiles, sessionKind, sessionMode, sessionTarget, sentCount, isDailyGoal) {
   state.profiles = profiles;
   state.index = 0;
   state.sessionKind = sessionKind;
@@ -1943,6 +2039,7 @@ function enterResumedSession(profiles, sessionKind, sessionMode, sessionTarget, 
   state.sessionTarget = sessionTarget;
   state.sentCount = sentCount;
   state.outOfLeads = false;
+  state.isDailyGoal = !!isDailyGoal;
   saveSession();
   if (SIMPLE_SESSION_KINDS.includes(sessionKind)) {
     enterSimpleSession();
@@ -1974,11 +2071,11 @@ function resumeSavedSession(session) {
     const igProfiles = session.remainingProfiles.filter(p => p.sessionKind === 'ig_message');
     const liProfiles = session.remainingProfiles.filter(p => p.sessionKind === 'li_engagement');
     state.combi = { liLeads: liProfiles };
-    enterResumedSession(igProfiles, 'ig_message', session.sessionMode || 'goal', session.sessionTarget ?? null, session.sentCount || 0);
+    enterResumedSession(igProfiles, 'ig_message', session.sessionMode || 'goal', session.sessionTarget ?? null, session.sentCount || 0, session.isDailyGoal);
     return;
   }
 
-  enterResumedSession(session.remainingProfiles, session.sessionKind || 'ig_message', session.sessionMode || 'fixed', session.sessionTarget ?? null, session.sentCount || 0);
+  enterResumedSession(session.remainingProfiles, session.sessionKind || 'ig_message', session.sessionMode || 'fixed', session.sessionTarget ?? null, session.sentCount || 0, session.isDailyGoal);
 }
 
 // ---------- ANALYTICS ----------
@@ -2159,6 +2256,7 @@ async function loadViewsThreshold() {
     state.sentCount = saved.sentCount || 0;
     state.outOfLeads = saved.outOfLeads || false;
     state.combi = saved.combi || null;
+    state.isDailyGoal = saved.isDailyGoal || false;
     if (SIMPLE_SESSION_KINDS.includes(state.sessionKind)) {
       showView('simple-session');
       renderSimpleSessionProfile();
