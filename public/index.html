@@ -729,15 +729,40 @@
         <label>Reminder
           <input type="text" id="reminder-text" placeholder="E.g. Call Sarah about pricing">
         </label>
-        <label>Due
-          <input type="datetime-local" id="reminder-due-at">
+        <label>Remind me in how many days
+          <input type="number" id="reminder-due-days" min="0" step="1" value="1">
         </label>
-        <label>Link to a lead (optional)
-          <input type="text" id="reminder-lead-search" list="reminder-lead-options" placeholder="Search by name or username...">
-          <datalist id="reminder-lead-options"></datalist>
-        </label>
+        <label>Link to a lead (optional)</label>
+        <div class="reminder-lead-picker-row">
+          <button type="button" id="reminder-lead-picker-btn" class="btn-secondary">+ Link a lead</button>
+          <div class="reminder-lead-selected hidden" id="reminder-lead-selected">
+            <span id="reminder-lead-selected-name"></span>
+            <button type="button" id="reminder-lead-selected-clear" title="Remove link">✕</button>
+          </div>
+        </div>
         <button id="reminder-add-btn" class="btn-secondary">+ Add reminder</button>
         <div id="reminders-list" class="reminders-list"></div>
+      </div>
+
+      <!-- Lead picker for linking a reminder -->
+      <div id="reminder-lead-picker-modal" class="modal-overlay hidden">
+        <div class="modal reminder-picker-modal">
+          <h3>Link a lead</h3>
+          <div class="range-tabs" id="reminder-picker-platform-tabs">
+            <button type="button" class="range-tab" data-platform="instagram">Instagram</button>
+            <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
+            <button type="button" class="range-tab active" data-platform="all">All</button>
+          </div>
+          <div class="reminder-picker-filters-row">
+            <input type="text" id="reminder-picker-search" class="leads-search-input" placeholder="🔍 Search by name or username...">
+            <select id="reminder-picker-stage"></select>
+          </div>
+          <p class="muted" id="reminder-picker-count"></p>
+          <div id="reminder-picker-list" class="reminder-picker-list"></div>
+          <div class="modal-actions">
+            <button id="reminder-picker-cancel-btn" class="btn-secondary">Cancel</button>
+          </div>
+        </div>
       </div>
 
       <div class="card">

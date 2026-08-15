@@ -507,12 +507,10 @@ $('#reminders-list').addEventListener('click', async (e) => {
   }
 });
 
-// Lazily loaded once (not on every keystroke) — same "load everything, filter
+// Lazily loaded once, not on every keystroke — same "load everything, filter
 // client-side" approach the Leads page itself already uses at this lead-list
-// size. The datalist itself is only populated with the current query's top
-// matches, not all leads, so it stays light even with thousands of leads.
+// size (the picker modal below only ever renders a capped slice of it).
 let reminderLeadsCache = null;
-let reminderLeadLookup = {};
 
 async function ensureReminderLeadsCache() {
   if (reminderLeadsCache) return reminderLeadsCache;
@@ -525,27 +523,97 @@ async function ensureReminderLeadsCache() {
   return reminderLeadsCache;
 }
 
-$('#reminder-lead-search').addEventListener('input', async (e) => {
-  const q = e.target.value.trim().toLowerCase();
-  const datalist = $('#reminder-lead-options');
-  if (q.length < 2) { datalist.innerHTML = ''; return; }
-  const leads = await ensureReminderLeadsCache();
-  const matches = leads.filter(l => leadDisplayName(l).toLowerCase().includes(q)).slice(0, 20);
-  reminderLeadLookup = {};
-  datalist.innerHTML = matches.map(l => {
-    const label = `${leadDisplayName(l)} (${l.platform === 'linkedin' ? 'LinkedIn' : 'Instagram'})`;
-    reminderLeadLookup[label] = l.id;
-    return `<option value="${escapeHtml(label)}"></option>`;
-  }).join('');
+// ---------- Reminder lead picker (platform + search + stage, like Leads) ----------
+
+const REMINDER_PICKER_MAX_ROWS = 50;
+const reminderPickerState = { platform: 'all', search: '', stage: '' };
+let reminderSelectedLead = null; // { id, name }
+
+function updateReminderLeadSelectedDisplay() {
+  $('#reminder-lead-picker-btn').classList.toggle('hidden', !!reminderSelectedLead);
+  $('#reminder-lead-selected').classList.toggle('hidden', !reminderSelectedLead);
+  if (reminderSelectedLead) $('#reminder-lead-selected-name').textContent = reminderSelectedLead.name;
+}
+
+function populateReminderPickerStageOptions() {
+  const sel = $('#reminder-picker-stage');
+  const options = stageOptionsFor(reminderPickerState.platform === 'all' ? 'all' : reminderPickerState.platform);
+  sel.innerHTML = '<option value="">All stages</option>' + options.map(o => `<option value="${o.value}">${escapeHtml(o.label)}</option>`).join('');
+  sel.value = reminderPickerState.stage;
+}
+
+function renderReminderPickerList() {
+  const q = reminderPickerState.search.trim().toLowerCase();
+  const matches = (reminderLeadsCache || []).filter(l => {
+    if (reminderPickerState.platform !== 'all' && l.platform !== reminderPickerState.platform) return false;
+    if (reminderPickerState.stage && l.stage !== reminderPickerState.stage) return false;
+    if (q && !leadDisplayName(l).toLowerCase().includes(q)) return false;
+    return true;
+  });
+  const shown = matches.slice(0, REMINDER_PICKER_MAX_ROWS);
+  $('#reminder-picker-count').textContent = matches.length > REMINDER_PICKER_MAX_ROWS
+    ? `Showing ${REMINDER_PICKER_MAX_ROWS} of ${matches.length} — narrow your search to see more`
+    : `${matches.length} lead${matches.length === 1 ? '' : 's'}`;
+  $('#reminder-picker-list').innerHTML = shown.length
+    ? shown.map(l => `
+        <button type="button" class="reminder-picker-row" data-id="${l.id}" data-name="${escapeHtml(leadDisplayName(l))}">
+          <span class="reminder-picker-row-name">${escapeHtml(leadDisplayName(l))}</span>
+          <span class="reminder-picker-row-stage">${escapeHtml(stageLabel(l))}</span>
+        </button>`).join('')
+    : '<p class="muted" style="padding:14px;">No leads match.</p>';
+}
+
+async function openReminderLeadPicker() {
+  await ensureReminderLeadsCache();
+  reminderPickerState.platform = 'all';
+  reminderPickerState.search = '';
+  reminderPickerState.stage = '';
+  $('#reminder-picker-search').value = '';
+  $all('#reminder-picker-platform-tabs .range-tab').forEach(b => b.classList.toggle('active', b.dataset.platform === 'all'));
+  populateReminderPickerStageOptions();
+  renderReminderPickerList();
+  $('#reminder-lead-picker-modal').classList.remove('hidden');
+}
+
+$('#reminder-lead-picker-btn').addEventListener('click', openReminderLeadPicker);
+$('#reminder-picker-cancel-btn').addEventListener('click', () => $('#reminder-lead-picker-modal').classList.add('hidden'));
+$('#reminder-lead-selected-clear').addEventListener('click', () => {
+  reminderSelectedLead = null;
+  updateReminderLeadSelectedDisplay();
+});
+
+$('#reminder-picker-platform-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.range-tab');
+  if (!btn) return;
+  $all('#reminder-picker-platform-tabs .range-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  reminderPickerState.platform = btn.dataset.platform;
+  reminderPickerState.stage = '';
+  populateReminderPickerStageOptions();
+  renderReminderPickerList();
+});
+$('#reminder-picker-search').addEventListener('input', (e) => {
+  reminderPickerState.search = e.target.value;
+  renderReminderPickerList();
+});
+$('#reminder-picker-stage').addEventListener('change', (e) => {
+  reminderPickerState.stage = e.target.value;
+  renderReminderPickerList();
+});
+$('#reminder-picker-list').addEventListener('click', (e) => {
+  const row = e.target.closest('.reminder-picker-row');
+  if (!row) return;
+  reminderSelectedLead = { id: row.dataset.id, name: row.dataset.name };
+  $('#reminder-lead-picker-modal').classList.add('hidden');
+  updateReminderLeadSelectedDisplay();
 });
 
 $('#reminder-add-btn').addEventListener('click', async () => {
   const text = $('#reminder-text').value.trim();
-  const dueAtLocal = $('#reminder-due-at').value;
+  const days = Number($('#reminder-due-days').value);
   if (!text) { alert('Enter some reminder text.'); return; }
-  if (!dueAtLocal) { alert('Pick a due date and time.'); return; }
-  const leadSearchValue = $('#reminder-lead-search').value.trim();
-  const leadId = leadSearchValue ? (reminderLeadLookup[leadSearchValue] || null) : null;
+  if (!Number.isFinite(days) || days < 0) { alert('Enter a valid number of days (0 or more).'); return; }
+  const dueAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
 
   const btn = $('#reminder-add-btn');
   btn.disabled = true;
@@ -553,12 +621,12 @@ $('#reminder-add-btn').addEventListener('click', async () => {
     await fetchJson('/api/reminders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, dueAt: new Date(dueAtLocal).toISOString(), leadId })
+      body: JSON.stringify({ text, dueAt: dueAt.toISOString(), leadId: reminderSelectedLead ? reminderSelectedLead.id : null })
     });
     $('#reminder-text').value = '';
-    $('#reminder-due-at').value = '';
-    $('#reminder-lead-search').value = '';
-    $('#reminder-lead-options').innerHTML = '';
+    $('#reminder-due-days').value = '1';
+    reminderSelectedLead = null;
+    updateReminderLeadSelectedDisplay();
     await loadReminders();
     loadNotifications();
   } catch (err) {
