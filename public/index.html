@@ -38,9 +38,10 @@
       <span class="notif-badge hidden" id="notif-badge">0</span>
     </button>
     <div id="notif-dropdown" class="notif-dropdown hidden">
-      <div class="notif-dropdown-header">Follow-ups due</div>
+      <div class="notif-dropdown-header">Notifications</div>
       <div id="notif-list"></div>
       <div class="notif-empty hidden" id="notif-empty">You're all caught up 🎉</div>
+      <button type="button" id="notif-add-reminder-btn" class="notif-add-reminder-btn">+ Add reminder</button>
     </div>
   </div>
 
@@ -720,6 +721,23 @@
           </label>
         </div>
         <button id="settings-daily-goal-save" class="btn-secondary">Save</button>
+      </div>
+
+      <div class="card" id="settings-reminders-card">
+        <h3>Reminders</h3>
+        <p class="muted" style="margin-top:-8px;">Shows up in the notification bell once due. Optionally link one to a lead.</p>
+        <label>Reminder
+          <input type="text" id="reminder-text" placeholder="E.g. Call Sarah about pricing">
+        </label>
+        <label>Due
+          <input type="datetime-local" id="reminder-due-at">
+        </label>
+        <label>Link to a lead (optional)
+          <input type="text" id="reminder-lead-search" list="reminder-lead-options" placeholder="Search by name or username...">
+          <datalist id="reminder-lead-options"></datalist>
+        </label>
+        <button id="reminder-add-btn" class="btn-secondary">+ Add reminder</button>
+        <div id="reminders-list" class="reminders-list"></div>
       </div>
 
       <div class="card">

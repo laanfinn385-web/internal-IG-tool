@@ -40,36 +40,93 @@ function renderNotifications(notifications) {
   badge.textContent = notifications.length;
   empty.classList.add('hidden');
   list.innerHTML = notifications.map(n => {
+    // Grouped notifications (followup/connections) aren't real records —
+    // their bin dismisses the group (hides it until leads newly become due;
+    // see POST /api/notifications/dismiss). Reminders are real records, so
+    // theirs deletes outright.
     if (n.type === 'connections') {
       return `
-        <button type="button" class="notif-item" data-type="connections" data-platform="${n.platform}">
-          <div class="notif-item-main">
-            <span class="notif-item-phase">LinkedIn connections</span>
-            <span class="notif-item-count">${n.count} lead${n.count === 1 ? '' : 's'} ready for a connection request</span>
-          </div>
-          <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
-        </button>`;
+        <div class="notif-row">
+          <button type="button" class="notif-item" data-type="connections" data-platform="${n.platform}">
+            <div class="notif-item-main">
+              <span class="notif-item-phase">LinkedIn connections</span>
+              <span class="notif-item-count">${n.count} lead${n.count === 1 ? '' : 's'} ready for a connection request</span>
+            </div>
+            <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
+          </button>
+          <button type="button" class="notif-item-delete" data-group-key="${n.groupKey}" title="Dismiss for now">🗑</button>
+        </div>`;
+    }
+    if (n.type === 'reminder') {
+      return `
+        <div class="notif-row">
+          <button type="button" class="notif-item" data-type="reminder" data-id="${n.id}">
+            <div class="notif-item-main">
+              <span class="notif-item-phase">🔔 Reminder</span>
+              <span class="notif-item-count">${escapeHtml(n.text)}</span>
+            </div>
+            <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
+          </button>
+          <button type="button" class="notif-item-delete" data-reminder-id="${n.id}" title="Delete reminder">🗑</button>
+        </div>`;
     }
     return `
-      <button type="button" class="notif-item" data-type="followup" data-phase="${n.phase}" data-platform="${n.platform}">
-        <div class="notif-item-main">
-          <span class="notif-item-phase">${PLATFORM_LABELS[n.platform]} ${PHASE_NAMES[n.phase]}</span>
-          <span class="notif-item-count">${n.count} lead${n.count === 1 ? '' : 's'} to follow up with</span>
-        </div>
-        <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
-      </button>`;
+      <div class="notif-row">
+        <button type="button" class="notif-item" data-type="followup" data-phase="${n.phase}" data-platform="${n.platform}">
+          <div class="notif-item-main">
+            <span class="notif-item-phase">${PLATFORM_LABELS[n.platform]} ${PHASE_NAMES[n.phase]}</span>
+            <span class="notif-item-count">${n.count} lead${n.count === 1 ? '' : 's'} to follow up with</span>
+          </div>
+          <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
+        </button>
+        <button type="button" class="notif-item-delete" data-group-key="${n.groupKey}" title="Dismiss for now">🗑</button>
+      </div>`;
   }).join('');
 }
 
-$('#notif-list').addEventListener('click', (e) => {
+$('#notif-list').addEventListener('click', async (e) => {
+  const deleteBtn = e.target.closest('.notif-item-delete');
+  if (deleteBtn) {
+    e.stopPropagation();
+    deleteBtn.disabled = true;
+    try {
+      if (deleteBtn.dataset.groupKey) {
+        await fetchJson('/api/notifications/dismiss', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ groupKey: deleteBtn.dataset.groupKey })
+        });
+      } else if (deleteBtn.dataset.reminderId) {
+        await fetchJson(`/api/reminders/${deleteBtn.dataset.reminderId}`, { method: 'DELETE' });
+      }
+      loadNotifications();
+    } catch (err) {
+      alert(`Could not remove that notification: ${err.message}`);
+      deleteBtn.disabled = false;
+    }
+    return;
+  }
+
   const item = e.target.closest('.notif-item');
   if (!item) return;
   $('#notif-dropdown').classList.add('hidden');
   if (item.dataset.type === 'connections') {
     openConnectionSession();
+  } else if (item.dataset.type === 'reminder') {
+    showView('settings');
+    const card = $('#settings-reminders-card');
+    if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } else {
     openFollowupSession(Number(item.dataset.phase), item.dataset.platform);
   }
+});
+
+$('#notif-add-reminder-btn').addEventListener('click', () => {
+  $('#notif-dropdown').classList.add('hidden');
+  showView('settings');
+  const card = $('#settings-reminders-card');
+  if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  $('#reminder-text').focus();
 });
 
 $('#notif-bell').addEventListener('click', (e) => {
@@ -261,14 +318,15 @@ $('#followup-done-btn').addEventListener('click', () => showView('home'));
 
 // ---------- Settings ----------
 
-const settingsState = { templates: [], followups: [], phase: 1 };
+const settingsState = { templates: [], followups: [], phase: 1, reminders: [] };
 
 async function loadSettingsPage() {
   try {
     const [tplData, fuData, appData] = await Promise.all([
       fetchJson('/api/settings/templates'),
       fetchJson('/api/settings/followups'),
-      fetchJson('/api/settings/app')
+      fetchJson('/api/settings/app'),
+      loadReminders()
     ]);
     settingsState.templates = tplData.templates || [];
     settingsState.followups = fuData.followups || [];
@@ -375,6 +433,139 @@ $('#settings-followups').addEventListener('change', async (e) => {
 });
 $('#settings-followups').addEventListener('input', (e) => {
   if (e.target.classList.contains('auto-resize')) autoResizeTextarea(e.target);
+});
+
+// ---------- Reminders ----------
+
+async function loadReminders() {
+  try {
+    const data = await fetchJson('/api/reminders');
+    settingsState.reminders = data.reminders || [];
+  } catch (e) {
+    console.error('Could not load reminders', e);
+  }
+  renderRemindersList();
+}
+
+function formatReminderDue(dueAt) {
+  const d = new Date(dueAt);
+  const text = d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return d <= new Date() ? `⏰ Due ${text}` : `Due ${text}`;
+}
+
+// Reuses the same leadDisplayName (app.js) every other page uses for
+// @username-vs-full-name — the search value strips the leading "@" since
+// the Leads page's search filter matches against the raw username column.
+function reminderLeadTag(r) {
+  // r.leadId alone isn't enough — it survives even after the linked lead is
+  // soft-deleted (the server's LEFT JOIN excludes deleted leads, nulling out
+  // the rest), which would otherwise render as a confusing "📎 Unknown" tag.
+  if (!r.leadUsername && !r.leadFullName) return '';
+  const name = leadDisplayName({ platform: r.leadPlatform, username: r.leadUsername, fullName: r.leadFullName });
+  return `<button type="button" class="reminder-lead-tag" data-lead-search="${escapeHtml(name.replace(/^@/, ''))}">📎 ${escapeHtml(name)}</button>`;
+}
+
+function renderRemindersList() {
+  const wrap = $('#reminders-list');
+  if (settingsState.reminders.length === 0) {
+    wrap.innerHTML = '<p class="muted">No reminders set.</p>';
+    return;
+  }
+  wrap.innerHTML = settingsState.reminders.map(r => `
+    <div class="reminder-row" data-id="${r.id}">
+      <div class="reminder-row-main">
+        <div class="reminder-row-text">${escapeHtml(r.text)}</div>
+        <div class="muted reminder-row-meta"><span>${formatReminderDue(r.dueAt)}</span>${reminderLeadTag(r)}</div>
+      </div>
+      <button type="button" class="reminder-delete-btn" data-id="${r.id}" title="Delete reminder">🗑</button>
+    </div>
+  `).join('');
+}
+
+$('#reminders-list').addEventListener('click', async (e) => {
+  const tagBtn = e.target.closest('.reminder-lead-tag');
+  if (tagBtn) {
+    showView('leads');
+    leadsState.search = tagBtn.dataset.leadSearch;
+    $('#leads-search').value = leadsState.search;
+    leadsState.page = 0;
+    renderLeadsTable();
+    return;
+  }
+  const delBtn = e.target.closest('.reminder-delete-btn');
+  if (delBtn) {
+    delBtn.disabled = true;
+    try {
+      await fetchJson(`/api/reminders/${delBtn.dataset.id}`, { method: 'DELETE' });
+      settingsState.reminders = settingsState.reminders.filter(r => r.id !== delBtn.dataset.id);
+      renderRemindersList();
+      loadNotifications();
+    } catch (err) {
+      alert(`Could not delete reminder: ${err.message}`);
+      delBtn.disabled = false;
+    }
+  }
+});
+
+// Lazily loaded once (not on every keystroke) — same "load everything, filter
+// client-side" approach the Leads page itself already uses at this lead-list
+// size. The datalist itself is only populated with the current query's top
+// matches, not all leads, so it stays light even with thousands of leads.
+let reminderLeadsCache = null;
+let reminderLeadLookup = {};
+
+async function ensureReminderLeadsCache() {
+  if (reminderLeadsCache) return reminderLeadsCache;
+  try {
+    const data = await fetchJson('/api/leads');
+    reminderLeadsCache = data.leads || [];
+  } catch (e) {
+    reminderLeadsCache = [];
+  }
+  return reminderLeadsCache;
+}
+
+$('#reminder-lead-search').addEventListener('input', async (e) => {
+  const q = e.target.value.trim().toLowerCase();
+  const datalist = $('#reminder-lead-options');
+  if (q.length < 2) { datalist.innerHTML = ''; return; }
+  const leads = await ensureReminderLeadsCache();
+  const matches = leads.filter(l => leadDisplayName(l).toLowerCase().includes(q)).slice(0, 20);
+  reminderLeadLookup = {};
+  datalist.innerHTML = matches.map(l => {
+    const label = `${leadDisplayName(l)} (${l.platform === 'linkedin' ? 'LinkedIn' : 'Instagram'})`;
+    reminderLeadLookup[label] = l.id;
+    return `<option value="${escapeHtml(label)}"></option>`;
+  }).join('');
+});
+
+$('#reminder-add-btn').addEventListener('click', async () => {
+  const text = $('#reminder-text').value.trim();
+  const dueAtLocal = $('#reminder-due-at').value;
+  if (!text) { alert('Enter some reminder text.'); return; }
+  if (!dueAtLocal) { alert('Pick a due date and time.'); return; }
+  const leadSearchValue = $('#reminder-lead-search').value.trim();
+  const leadId = leadSearchValue ? (reminderLeadLookup[leadSearchValue] || null) : null;
+
+  const btn = $('#reminder-add-btn');
+  btn.disabled = true;
+  try {
+    await fetchJson('/api/reminders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, dueAt: new Date(dueAtLocal).toISOString(), leadId })
+    });
+    $('#reminder-text').value = '';
+    $('#reminder-due-at').value = '';
+    $('#reminder-lead-search').value = '';
+    $('#reminder-lead-options').innerHTML = '';
+    await loadReminders();
+    loadNotifications();
+  } catch (err) {
+    alert(`Could not add reminder: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 $('#settings-daily-goal-save').addEventListener('click', async () => {

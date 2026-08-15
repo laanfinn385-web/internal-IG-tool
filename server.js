@@ -950,8 +950,22 @@ async function getLinkedinConnectionDelayDays() {
 // days). Instagram and LinkedIn each have their own phase1/2/3 content (see
 // the platform column on followup_templates), so the join has to match
 // platform too or a LinkedIn lead could pick up Instagram's day-offsets.
+// Dismissing a follow-up/connections notification group (see POST below)
+// doesn't touch any lead — there's no real record behind "48 leads to
+// follow up with" to delete, it's a live count. Instead it hides that group
+// until leads *newly* cross their due threshold after the dismissal, by
+// filtering each group's rows to due_at > dismissed_at rather than just
+// suppressing the group outright — so it reappears on its own once there's
+// actually new work, not just on some arbitrary timer.
+async function getNotificationDismissals() {
+  const rows = await sql`SELECT group_key, dismissed_at FROM notification_dismissals`;
+  const map = {};
+  rows.forEach(r => { map[r.group_key] = r.dismissed_at; });
+  return map;
+}
+
 app.get('/api/notifications', asyncRoute(async (req, res) => {
-  const [followupRows, connectionDelayDays] = await Promise.all([
+  const [followupRows, connectionDelayDays, dismissals, reminderRows] = await Promise.all([
     sql`
       SELECT
         l.platform,
@@ -966,13 +980,17 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
         AND l.stage IN ('phase1', 'phase2', 'phase3')
         AND l.phase_started_at + make_interval(days => ft.day_offset) <= now()
     `,
-    getLinkedinConnectionDelayDays()
+    getLinkedinConnectionDelayDays(),
+    getNotificationDismissals(),
+    sql`SELECT id, text, due_at FROM reminders WHERE due_at <= now() ORDER BY due_at ASC`
   ]);
 
   const byKey = {};
   followupRows.forEach(r => {
-    const key = `${r.platform}:${r.phase}`;
-    if (!byKey[key]) byKey[key] = { type: 'followup', platform: r.platform, phase: r.phase, count: 0, earliestDue: r.due_at };
+    const key = `followup:${r.platform}:${r.phase}`;
+    const dismissedAt = dismissals[key];
+    if (dismissedAt && new Date(r.due_at) <= new Date(dismissedAt)) return;
+    if (!byKey[key]) byKey[key] = { type: 'followup', groupKey: key, platform: r.platform, phase: r.phase, count: 0, earliestDue: r.due_at };
     byKey[key].count++;
     if (new Date(r.due_at) < new Date(byKey[key].earliestDue)) byKey[key].earliestDue = r.due_at;
   });
@@ -983,13 +1001,74 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
     WHERE deleted_at IS NULL AND platform = 'linkedin' AND stage = 'engaged'
       AND phase_started_at + make_interval(days => ${connectionDelayDays}) <= now()
   `;
-  if (connectionRows.length > 0) {
-    const earliestDue = connectionRows.reduce((min, r) => (new Date(r.due_at) < new Date(min) ? r.due_at : min), connectionRows[0].due_at);
-    byKey['linkedin:connections'] = { type: 'connections', platform: 'linkedin', count: connectionRows.length, earliestDue };
+  const connKey = 'connections:linkedin';
+  const connDismissedAt = dismissals[connKey];
+  const liveConnectionRows = connDismissedAt
+    ? connectionRows.filter(r => new Date(r.due_at) > new Date(connDismissedAt))
+    : connectionRows;
+  if (liveConnectionRows.length > 0) {
+    const earliestDue = liveConnectionRows.reduce((min, r) => (new Date(r.due_at) < new Date(min) ? r.due_at : min), liveConnectionRows[0].due_at);
+    byKey[connKey] = { type: 'connections', groupKey: connKey, platform: 'linkedin', count: liveConnectionRows.length, earliestDue };
   }
 
-  const notifications = Object.values(byKey).sort((a, b) => (a.platform === b.platform ? (a.phase || 0) - (b.phase || 0) : a.platform.localeCompare(b.platform)));
-  res.json({ notifications });
+  const grouped = Object.values(byKey).sort((a, b) => (a.platform === b.platform ? (a.phase || 0) - (b.phase || 0) : a.platform.localeCompare(b.platform)));
+  // Reminders are individual, not grouped — each has its own text, unlike
+  // "N leads due" — so they're listed one per row rather than counted.
+  const reminders = reminderRows.map(r => ({ type: 'reminder', id: r.id, text: r.text, earliestDue: r.due_at }));
+  res.json({ notifications: [...grouped, ...reminders] });
+}));
+
+app.post('/api/notifications/dismiss', asyncRoute(async (req, res) => {
+  const { groupKey } = req.body;
+  if (!groupKey) return res.status(400).json({ error: 'groupKey is required' });
+  await sql`
+    INSERT INTO notification_dismissals (group_key, dismissed_at) VALUES (${groupKey}, now())
+    ON CONFLICT (group_key) DO UPDATE SET dismissed_at = now()
+  `;
+  res.json({ ok: true });
+}));
+
+// ---------- REMINDERS ----------
+
+function mapReminderRow(r) {
+  return {
+    id: r.id,
+    text: r.text,
+    dueAt: r.due_at,
+    leadId: r.lead_id,
+    leadPlatform: r.platform,
+    leadUsername: r.username,
+    leadFullName: r.full_name,
+    createdAt: r.created_at
+  };
+}
+
+app.get('/api/reminders', asyncRoute(async (req, res) => {
+  const rows = await sql`
+    SELECT r.id, r.text, r.due_at, r.lead_id, r.created_at, l.platform, l.username, l.full_name
+    FROM reminders r
+    LEFT JOIN leads l ON l.id = r.lead_id AND l.deleted_at IS NULL
+    ORDER BY r.due_at ASC
+  `;
+  res.json({ reminders: rows.map(mapReminderRow) });
+}));
+
+app.post('/api/reminders', asyncRoute(async (req, res) => {
+  const text = String(req.body.text || '').trim();
+  const dueAt = req.body.dueAt ? new Date(req.body.dueAt) : null;
+  if (!text) return res.status(400).json({ error: 'A reminder needs some text.' });
+  if (!dueAt || Number.isNaN(dueAt.getTime())) return res.status(400).json({ error: 'A valid due date/time is required.' });
+  const leadId = req.body.leadId || null;
+  const id = crypto.randomUUID();
+  await sql`
+    INSERT INTO reminders (id, text, due_at, lead_id) VALUES (${id}, ${text}, ${dueAt.toISOString()}, ${leadId})
+  `;
+  res.json({ ok: true, id });
+}));
+
+app.delete('/api/reminders/:id', asyncRoute(async (req, res) => {
+  await sql`DELETE FROM reminders WHERE id = ${req.params.id}`;
+  res.json({ ok: true });
 }));
 
 // The due leads for one platform+phase, each with its exact next message pre-rendered.
