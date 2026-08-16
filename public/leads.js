@@ -8,7 +8,8 @@ const leadsState = {
   page: 0,
   search: '',
   platformFilter: 'all', // 'instagram' | 'linkedin' | 'all'
-  stageFilter: new Set() // empty = no filter, show every stage
+  stageFilter: new Set(), // empty = no filter, show every stage
+  remindersByLead: {} // leadId -> reminder (soonest, if a lead somehow has more than one)
 };
 
 // Full list of {lead, originalIndex} pairs matching the current search,
@@ -154,7 +155,27 @@ async function loadLeads() {
     console.error('Could not load leads', e);
     alert(`Could not load leads: ${e.message}`);
   }
+  await loadRemindersByLead();
   renderLeadsTable();
+}
+
+// Powers both the yellow reminder dot and the "existing reminder" state of
+// the per-lead widget below — best-effort (a failure here just means no
+// dots/existing-reminder display, not a broken leads list).
+async function loadRemindersByLead() {
+  leadsState.remindersByLead = {};
+  try {
+    const data = await fetchJson('/api/reminders');
+    (data.reminders || []).forEach(r => {
+      if (!r.leadId) return;
+      const existing = leadsState.remindersByLead[r.leadId];
+      if (!existing || new Date(r.dueAt) < new Date(existing.dueAt)) {
+        leadsState.remindersByLead[r.leadId] = r;
+      }
+    });
+  } catch (e) {
+    console.error('Could not load reminders', e);
+  }
 }
 
 // Default view: the URL itself is a clickable link (opens the profile),
@@ -172,6 +193,20 @@ function urlCellHtml(lead) {
 // days/weeks/months". Auto-generates the reminder text and links it to this
 // lead so it shows a "Take me to lead" action once due (see followups.js).
 function reminderWidgetHtml(lead) {
+  const existing = leadsState.remindersByLead[lead.id];
+  // A lead sticks with one reminder slot at a time, same as its one Note —
+  // an existing one shows as a persistent summary (not just a "✓ set" flash
+  // that reverts and looks like nothing happened) with its own remove
+  // button, rather than letting another one stack on top of it.
+  if (existing) {
+    return `
+      <div class="lead-detail-full lead-reminder-widget" data-lead-id="${lead.id}">
+        <div class="lead-reminder-existing">
+          <span>⏰ ${escapeHtml(formatReminderDue(existing.dueAt))}</span>
+          <button type="button" class="lead-reminder-remove-btn" data-reminder-id="${existing.id}" title="Remove reminder">🗑</button>
+        </div>
+      </div>`;
+  }
   return `
     <div class="lead-detail-full lead-reminder-widget" data-lead-id="${lead.id}">
       <button type="button" class="lead-reminder-toggle-btn">🔔 Add reminder</button>
@@ -193,6 +228,7 @@ function leadRowHtml(lead, index) {
   const selected = leadsState.selected.has(lead.id);
   const stageCls = stageClass(lead.stage);
   const hasNote = !!(lead.notes && lead.notes.trim());
+  const hasReminder = !!leadsState.remindersByLead[lead.id];
   const isLinkedin = lead.platform === 'linkedin';
   const rowClasses = ['leads-row', 'leads-row-body', stageCls, selected ? 'selected' : ''].filter(Boolean).join(' ');
   // LinkedIn leads have no username — the same column position instead edits
@@ -209,6 +245,7 @@ function leadRowHtml(lead, index) {
       <div class="lc lc-username">
         ${nameField}
         ${hasNote ? '<span class="note-dot" title="Has a note"></span>' : ''}
+        ${hasReminder ? '<span class="reminder-dot" title="Has a reminder"></span>' : ''}
       </div>
       <div class="lc lc-expand"><button type="button" class="expand-btn${expanded ? ' expanded' : ''}" title="Show details">&rsaquo;</button></div>
       <div class="lc lc-stage">
@@ -557,8 +594,27 @@ $('#leads-rows').addEventListener('click', (e) => {
   const reminderSaveBtn = e.target.closest('.lead-reminder-save-btn');
   if (reminderSaveBtn) {
     saveLeadReminder(reminderSaveBtn);
+    return;
+  }
+  const reminderRemoveBtn = e.target.closest('.lead-reminder-remove-btn');
+  if (reminderRemoveBtn) {
+    removeLeadReminder(reminderRemoveBtn);
   }
 });
+
+function updateReminderDot(id, hasReminder) {
+  const usernameCell = document.querySelector(`.leads-row-body[data-id="${id}"] .lc-username`);
+  if (!usernameCell) return;
+  let dot = usernameCell.querySelector('.reminder-dot');
+  if (hasReminder && !dot) {
+    dot = document.createElement('span');
+    dot.className = 'reminder-dot';
+    dot.title = 'Has a reminder';
+    usernameCell.appendChild(dot);
+  } else if (!hasReminder && dot) {
+    dot.remove();
+  }
+}
 
 async function saveLeadReminder(saveBtn) {
   const widget = saveBtn.closest('.lead-reminder-widget');
@@ -575,21 +631,39 @@ async function saveLeadReminder(saveBtn) {
 
   saveBtn.disabled = true;
   try {
-    await fetchJson('/api/reminders', {
+    const data = await fetchJson('/api/reminders', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text: `Reminder for ${leadDisplayName(lead)}`, dueAt: dueAt.toISOString(), leadId: lead.id })
     });
+    // Sticks around like the lead's Note does, rather than flashing a
+    // confirmation and reverting to "+ Add reminder" as if nothing happened.
+    leadsState.remindersByLead[lead.id] = { id: data.id, text: `Reminder for ${leadDisplayName(lead)}`, dueAt: dueAt.toISOString(), leadId: lead.id };
+    updateReminderDot(lead.id, true);
+    widget.outerHTML = reminderWidgetHtml(lead);
     loadNotifications();
-    const toggleBtn = widget.querySelector('.lead-reminder-toggle-btn');
-    widget.querySelector('.lead-reminder-form').classList.add('hidden');
-    toggleBtn.classList.remove('hidden');
-    toggleBtn.textContent = '✓ Reminder set';
-    setTimeout(() => { toggleBtn.textContent = '🔔 Add reminder'; }, 2000);
   } catch (e) {
     alert(`Could not set reminder: ${e.message}`);
   } finally {
     saveBtn.disabled = false;
+  }
+}
+
+async function removeLeadReminder(removeBtn) {
+  const widget = removeBtn.closest('.lead-reminder-widget');
+  const leadId = widget.dataset.leadId;
+  const lead = leadsState.leads.find(l => l.id === leadId);
+  if (!lead) return;
+  removeBtn.disabled = true;
+  try {
+    await fetchJson(`/api/reminders/${removeBtn.dataset.reminderId}`, { method: 'DELETE' });
+    delete leadsState.remindersByLead[leadId];
+    updateReminderDot(leadId, false);
+    widget.outerHTML = reminderWidgetHtml(lead);
+    loadNotifications();
+  } catch (e) {
+    alert(`Could not remove reminder: ${e.message}`);
+    removeBtn.disabled = false;
   }
 }
 

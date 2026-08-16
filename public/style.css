@@ -964,6 +964,13 @@ input:focus, textarea:focus, select:focus {
   background: var(--muted);
   flex-shrink: 0;
 }
+.reminder-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #eab308;
+  flex-shrink: 0;
+}
 
 .lc-username input {
   width: 100%;
@@ -1155,6 +1162,29 @@ input:focus, textarea:focus, select:focus {
   font-family: inherit;
   text-decoration: underline;
 }
+.lead-reminder-existing {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(234, 179, 8, 0.12);
+  border: 1px solid rgba(234, 179, 8, 0.35);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+.lead-reminder-existing .lead-reminder-remove-btn {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(255, 49, 49, 0.1);
+  cursor: pointer;
+  font-size: 0.78rem;
+}
+.lead-reminder-existing .lead-reminder-remove-btn:hover { background: rgba(255, 49, 49, 0.2); }
 
 /* Modals */
 .modal-overlay {
