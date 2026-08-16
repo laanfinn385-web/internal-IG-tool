@@ -1130,6 +1130,31 @@ input:focus, textarea:focus, select:focus {
 .lead-detail label { margin-bottom: 0; }
 .lead-detail .lead-detail-full { grid-column: 1 / -1; }
 .lead-detail textarea.auto-resize { resize: none; overflow: hidden; }
+.lead-reminder-toggle-btn {
+  background: none;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 0.82rem;
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 600;
+  font-family: inherit;
+}
+.lead-reminder-toggle-btn:hover { background: var(--purple-soft); }
+.lead-reminder-form { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.lead-reminder-form .lead-reminder-amount { width: 64px; margin-bottom: 0; }
+.lead-reminder-form .lead-reminder-unit { width: auto; margin-bottom: 0; }
+.lead-reminder-form .lead-reminder-save-btn { padding: 8px 14px; font-size: 0.85rem; }
+.lead-reminder-cancel-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.82rem;
+  font-family: inherit;
+  text-decoration: underline;
+}
 
 /* Modals */
 .modal-overlay {
@@ -1359,6 +1384,19 @@ input:focus, textarea:focus, select:focus {
 .notif-item-phase { font-weight: 700; font-size: 0.85rem; color: var(--accent); }
 .notif-item-count { font-size: 0.82rem; color: var(--text); }
 .notif-item-time { font-size: 0.72rem; color: var(--muted); white-space: nowrap; flex-shrink: 0; margin-top: 2px; }
+.notif-reminder-goto-btn {
+  align-self: flex-start;
+  margin-top: 2px;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 0.78rem;
+  cursor: pointer;
+  font-family: inherit;
+}
+.notif-reminder-goto-btn:hover { text-decoration: underline; }
 .notif-item-delete {
   flex-shrink: 0;
   width: 40px;

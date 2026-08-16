@@ -982,7 +982,13 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
     `,
     getLinkedinConnectionDelayDays(),
     getNotificationDismissals(),
-    sql`SELECT id, text, due_at FROM reminders WHERE due_at <= now() ORDER BY due_at ASC`
+    sql`
+      SELECT r.id, r.text, r.due_at, r.lead_id, l.platform, l.username, l.full_name
+      FROM reminders r
+      LEFT JOIN leads l ON l.id = r.lead_id AND l.deleted_at IS NULL
+      WHERE r.due_at <= now()
+      ORDER BY r.due_at ASC
+    `
   ]);
 
   const byKey = {};
@@ -1014,7 +1020,10 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
   const grouped = Object.values(byKey).sort((a, b) => (a.platform === b.platform ? (a.phase || 0) - (b.phase || 0) : a.platform.localeCompare(b.platform)));
   // Reminders are individual, not grouped — each has its own text, unlike
   // "N leads due" — so they're listed one per row rather than counted.
-  const reminders = reminderRows.map(r => ({ type: 'reminder', id: r.id, text: r.text, earliestDue: r.due_at }));
+  const reminders = reminderRows.map(r => ({
+    type: 'reminder', id: r.id, text: r.text, earliestDue: r.due_at,
+    leadId: r.lead_id, leadPlatform: r.platform, leadUsername: r.username, leadFullName: r.full_name
+  }));
   res.json({ notifications: [...grouped, ...reminders] });
 }));
 

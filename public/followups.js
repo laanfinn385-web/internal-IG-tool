@@ -58,15 +58,24 @@ function renderNotifications(notifications) {
         </div>`;
     }
     if (n.type === 'reminder') {
+      // Linked reminders get an explicit "Take me to lead" action alongside
+      // the usual "click the card to manage it in Settings" — the leadId
+      // alone can't be trusted here (it survives the lead being soft-deleted,
+      // at which point the server's LEFT JOIN nulls the rest out).
+      const isLinked = n.leadId && (n.leadUsername || n.leadFullName);
+      const gotoBtn = isLinked
+        ? `<button type="button" class="notif-reminder-goto-btn" data-lead-search="${escapeHtml(leadDisplayName({ platform: n.leadPlatform, username: n.leadUsername, fullName: n.leadFullName }).replace(/^@/, ''))}">Take me to lead →</button>`
+        : '';
       return `
         <div class="notif-row">
-          <button type="button" class="notif-item" data-type="reminder" data-id="${n.id}">
+          <div class="notif-item" data-type="reminder" data-id="${n.id}">
             <div class="notif-item-main">
               <span class="notif-item-phase">🔔 Reminder</span>
               <span class="notif-item-count">${escapeHtml(n.text)}</span>
+              ${gotoBtn}
             </div>
             <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
-          </button>
+          </div>
           <button type="button" class="notif-item-delete" data-reminder-id="${n.id}" title="Delete reminder">🗑</button>
         </div>`;
     }
@@ -85,6 +94,18 @@ function renderNotifications(notifications) {
 }
 
 $('#notif-list').addEventListener('click', async (e) => {
+  const gotoBtn = e.target.closest('.notif-reminder-goto-btn');
+  if (gotoBtn) {
+    e.stopPropagation();
+    $('#notif-dropdown').classList.add('hidden');
+    showView('leads');
+    leadsState.search = gotoBtn.dataset.leadSearch;
+    $('#leads-search').value = leadsState.search;
+    leadsState.page = 0;
+    renderLeadsTable();
+    return;
+  }
+
   const deleteBtn = e.target.closest('.notif-item-delete');
   if (deleteBtn) {
     e.stopPropagation();

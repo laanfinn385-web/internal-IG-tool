@@ -167,6 +167,27 @@ function urlCellHtml(lead) {
   return `<div class="url-view">${display}<button type="button" class="url-edit-btn" title="Edit URL">✏️</button></div>`;
 }
 
+// Quick per-lead reminder, distinct from the general Settings one — no text
+// field (the lead itself already has Notes for that), just "remind me in N
+// days/weeks/months". Auto-generates the reminder text and links it to this
+// lead so it shows a "Take me to lead" action once due (see followups.js).
+function reminderWidgetHtml(lead) {
+  return `
+    <div class="lead-detail-full lead-reminder-widget" data-lead-id="${lead.id}">
+      <button type="button" class="lead-reminder-toggle-btn">🔔 Add reminder</button>
+      <div class="lead-reminder-form hidden">
+        <input type="number" min="1" step="1" value="1" class="lead-reminder-amount">
+        <select class="lead-reminder-unit">
+          <option value="days">Days</option>
+          <option value="weeks">Weeks</option>
+          <option value="months">Months</option>
+        </select>
+        <button type="button" class="lead-reminder-save-btn btn-secondary">Set reminder</button>
+        <button type="button" class="lead-reminder-cancel-btn">Cancel</button>
+      </div>
+    </div>`;
+}
+
 function leadRowHtml(lead, index) {
   const expanded = leadsState.expanded.has(lead.id);
   const selected = leadsState.selected.has(lead.id);
@@ -218,6 +239,7 @@ function leadRowHtml(lead, index) {
       <label class="lead-detail-full">Note
         <textarea rows="2" data-field="notes" class="auto-resize" placeholder="Anything worth remembering about this lead...">${escapeHtml(lead.notes)}</textarea>
       </label>
+      ${reminderWidgetHtml(lead)}
     </div>` : `
     <div class="lead-detail${expanded ? '' : ' hidden'}" data-detail-id="${lead.id}">
       <label>Full name
@@ -232,6 +254,7 @@ function leadRowHtml(lead, index) {
       <label class="lead-detail-full">Note
         <textarea rows="2" data-field="notes" class="auto-resize" placeholder="Anything worth remembering about this lead...">${escapeHtml(lead.notes)}</textarea>
       </label>
+      ${reminderWidgetHtml(lead)}
     </div>`;
   return row + detail;
 }
@@ -515,8 +538,60 @@ $('#leads-rows').addEventListener('click', (e) => {
     const input = cell.querySelector('input');
     input.focus();
     input.select();
+    return;
+  }
+
+  const reminderToggleBtn = e.target.closest('.lead-reminder-toggle-btn');
+  if (reminderToggleBtn) {
+    reminderToggleBtn.classList.add('hidden');
+    reminderToggleBtn.nextElementSibling.classList.remove('hidden');
+    return;
+  }
+  const reminderCancelBtn = e.target.closest('.lead-reminder-cancel-btn');
+  if (reminderCancelBtn) {
+    const widget = reminderCancelBtn.closest('.lead-reminder-widget');
+    widget.querySelector('.lead-reminder-form').classList.add('hidden');
+    widget.querySelector('.lead-reminder-toggle-btn').classList.remove('hidden');
+    return;
+  }
+  const reminderSaveBtn = e.target.closest('.lead-reminder-save-btn');
+  if (reminderSaveBtn) {
+    saveLeadReminder(reminderSaveBtn);
   }
 });
+
+async function saveLeadReminder(saveBtn) {
+  const widget = saveBtn.closest('.lead-reminder-widget');
+  const lead = leadsState.leads.find(l => l.id === widget.dataset.leadId);
+  if (!lead) return;
+  const amount = Number(widget.querySelector('.lead-reminder-amount').value);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    alert('Enter a valid number.');
+    return;
+  }
+  const unit = widget.querySelector('.lead-reminder-unit').value;
+  const days = amount * (unit === 'days' ? 1 : unit === 'weeks' ? 7 : 30);
+  const dueAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+
+  saveBtn.disabled = true;
+  try {
+    await fetchJson('/api/reminders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: `Reminder for ${leadDisplayName(lead)}`, dueAt: dueAt.toISOString(), leadId: lead.id })
+    });
+    loadNotifications();
+    const toggleBtn = widget.querySelector('.lead-reminder-toggle-btn');
+    widget.querySelector('.lead-reminder-form').classList.add('hidden');
+    toggleBtn.classList.remove('hidden');
+    toggleBtn.textContent = '✓ Reminder set';
+    setTimeout(() => { toggleBtn.textContent = '🔔 Add reminder'; }, 2000);
+  } catch (e) {
+    alert(`Could not set reminder: ${e.message}`);
+  } finally {
+    saveBtn.disabled = false;
+  }
+}
 
 // Pressing Enter in the URL edit field just blurs it — the existing
 // focusout handler below takes care of saving + swapping back to link view.
