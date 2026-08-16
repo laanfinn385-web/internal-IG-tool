@@ -386,6 +386,7 @@ async function loadHome() {
   try {
     const data = await fetchJson(`/api/home?platform=${homePlatformFilter}`);
     $('#streak-value').textContent = data.streak;
+    $('#streak-flame').classList.toggle('lit', !!data.streakTodayMet);
     $('#week-value').textContent = data.last7Days;
     $('#available-leads-value').textContent = data.availableLeads.toLocaleString('en-US');
     $('#reply-rate-value').textContent = pctText(data.replyRate);
@@ -400,6 +401,7 @@ async function loadHome() {
     renderDailyGoal(data.dailyGoal);
   } catch (e) {
     $('#streak-value').textContent = '–';
+    $('#streak-flame').classList.remove('lit');
     $('#week-value').textContent = '–';
     $('#available-leads-value').textContent = '–';
     $('#reply-rate-value').textContent = '–';

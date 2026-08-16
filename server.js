@@ -128,12 +128,26 @@ function daysAgoStr(n, from = new Date()) {
   return todayStr(d);
 }
 
-// Streak = consecutive days with >=1 "sent" outreach, walking backward from today,
-// never broken by Sundays (they just don't count either way).
-function computeStreak(sentDateSet) {
+// A day "counts" toward the streak once BOTH platform daily-goal thresholds
+// are met (0 = that platform isn't part of the goal, so it's always
+// satisfied). If neither platform has a goal configured, there's nothing to
+// have hit, so no day ever counts — see computeGoalStreak below.
+function goalMetOnDate(date, igByDate, liByDate, igGoal, liGoal) {
+  const igOk = igGoal <= 0 || (igByDate[date] || 0) >= igGoal;
+  const liOk = liGoal <= 0 || (liByDate[date] || 0) >= liGoal;
+  return igOk && liOk;
+}
+
+// Streak = consecutive days the daily goal was hit, walking backward from
+// today, never broken by Sundays (they just don't count either way). Today
+// not having hit the goal *yet* doesn't break the streak — there's still
+// time left in the day — it just isn't counted until it's actually hit.
+function computeGoalStreak(igByDate, liByDate, igGoal, liGoal) {
+  if (igGoal <= 0 && liGoal <= 0) return { streak: 0, todayMet: false };
   const today = todayStr();
+  const todayMet = goalMetOnDate(today, igByDate, liByDate, igGoal, liGoal);
   let cursor = new Date(today + 'T00:00:00');
-  if (!sentDateSet.has(today)) {
+  if (!todayMet) {
     cursor.setDate(cursor.getDate() - 1);
   }
   let streak = 0;
@@ -143,22 +157,20 @@ function computeStreak(sentDateSet) {
       continue;
     }
     const ds = todayStr(cursor);
-    if (sentDateSet.has(ds)) {
+    if (goalMetOnDate(ds, igByDate, liByDate, igGoal, liGoal)) {
       streak++;
       cursor.setDate(cursor.getDate() - 1);
     } else {
       break;
     }
   }
-  return streak;
+  return { streak, todayMet };
 }
 
 app.get('/api/home', asyncRoute(async (req, res) => {
   const platform = ['instagram', 'linkedin'].includes(req.query.platform) ? req.query.platform : 'all';
   const data = await loadData(platform);
   const sent = data.outreaches.filter(o => o.status === 'sent');
-  const sentDateSet = new Set(sent.map(o => o.date));
-  const streak = computeStreak(sentDateSet);
   const sevenDaysAgo = daysAgoStr(6);
   const last7Days = sent.filter(o => o.date >= sevenDaysAgo).length;
 
@@ -203,34 +215,44 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   const asr = rate(eventCounts.call_booked, sent.length);
   const car = rate(eventCounts.connection_accepted, eventCounts.connection_sent);
 
-  // Daily goal — deliberately independent of this endpoint's own `platform`
-  // filter (which only scopes the stats above it): the goal bar always shows
+  // Daily goal (+ the streak, now driven by the same per-day history) —
+  // deliberately independent of this endpoint's own `platform` filter (which
+  // only scopes the stats above it): the goal bar and streak always reflect
   // real progress across both platforms, since that's what "Start/Continue
   // daily goal session" is working toward regardless of which tab is active.
   const today = todayStr();
   const [
     goalSettingRows,
-    [{ count: todaySentInstagram }],
-    [{ count: todayEngagedLinkedin }],
+    igSentByDateRows,
+    liEngagedByDateRows,
     [dailyGoalSession]
   ] = await Promise.all([
     sql`SELECT key, value FROM app_settings WHERE key IN ('daily_goal_instagram', 'daily_goal_linkedin')`,
-    sql`SELECT count(*) FROM outreaches WHERE platform = 'instagram' AND status = 'sent' AND date = ${today}`,
-    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'engaged' AND l.platform = 'linkedin' AND e.date = ${today}`,
+    sql`SELECT date, count(*) FROM outreaches WHERE platform = 'instagram' AND status = 'sent' GROUP BY date`,
+    sql`SELECT e.date, count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'engaged' AND l.platform = 'linkedin' GROUP BY e.date`,
     sql`SELECT * FROM saved_sessions WHERE is_daily_goal = true ORDER BY created_at DESC LIMIT 1`
   ]);
   const goalSettings = {};
   goalSettingRows.forEach(r => { goalSettings[r.key] = r.value; });
+  const dailyGoalInstagram = Number(goalSettings.daily_goal_instagram) || 0;
+  const dailyGoalLinkedin = Number(goalSettings.daily_goal_linkedin) || 0;
+
+  const igSentByDate = {};
+  igSentByDateRows.forEach(r => { igSentByDate[r.date] = Number(r.count); });
+  const liEngagedByDate = {};
+  liEngagedByDateRows.forEach(r => { liEngagedByDate[r.date] = Number(r.count); });
+
+  const { streak, todayMet: streakTodayMet } = computeGoalStreak(igSentByDate, liEngagedByDate, dailyGoalInstagram, dailyGoalLinkedin);
 
   res.json({
-    streak, last7Days, last7DaysPctChange, availableLeads: Number(count), stageCounts,
+    streak, streakTodayMet, last7Days, last7DaysPctChange, availableLeads: Number(count), stageCounts,
     sendsTrend, replyRate, prr, asr,
     connectionsSent: eventCounts.connection_sent, connectionsAccepted: eventCounts.connection_accepted, car,
     dailyGoal: {
-      instagram: Number(goalSettings.daily_goal_instagram) || 0,
-      linkedin: Number(goalSettings.daily_goal_linkedin) || 0,
-      todaySentInstagram: Number(todaySentInstagram),
-      todayEngagedLinkedin: Number(todayEngagedLinkedin),
+      instagram: dailyGoalInstagram,
+      linkedin: dailyGoalLinkedin,
+      todaySentInstagram: igSentByDate[today] || 0,
+      todayEngagedLinkedin: liEngagedByDate[today] || 0,
       savedSession: dailyGoalSession ? mapSavedSessionRow(dailyGoalSession) : null
     }
   });
