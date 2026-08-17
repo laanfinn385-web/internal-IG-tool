@@ -353,6 +353,7 @@ async function loadSettingsPage() {
     settingsState.followups = fuData.followups || [];
     $('#settings-calendar-link').value = (appData.settings && appData.settings.calendar_link) || '';
     $('#settings-views-threshold').value = (appData.settings && appData.settings.views_threshold) || 1000;
+    $('#settings-connection-delay').value = (appData.settings && appData.settings.linkedin_connection_delay_days) ?? 2;
     $('#settings-daily-goal-instagram').value = (appData.settings && appData.settings.daily_goal_instagram) || 0;
     $('#settings-daily-goal-linkedin').value = (appData.settings && appData.settings.daily_goal_linkedin) || 0;
     renderSettingsTemplates();
@@ -705,7 +706,8 @@ $('#settings-general-save').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         calendarLink: $('#settings-calendar-link').value,
-        viewsThreshold: Number($('#settings-views-threshold').value) || 0
+        viewsThreshold: Number($('#settings-views-threshold').value) || 0,
+        linkedinConnectionDelayDays: Number($('#settings-connection-delay').value) || 0
       })
     });
     state.viewsThreshold = Number($('#settings-views-threshold').value) || 0;
