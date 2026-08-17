@@ -339,13 +339,13 @@ $('#followup-done-btn').addEventListener('click', () => showView('home'));
 
 // ---------- Settings ----------
 
-const settingsState = { templates: [], followups: [], phase: 1, reminders: [] };
+const settingsState = { templates: [], followups: [], phase: 1, followupPlatform: 'instagram', reminders: [] };
 
 async function loadSettingsPage() {
   try {
     const [tplData, fuData, appData] = await Promise.all([
       fetchJson('/api/settings/templates'),
-      fetchJson('/api/settings/followups'),
+      fetchJson(`/api/settings/followups?platform=${settingsState.followupPlatform}`),
       fetchJson('/api/settings/app'),
       loadReminders()
     ]);
@@ -361,6 +361,26 @@ async function loadSettingsPage() {
     alert(`Could not load settings: ${e.message}`);
   }
 }
+
+async function loadFollowupsForPlatform() {
+  try {
+    const fuData = await fetchJson(`/api/settings/followups?platform=${settingsState.followupPlatform}`);
+    settingsState.followups = fuData.followups || [];
+  } catch (e) {
+    alert(`Could not load ${settingsState.followupPlatform} follow-ups: ${e.message}`);
+    return;
+  }
+  renderSettingsFollowups();
+}
+
+$('#settings-followup-platform-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.range-tab');
+  if (!btn) return;
+  $all('#settings-followup-platform-tabs .range-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  settingsState.followupPlatform = btn.dataset.platform;
+  loadFollowupsForPlatform();
+});
 
 // The actual wording (opener/hook/value/cta per category) lives in the
 // database and is composed + rotated behind the scenes by app.js — only the
@@ -440,7 +460,7 @@ $('#settings-followups').addEventListener('change', async (e) => {
     await fetchJson(`/api/settings/followups/${phase}/${step}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [field]: e.target.value })
+      body: JSON.stringify({ [field]: e.target.value, platform: settingsState.followupPlatform })
     });
     if (field === 'type') renderSettingsFollowups();
   } catch (err) {
