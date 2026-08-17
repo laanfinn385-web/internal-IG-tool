@@ -1139,6 +1139,7 @@ input:focus, textarea:focus, select:focus {
 .lead-detail label { margin-bottom: 0; }
 .lead-detail .lead-detail-full { grid-column: 1 / -1; }
 .lead-detail textarea.auto-resize { resize: none; overflow: hidden; }
+.lead-stage-changed { margin: -6px 0 0; }
 .lead-reminder-toggle-btn {
   background: none;
   border: 1px dashed var(--border);

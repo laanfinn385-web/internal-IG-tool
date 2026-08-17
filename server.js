@@ -485,6 +485,7 @@ function mapLeadRow(r) {
     notes: r.notes,
     phaseStep: r.phase_step,
     phaseStartedAt: r.phase_started_at,
+    stageChangedAt: r.stage_changed_at,
     everPositiveReply: r.ever_positive_reply,
     everCallBooked: r.ever_call_booked,
     createdAt: r.created_at,
@@ -642,6 +643,12 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   if (Object.prototype.hasOwnProperty.call(b, 'stage')) {
     const [current] = await sql`SELECT stage, ever_positive_reply, ever_call_booked, personalized_video_url FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
     if (current && current.stage !== b.stage) {
+      // General "when did this lead's stage last change" — unlike
+      // phase_started_at (only reset for phase1/2/3/engaged, for follow-up
+      // due-date scheduling) this fires for every stage transition, so the
+      // Leads page can show it for any stage, not just the ones with a
+      // day-offset sequence behind them.
+      sets.push('stage_changed_at = now()');
       if (FOLLOWUP_STAGES.includes(b.stage)) {
         sets.push(`phase_step = $${i++}`); params.push(0);
         sets.push('phase_started_at = now()');

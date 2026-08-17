@@ -145,6 +145,14 @@ function normalizeFollowers(raw) {
   return digits ? Number(digits) : '';
 }
 
+// stageChangedAt updates on every stage transition (server-side), regardless
+// of which stage — unlike phaseStartedAt, which only tracks phase1/2/3/
+// engaged for follow-up due-date scheduling.
+function formatStageChangedDate(dateStr) {
+  if (!dateStr) return '—';
+  return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
 // ---------- Load & render ----------
 
 async function loadLeads() {
@@ -276,6 +284,7 @@ function leadRowHtml(lead, index) {
       <label class="lead-detail-full">Note
         <textarea rows="2" data-field="notes" class="auto-resize" placeholder="Anything worth remembering about this lead...">${escapeHtml(lead.notes)}</textarea>
       </label>
+      <p class="lead-detail-full lead-stage-changed muted">Stage last changed: ${escapeHtml(formatStageChangedDate(lead.stageChangedAt))}</p>
       ${reminderWidgetHtml(lead)}
     </div>` : `
     <div class="lead-detail${expanded ? '' : ' hidden'}" data-detail-id="${lead.id}">
@@ -291,6 +300,7 @@ function leadRowHtml(lead, index) {
       <label class="lead-detail-full">Note
         <textarea rows="2" data-field="notes" class="auto-resize" placeholder="Anything worth remembering about this lead...">${escapeHtml(lead.notes)}</textarea>
       </label>
+      <p class="lead-detail-full lead-stage-changed muted">Stage last changed: ${escapeHtml(formatStageChangedDate(lead.stageChangedAt))}</p>
       ${reminderWidgetHtml(lead)}
     </div>`;
   return row + detail;
