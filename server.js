@@ -902,6 +902,13 @@ function tierCapForAge(ageDays) {
 }
 
 const TIER_CAPS = [40, 60, 80];
+// A brand-new account can't send at all for its first week in the tool (not
+// the Instagram account's own age — this is about the *tool* easing into
+// using it), then ramps up 10/day from there to whatever its tier allows,
+// rather than jumping straight to the tier cap.
+const WARMUP_DAYS = 7;
+const RAMP_STEP = 10;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 // Only bumps an account that's currently sitting *at* the tier it's outgrown
 // — a deliberately-lower custom value (e.g. 25) doesn't match any tier
@@ -912,19 +919,49 @@ function maybeAutoUpgrade(dailyLimit, ageDays) {
   return null;
 }
 
-// createdOn arrives as a plain string from a fresh POST body, but as a JS
-// Date object when read back from the DB (the neon driver parses DATE
-// columns into Date instances) — string-concatenating a Date produces
-// garbage ("[object Date]T00:00:00Z"), so both shapes need handling.
+// createdOn/createdAt arrive as plain strings from a fresh POST body, but as
+// JS Date objects when read back from the DB (the neon driver parses
+// DATE/TIMESTAMPTZ columns into Date instances) — string-concatenating a
+// Date produces garbage ("[object Date]T00:00:00Z"), so both shapes need
+// handling everywhere a stored timestamp gets compared against now().
+function toDate(value, assumeUtcMidnight) {
+  if (value instanceof Date) return value;
+  return assumeUtcMidnight ? new Date(value + 'T00:00:00Z') : new Date(value);
+}
+
 function ageDaysFrom(createdOn) {
-  const d = createdOn instanceof Date ? createdOn : new Date(createdOn + 'T00:00:00Z');
-  const ms = Date.now() - d.getTime();
-  return Math.floor(ms / (24 * 60 * 60 * 1000));
+  const ms = Date.now() - toDate(createdOn, true).getTime();
+  return Math.floor(ms / MS_PER_DAY);
+}
+
+function addDays(date, days) {
+  const d = new Date(date);
+  d.setDate(d.getDate() + days);
+  return d;
+}
+
+// When ramping actually starts: immediately if warmup was skipped, otherwise
+// exactly WARMUP_DAYS after the account was added to the tool.
+function effectiveRampStart(r) {
+  return r.warmup_skipped_at ? toDate(r.warmup_skipped_at) : addDays(toDate(r.created_at), WARMUP_DAYS);
 }
 
 function mapAccountRow(r, todaySentCount) {
   const ageDays = ageDaysFrom(r.created_on);
   const tierCap = tierCapForAge(ageDays);
+  let phase = 'ready';
+  let warmupEndsAt = null;
+  let rampDay = null;
+  if (!r.rampup_skipped_at) {
+    const rampStart = effectiveRampStart(r);
+    if (!r.warmup_skipped_at && new Date() < rampStart) {
+      phase = 'warming_up';
+      warmupEndsAt = rampStart;
+    } else if (r.daily_limit < tierCap) {
+      phase = 'ramping_up';
+      rampDay = Math.floor((Date.now() - rampStart.getTime()) / MS_PER_DAY) + 1;
+    }
+  }
   return {
     id: r.id,
     username: r.username,
@@ -934,7 +971,10 @@ function mapAccountRow(r, todaySentCount) {
     ageDays,
     tierCap,
     overTierCap: r.daily_limit > tierCap,
-    todaySentCount: todaySentCount || 0
+    todaySentCount: todaySentCount || 0,
+    phase,
+    warmupEndsAt,
+    rampDay
   };
 }
 
@@ -949,14 +989,39 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
   const sentByAccount = {};
   sentRows.forEach(r => { sentByAccount[r.account_id] = Number(r.count); });
 
-  // Lazy auto-upgrade — this app has no background jobs, so this (like the
-  // follow-up due-query) runs at request time instead. Any account that
-  // crosses a threshold gets its cap bumped and a plain reminder inserted
-  // announcing it, reusing the existing reminders/notification-bell pipeline
-  // rather than a parallel notification mechanism.
+  // Lazy warmup/ramp-up/tier-upgrade — this app has no background jobs, so
+  // all of this (like the follow-up due-query) runs at request time instead.
+  // Each transition a plain reminder announces (reusing the existing
+  // reminders/notification-bell pipeline rather than a parallel mechanism).
   const upgraded = [];
   for (const r of accounts) {
     const ageDays = ageDaysFrom(r.created_on);
+    const tierCap = tierCapForAge(ageDays);
+
+    if (!r.rampup_skipped_at) {
+      const rampStart = effectiveRampStart(r);
+      if (new Date() >= rampStart) {
+        const daysInRamp = Math.floor((Date.now() - rampStart.getTime()) / MS_PER_DAY) + 1;
+        const rampLimit = Math.min(tierCap, daysInRamp * RAMP_STEP);
+        if (rampLimit !== r.daily_limit) {
+          // The stored value still reading 0 is what tells us this is the
+          // exact moment warmup ends — the natural (non-skipped) path, since
+          // skip-warmup already bumps this itself and announces separately.
+          if (r.daily_limit === 0) {
+            await sql`
+              INSERT INTO reminders (id, text, due_at, lead_id)
+              VALUES (${crypto.randomUUID()}, ${`🔥 @${r.username} finished its 7-day warmup and is ready to start ramping up`}, now(), NULL)
+            `;
+          }
+          await sql`UPDATE ig_accounts SET daily_limit = ${rampLimit} WHERE id = ${r.id}`;
+          r.daily_limit = rampLimit;
+        }
+      }
+      // Still warming up or actively ramping — not eligible for the tier
+      // auto-upgrade below until it's actually reached its tier cap.
+      if (r.daily_limit < tierCap) continue;
+    }
+
     const newCap = maybeAutoUpgrade(r.daily_limit, ageDays);
     if (newCap !== null) {
       await sql`UPDATE ig_accounts SET daily_limit = ${newCap} WHERE id = ${r.id}`;
@@ -970,6 +1035,25 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
   }
 
   res.json({ accounts: accounts.map(r => mapAccountRow(r, sentByAccount[r.id])), upgraded });
+}));
+
+app.post('/api/accounts/:id/skip-warmup', asyncRoute(async (req, res) => {
+  const [account] = await sql`SELECT username FROM ig_accounts WHERE id = ${req.params.id} AND archived_at IS NULL`;
+  if (!account) return res.status(404).json({ error: 'Account not found.' });
+  await sql`UPDATE ig_accounts SET warmup_skipped_at = now(), daily_limit = ${RAMP_STEP} WHERE id = ${req.params.id}`;
+  await sql`
+    INSERT INTO reminders (id, text, due_at, lead_id)
+    VALUES (${crypto.randomUUID()}, ${`🔥 @${account.username}'s warmup was skipped and is ready to start ramping up`}, now(), NULL)
+  `;
+  res.json({ ok: true });
+}));
+
+app.post('/api/accounts/:id/skip-rampup', asyncRoute(async (req, res) => {
+  const [account] = await sql`SELECT created_on FROM ig_accounts WHERE id = ${req.params.id} AND archived_at IS NULL`;
+  if (!account) return res.status(404).json({ error: 'Account not found.' });
+  const tierCap = tierCapForAge(ageDaysFrom(account.created_on));
+  await sql`UPDATE ig_accounts SET rampup_skipped_at = now(), daily_limit = ${tierCap} WHERE id = ${req.params.id}`;
+  res.json({ ok: true });
 }));
 
 // Base64 JSON body (not multipart/raw) — reuses the existing express.json()
@@ -995,12 +1079,14 @@ app.post('/api/accounts', asyncRoute(async (req, res) => {
   if (!createdOn || Number.isNaN(new Date(createdOn).getTime())) {
     return res.status(400).json({ error: 'A valid creation date is required.' });
   }
-  const ageDays = ageDaysFrom(createdOn);
-  const dailyLimit = tierCapForAge(ageDays);
+  // Every newly-added account starts at 0 and warming up, regardless of how
+  // old the real Instagram account already is — the warmup/ramp-up here is
+  // about easing this *tool's* usage pattern in, not the account's own age
+  // (which still separately determines its eventual tier cap once ramped).
   const id = crypto.randomUUID();
   await sql`
     INSERT INTO ig_accounts (id, username, created_on, profile_image_url, daily_limit)
-    VALUES (${id}, ${username}, ${createdOn}, ${req.body.profileImageUrl || null}, ${dailyLimit})
+    VALUES (${id}, ${username}, ${createdOn}, ${req.body.profileImageUrl || null}, 0)
   `;
   res.json({ ok: true, id });
 }));

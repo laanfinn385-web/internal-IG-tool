@@ -735,20 +735,40 @@ function renderAccountsList() {
     wrap.innerHTML = '<p class="muted">No accounts yet — add one to start tracking daily send limits.</p>';
     return;
   }
-  wrap.innerHTML = settingsState.accounts.map(a => `
-    <div class="account-row" data-id="${a.id}">
-      ${accountPhotoHtml(a)}
-      <div class="account-main">
-        <div class="account-username">@${escapeHtml(a.username)}</div>
-        <div class="muted account-meta">${formatAccountAge(a.ageDays)} · tier cap ${a.tierCap}/day · sent ${a.todaySentCount} today</div>
-      </div>
-      <label class="account-limit-label">Daily limit
-        <input type="number" min="1" class="account-limit-input" data-id="${a.id}" value="${a.dailyLimit}">
-      </label>
-      ${a.overTierCap ? '<span class="account-over-cap" title="Above the recommended limit for an account this age">⚠️</span>' : '<span class="account-over-cap-spacer"></span>'}
-      <button type="button" class="account-archive-btn" data-id="${a.id}" title="Archive this account">🗑</button>
-    </div>
-  `).join('');
+  wrap.innerHTML = settingsState.accounts.map(a => {
+    const isWarming = a.phase === 'warming_up';
+    const isRamping = a.phase === 'ramping_up';
+    let statusHtml = '';
+    if (isWarming) {
+      statusHtml = `
+        <div class="account-warmup-badge">
+          <span>⚠️ Account needs warming up</span>
+          <button type="button" class="account-skip-warmup-btn" data-id="${a.id}">Skip warmup</button>
+        </div>`;
+    } else if (isRamping) {
+      statusHtml = `
+        <div class="account-ramp-note">
+          <span>🔥 Ramping up — day ${a.rampDay}, ${a.dailyLimit}/day so far (target ${a.tierCap}/day)</span>
+          <button type="button" class="account-skip-rampup-btn" data-id="${a.id}">Skip ramp up</button>
+        </div>`;
+    }
+    return `
+      <div class="account-row${isWarming ? ' account-row-warming' : ''}" data-id="${a.id}">
+        <div class="account-row-main">
+          ${accountPhotoHtml(a)}
+          <div class="account-main">
+            <div class="account-username">@${escapeHtml(a.username)}</div>
+            <div class="muted account-meta">${formatAccountAge(a.ageDays)} · tier cap ${a.tierCap}/day · sent ${a.todaySentCount} today</div>
+          </div>
+          <label class="account-limit-label">Daily limit
+            <input type="number" min="1" class="account-limit-input" data-id="${a.id}" value="${a.dailyLimit}"${isWarming || isRamping ? ' disabled' : ''}>
+          </label>
+          ${a.overTierCap ? '<span class="account-over-cap" title="Above the recommended limit for an account this age">⚠️</span>' : '<span class="account-over-cap-spacer"></span>'}
+          <button type="button" class="account-archive-btn" data-id="${a.id}" title="Archive this account">🗑</button>
+        </div>
+        ${statusHtml}
+      </div>`;
+  }).join('');
 }
 
 $('#accounts-list').addEventListener('change', async (e) => {
@@ -787,19 +807,54 @@ $('#accounts-list').addEventListener('change', async (e) => {
 
 $('#accounts-list').addEventListener('click', async (e) => {
   const archiveBtn = e.target.closest('.account-archive-btn');
-  if (!archiveBtn) return;
-  const id = archiveBtn.dataset.id;
-  const account = settingsState.accounts.find(a => a.id === id);
-  if (!account) return;
-  if (!confirm(`Archive @${account.username}? It'll stop showing up when starting new sessions, but its send history stays intact.`)) return;
-  archiveBtn.disabled = true;
-  try {
-    await fetchJson(`/api/accounts/${id}`, { method: 'DELETE' });
-    settingsState.accounts = settingsState.accounts.filter(a => a.id !== id);
-    renderAccountsList();
-  } catch (err) {
-    alert(`Could not archive account: ${err.message}`);
-    archiveBtn.disabled = false;
+  if (archiveBtn) {
+    const id = archiveBtn.dataset.id;
+    const account = settingsState.accounts.find(a => a.id === id);
+    if (!account) return;
+    if (!confirm(`Archive @${account.username}? It'll stop showing up when starting new sessions, but its send history stays intact.`)) return;
+    archiveBtn.disabled = true;
+    try {
+      await fetchJson(`/api/accounts/${id}`, { method: 'DELETE' });
+      settingsState.accounts = settingsState.accounts.filter(a => a.id !== id);
+      renderAccountsList();
+    } catch (err) {
+      alert(`Could not archive account: ${err.message}`);
+      archiveBtn.disabled = false;
+    }
+    return;
+  }
+
+  const skipWarmupBtn = e.target.closest('.account-skip-warmup-btn');
+  if (skipWarmupBtn) {
+    const id = skipWarmupBtn.dataset.id;
+    const account = settingsState.accounts.find(a => a.id === id);
+    if (!account) return;
+    if (!confirm(`Skip @${account.username}'s 7-day warmup? Sending right away on a brand-new account is more likely to get it flagged — only do this if you know what you're doing.`)) return;
+    skipWarmupBtn.disabled = true;
+    try {
+      await fetchJson(`/api/accounts/${id}/skip-warmup`, { method: 'POST' });
+      await loadAccounts();
+    } catch (err) {
+      alert(`Could not skip warmup: ${err.message}`);
+      skipWarmupBtn.disabled = false;
+    }
+    return;
+  }
+
+  const skipRampupBtn = e.target.closest('.account-skip-rampup-btn');
+  if (skipRampupBtn) {
+    const id = skipRampupBtn.dataset.id;
+    const account = settingsState.accounts.find(a => a.id === id);
+    if (!account) return;
+    if (!confirm(`Skip @${account.username}'s ramp-up and jump straight to ${account.tierCap}/day? Ramping up gradually is the safer way to grow a new account's sending volume — only do this if you know what you're doing.`)) return;
+    skipRampupBtn.disabled = true;
+    try {
+      await fetchJson(`/api/accounts/${id}/skip-rampup`, { method: 'POST' });
+      await loadAccounts();
+    } catch (err) {
+      alert(`Could not skip ramp-up: ${err.message}`);
+      skipRampupBtn.disabled = false;
+    }
   }
 });
 
