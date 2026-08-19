@@ -951,12 +951,17 @@ function mapAccountRow(r, todaySentCount) {
   const tierCap = tierCapForAge(ageDays);
   let phase = 'ready';
   let warmupEndsAt = null;
+  let warmupDay = null;
   let rampDay = null;
   if (!r.rampup_skipped_at) {
     const rampStart = effectiveRampStart(r);
     if (!r.warmup_skipped_at && new Date() < rampStart) {
       phase = 'warming_up';
       warmupEndsAt = rampStart;
+      // 0-indexed ("day 0 of 7" the day it's added, counting up to "day 6 of
+      // 7" the day before ramp-up starts) — matches WARMUP_DAYS directly
+      // rather than needing a separate +1/-1 convention to keep straight.
+      warmupDay = WARMUP_DAYS - Math.ceil((rampStart.getTime() - Date.now()) / MS_PER_DAY);
     } else if (r.daily_limit < tierCap) {
       phase = 'ramping_up';
       rampDay = Math.floor((Date.now() - rampStart.getTime()) / MS_PER_DAY) + 1;
@@ -973,6 +978,7 @@ function mapAccountRow(r, todaySentCount) {
     overTierCap: r.daily_limit > tierCap,
     todaySentCount: todaySentCount || 0,
     phase,
+    warmupDay,
     warmupEndsAt,
     rampDay
   };

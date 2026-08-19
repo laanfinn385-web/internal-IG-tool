@@ -742,7 +742,7 @@ function renderAccountsList() {
     if (isWarming) {
       statusHtml = `
         <div class="account-warmup-badge">
-          <span>⚠️ Account needs warming up</span>
+          <span>⚠️ Account needs warming up — day ${a.warmupDay} of 7</span>
           <button type="button" class="account-skip-warmup-btn" data-id="${a.id}">Skip warmup</button>
         </div>`;
     } else if (isRamping) {
