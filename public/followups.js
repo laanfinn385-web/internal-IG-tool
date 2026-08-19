@@ -339,7 +339,7 @@ $('#followup-done-btn').addEventListener('click', () => showView('home'));
 
 // ---------- Settings ----------
 
-const settingsState = { templates: [], followups: [], phase: 1, followupPlatform: 'instagram', reminders: [] };
+const settingsState = { templates: [], followups: [], phase: 1, followupPlatform: 'instagram', reminders: [], accounts: [] };
 
 async function loadSettingsPage() {
   try {
@@ -347,7 +347,8 @@ async function loadSettingsPage() {
       fetchJson('/api/settings/templates'),
       fetchJson(`/api/settings/followups?platform=${settingsState.followupPlatform}`),
       fetchJson('/api/settings/app'),
-      loadReminders()
+      loadReminders(),
+      loadAccounts()
     ]);
     settingsState.templates = tplData.templates || [];
     settingsState.followups = fuData.followups || [];
@@ -673,6 +674,177 @@ $('#reminder-add-btn').addEventListener('click', async () => {
     loadNotifications();
   } catch (err) {
     alert(`Could not add reminder: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+// ---------- Instagram accounts ----------
+
+async function loadAccounts() {
+  try {
+    const data = await fetchJson('/api/accounts');
+    settingsState.accounts = data.accounts || [];
+    // A lazy auto-upgrade may have just fired server-side (see GET
+    // /api/accounts) and inserted a reminder announcing it — refresh the
+    // bell so it shows up without waiting for the next unrelated reload.
+    if (data.upgraded && data.upgraded.length > 0) loadNotifications();
+  } catch (e) {
+    console.error('Could not load accounts', e);
+  }
+  renderAccountsList();
+}
+
+function formatAccountAge(ageDays) {
+  if (ageDays < 30) return `${ageDays} day${ageDays === 1 ? '' : 's'} old`;
+  const months = Math.floor(ageDays / 30);
+  return `${months} month${months === 1 ? '' : 's'} old`;
+}
+
+function accountPhotoHtml(a) {
+  if (a.profileImageUrl) return `<img class="account-photo" src="${escapeHtml(a.profileImageUrl)}" alt="">`;
+  const letter = (a.username || '?').charAt(0).toUpperCase();
+  return `<div class="account-photo account-photo-placeholder">${escapeHtml(letter)}</div>`;
+}
+
+function renderAccountsList() {
+  const wrap = $('#accounts-list');
+  if (settingsState.accounts.length === 0) {
+    wrap.innerHTML = '<p class="muted">No accounts yet — add one to start tracking daily send limits.</p>';
+    return;
+  }
+  wrap.innerHTML = settingsState.accounts.map(a => `
+    <div class="account-row" data-id="${a.id}">
+      ${accountPhotoHtml(a)}
+      <div class="account-main">
+        <div class="account-username">@${escapeHtml(a.username)}</div>
+        <div class="muted account-meta">${formatAccountAge(a.ageDays)} · tier cap ${a.tierCap}/day · sent ${a.todaySentCount} today</div>
+      </div>
+      <label class="account-limit-label">Daily limit
+        <input type="number" min="1" class="account-limit-input" data-id="${a.id}" value="${a.dailyLimit}">
+      </label>
+      ${a.overTierCap ? '<span class="account-over-cap" title="Above the recommended limit for an account this age">⚠️</span>' : '<span class="account-over-cap-spacer"></span>'}
+      <button type="button" class="account-archive-btn" data-id="${a.id}" title="Archive this account">🗑</button>
+    </div>
+  `).join('');
+}
+
+$('#accounts-list').addEventListener('change', async (e) => {
+  const input = e.target.closest('.account-limit-input');
+  if (!input) return;
+  const id = input.dataset.id;
+  const account = settingsState.accounts.find(a => a.id === id);
+  if (!account) return;
+  const newValue = Math.max(1, Math.round(Number(input.value)) || 1);
+
+  if (newValue > account.tierCap) {
+    const ok = confirm(`This is above the recommended ${account.tierCap}/day limit for an account ${formatAccountAge(account.ageDays)} — Instagram may flag unusually high send volume. Set it anyway?`);
+    if (!ok) {
+      input.value = account.dailyLimit;
+      return;
+    }
+  }
+
+  const previous = account.dailyLimit;
+  account.dailyLimit = newValue;
+  input.value = newValue;
+  try {
+    await fetchJson(`/api/accounts/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dailyLimit: newValue })
+    });
+    account.overTierCap = newValue > account.tierCap;
+    renderAccountsList();
+  } catch (err) {
+    account.dailyLimit = previous;
+    input.value = previous;
+    alert(`Could not save daily limit: ${err.message}`);
+  }
+});
+
+$('#accounts-list').addEventListener('click', async (e) => {
+  const archiveBtn = e.target.closest('.account-archive-btn');
+  if (!archiveBtn) return;
+  const id = archiveBtn.dataset.id;
+  const account = settingsState.accounts.find(a => a.id === id);
+  if (!account) return;
+  if (!confirm(`Archive @${account.username}? It'll stop showing up when starting new sessions, but its send history stays intact.`)) return;
+  archiveBtn.disabled = true;
+  try {
+    await fetchJson(`/api/accounts/${id}`, { method: 'DELETE' });
+    settingsState.accounts = settingsState.accounts.filter(a => a.id !== id);
+    renderAccountsList();
+  } catch (err) {
+    alert(`Could not archive account: ${err.message}`);
+    archiveBtn.disabled = false;
+  }
+});
+
+let pendingAccountImageUrl = null;
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+$('#accounts-add-btn').addEventListener('click', () => {
+  $('#add-account-username').value = '';
+  $('#add-account-created-on').value = '';
+  $('#add-account-image').value = '';
+  $('#add-account-image-status').textContent = '';
+  $('#add-account-error').style.display = 'none';
+  pendingAccountImageUrl = null;
+  $('#add-account-modal').classList.remove('hidden');
+});
+
+$('#add-account-cancel-btn').addEventListener('click', () => $('#add-account-modal').classList.add('hidden'));
+
+$('#add-account-image').addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const statusEl = $('#add-account-image-status');
+  statusEl.textContent = 'Uploading…';
+  try {
+    const base64 = await fileToBase64(file);
+    const data = await fetchJson('/api/accounts/upload-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64: base64, contentType: file.type })
+    }, 30000);
+    pendingAccountImageUrl = data.url;
+    statusEl.textContent = '✓ Uploaded';
+  } catch (err) {
+    statusEl.textContent = `Could not upload image: ${err.message}`;
+    pendingAccountImageUrl = null;
+  }
+});
+
+$('#add-account-confirm-btn').addEventListener('click', async () => {
+  const username = $('#add-account-username').value.trim().replace('@', '');
+  const createdOn = $('#add-account-created-on').value;
+  const errorEl = $('#add-account-error');
+  errorEl.style.display = 'none';
+  if (!username) { errorEl.textContent = 'Enter a username.'; errorEl.style.display = 'block'; return; }
+  if (!createdOn) { errorEl.textContent = 'Enter the date this account was created.'; errorEl.style.display = 'block'; return; }
+
+  const btn = $('#add-account-confirm-btn');
+  btn.disabled = true;
+  try {
+    await fetchJson('/api/accounts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, createdOn, profileImageUrl: pendingAccountImageUrl })
+    });
+    $('#add-account-modal').classList.add('hidden');
+    await loadAccounts();
+  } catch (err) {
+    errorEl.textContent = err.message;
+    errorEl.style.display = 'block';
   } finally {
     btn.disabled = false;
   }

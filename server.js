@@ -8,6 +8,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const { neon } = require('@neondatabase/serverless');
 const sql = neon(process.env.DATABASE_URL);
+const { put: putBlob } = require('@vercel/blob');
 
 // The video-render-service is a separate Vercel deployment (see
 // video-render-service/README.md) — these point this app at it.
@@ -869,6 +870,145 @@ app.post('/api/leads/restore', asyncRoute(async (req, res) => {
   const idList = Array.isArray(req.body.ids) ? req.body.ids : [];
   if (idList.length === 0) return res.json({ ok: true });
   await sql`UPDATE leads SET deleted_at = NULL WHERE id = ANY(${idList}::uuid[])`;
+  res.json({ ok: true });
+}));
+
+// ---------- IG ACCOUNTS ----------
+// Multiple-account rotation to avoid Instagram flagging one account for
+// high-volume DMing — each account gets its own daily send cap, stricter for
+// younger accounts, and a real "how many did this account send today" fact
+// (outreaches.account_id) rather than the app being blind to which account
+// sent what.
+
+// Age tiers — day-based, matching the same ~30-day month approximation used
+// elsewhere in this app (e.g. the reminder feature's "months" unit).
+function tierCapForAge(ageDays) {
+  if (ageDays < 30) return 40;
+  if (ageDays < 180) return 60;
+  return 80;
+}
+
+const TIER_CAPS = [40, 60, 80];
+
+// Only bumps an account that's currently sitting *at* the tier it's outgrown
+// — a deliberately-lower custom value (e.g. 25) doesn't match any tier
+// boundary and is left alone, per the user's explicit call on this.
+function maybeAutoUpgrade(dailyLimit, ageDays) {
+  const currentTierCap = tierCapForAge(ageDays);
+  if (TIER_CAPS.includes(dailyLimit) && dailyLimit < currentTierCap) return currentTierCap;
+  return null;
+}
+
+// createdOn arrives as a plain string from a fresh POST body, but as a JS
+// Date object when read back from the DB (the neon driver parses DATE
+// columns into Date instances) — string-concatenating a Date produces
+// garbage ("[object Date]T00:00:00Z"), so both shapes need handling.
+function ageDaysFrom(createdOn) {
+  const d = createdOn instanceof Date ? createdOn : new Date(createdOn + 'T00:00:00Z');
+  const ms = Date.now() - d.getTime();
+  return Math.floor(ms / (24 * 60 * 60 * 1000));
+}
+
+function mapAccountRow(r, todaySentCount) {
+  const ageDays = ageDaysFrom(r.created_on);
+  const tierCap = tierCapForAge(ageDays);
+  return {
+    id: r.id,
+    username: r.username,
+    createdOn: r.created_on,
+    profileImageUrl: r.profile_image_url,
+    dailyLimit: r.daily_limit,
+    ageDays,
+    tierCap,
+    overTierCap: r.daily_limit > tierCap,
+    todaySentCount: todaySentCount || 0
+  };
+}
+
+app.get('/api/accounts', asyncRoute(async (req, res) => {
+  const today = todayStr();
+  const accounts = await sql`SELECT * FROM ig_accounts WHERE archived_at IS NULL ORDER BY created_at ASC`;
+  const sentRows = await sql`
+    SELECT account_id, count(*) FROM outreaches
+    WHERE status = 'sent' AND date = ${today} AND account_id IS NOT NULL
+    GROUP BY account_id
+  `;
+  const sentByAccount = {};
+  sentRows.forEach(r => { sentByAccount[r.account_id] = Number(r.count); });
+
+  // Lazy auto-upgrade — this app has no background jobs, so this (like the
+  // follow-up due-query) runs at request time instead. Any account that
+  // crosses a threshold gets its cap bumped and a plain reminder inserted
+  // announcing it, reusing the existing reminders/notification-bell pipeline
+  // rather than a parallel notification mechanism.
+  const upgraded = [];
+  for (const r of accounts) {
+    const ageDays = ageDaysFrom(r.created_on);
+    const newCap = maybeAutoUpgrade(r.daily_limit, ageDays);
+    if (newCap !== null) {
+      await sql`UPDATE ig_accounts SET daily_limit = ${newCap} WHERE id = ${r.id}`;
+      r.daily_limit = newCap;
+      await sql`
+        INSERT INTO reminders (id, text, due_at, lead_id)
+        VALUES (${crypto.randomUUID()}, ${`🎉 @${r.username}'s daily limit was raised to ${newCap} — account turned ${ageDays >= 180 ? '6+ months' : '1+ month'} old`}, now(), NULL)
+      `;
+      upgraded.push(r.id);
+    }
+  }
+
+  res.json({ accounts: accounts.map(r => mapAccountRow(r, sentByAccount[r.id])), upgraded });
+}));
+
+// Base64 JSON body (not multipart/raw) — reuses the existing express.json()
+// middleware as-is rather than adding route-specific body parsing, and a
+// profile photo is small enough that the ~33% base64 overhead doesn't matter
+// against the app's existing 15mb JSON limit.
+app.post('/api/accounts/upload-image', asyncRoute(async (req, res) => {
+  const { imageBase64, contentType } = req.body;
+  if (!imageBase64) return res.status(400).json({ error: 'imageBase64 is required.' });
+  const buffer = Buffer.from(imageBase64, 'base64');
+  const ext = (contentType && contentType.split('/')[1]) || 'jpg';
+  const blob = await putBlob(`ig-account-photos/${crypto.randomUUID()}.${ext}`, buffer, {
+    access: 'public',
+    contentType: contentType || 'image/jpeg'
+  });
+  res.json({ url: blob.url });
+}));
+
+app.post('/api/accounts', asyncRoute(async (req, res) => {
+  const username = String(req.body.username || '').trim().replace('@', '');
+  const createdOn = req.body.createdOn;
+  if (!username) return res.status(400).json({ error: 'Username is required.' });
+  if (!createdOn || Number.isNaN(new Date(createdOn).getTime())) {
+    return res.status(400).json({ error: 'A valid creation date is required.' });
+  }
+  const ageDays = ageDaysFrom(createdOn);
+  const dailyLimit = tierCapForAge(ageDays);
+  const id = crypto.randomUUID();
+  await sql`
+    INSERT INTO ig_accounts (id, username, created_on, profile_image_url, daily_limit)
+    VALUES (${id}, ${username}, ${createdOn}, ${req.body.profileImageUrl || null}, ${dailyLimit})
+  `;
+  res.json({ ok: true, id });
+}));
+
+app.patch('/api/accounts/:id', asyncRoute(async (req, res) => {
+  const { id } = req.params;
+  const sets = []; const params = []; let i = 1;
+  if (req.body.dailyLimit !== undefined) {
+    const clamped = Math.max(1, Math.round(Number(req.body.dailyLimit)) || 1);
+    sets.push(`daily_limit = $${i++}`); params.push(clamped);
+  }
+  if (req.body.username !== undefined) { sets.push(`username = $${i++}`); params.push(String(req.body.username).trim().replace('@', '')); }
+  if (req.body.profileImageUrl !== undefined) { sets.push(`profile_image_url = $${i++}`); params.push(req.body.profileImageUrl); }
+  if (sets.length === 0) return res.json({ ok: true });
+  params.push(id);
+  await sql.query(`UPDATE ig_accounts SET ${sets.join(', ')} WHERE id = $${i}`, params);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/accounts/:id', asyncRoute(async (req, res) => {
+  await sql`UPDATE ig_accounts SET archived_at = now() WHERE id = ${req.params.id}`;
   res.json({ ok: true });
 }));
 

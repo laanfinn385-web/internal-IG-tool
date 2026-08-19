@@ -709,6 +709,35 @@
     <section id="view-settings" class="view hidden">
       <h1 class="page-title">Settings</h1>
 
+      <div class="card" id="settings-accounts-card">
+        <h3>Instagram accounts</h3>
+        <p class="muted" style="margin-top:-8px;">Rotate between accounts to keep Instagram from flagging any one of them for high-volume DMing. Daily limits are per account and get stricter for younger accounts — see the tier note next to each one.</p>
+        <div id="accounts-list" class="accounts-list"></div>
+        <button id="accounts-add-btn" class="btn-secondary">+ Add account</button>
+      </div>
+
+      <!-- Add account modal -->
+      <div id="add-account-modal" class="modal-overlay hidden">
+        <div class="modal">
+          <h3>Add account</h3>
+          <label>Username
+            <input type="text" id="add-account-username" placeholder="username">
+          </label>
+          <label>Account created on
+            <input type="date" id="add-account-created-on">
+          </label>
+          <label>Profile picture
+            <input type="file" id="add-account-image" accept="image/*">
+          </label>
+          <p class="muted" id="add-account-image-status"></p>
+          <p class="muted" id="add-account-error" style="display:none; color: var(--red);"></p>
+          <div class="modal-actions">
+            <button id="add-account-cancel-btn" class="btn-secondary">Cancel</button>
+            <button id="add-account-confirm-btn" class="btn-primary">Add account</button>
+          </div>
+        </div>
+      </div>
+
       <div class="card">
         <h3>Daily goal</h3>
         <p class="muted" style="margin-top:-8px;">Powers the progress bar and "Start/Continue daily goal session" button on the homepage. 0 means that platform is skipped — set both to run Instagram-only or LinkedIn-only, set one to 0 for a single-platform goal.</p>
