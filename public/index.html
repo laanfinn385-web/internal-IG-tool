@@ -11,6 +11,13 @@
 <link rel="stylesheet" href="style.css?v=4">
 </head>
 <body>
+<div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
+  <span id="ig-cooldown-banner-text"></span>
+  <div class="ig-cooldown-banner-actions">
+    <button type="button" id="ig-cooldown-banner-continue-btn" class="btn-primary hidden">Continue session →</button>
+    <button type="button" id="ig-cooldown-banner-skip-btn" class="btn-secondary">Skip timer</button>
+  </div>
+</div>
 <div id="app">
 
   <aside class="sidebar" id="sidebar">
@@ -179,6 +186,15 @@
           </div>
         </div>
 
+        <div id="home-session-account-row" class="hidden">
+          <label>Instagram account
+            <select id="home-session-account-select"></select>
+          </label>
+          <p class="muted hidden" id="home-session-no-accounts">No Instagram accounts yet — <a href="#" data-nav="settings" class="inline-link">add one in Settings</a> first.</p>
+        </div>
+
+        <p class="muted" id="home-session-cooldown-notice" style="display:none;"></p>
+
         <div class="row-between">
           <span class="muted">&nbsp;</span>
           <button id="start-session-btn" class="btn-primary">Start session →</button>
@@ -209,6 +225,40 @@
       <div class="decision-row">
         <button id="combi-save-li-btn" class="btn-secondary">💾 Save LinkedIn leads for later</button>
         <button id="combi-continue-li-btn" class="btn-primary">Move on to LinkedIn leads →</button>
+      </div>
+    </section>
+
+    <!-- IG ACCOUNT DAILY LIMIT — reached mid-session, pick a new account
+         (starts the 2-hour switch cooldown) or, mid-combi, skip straight to
+         the LinkedIn portion instead (unaffected by the Instagram limit). -->
+    <section id="view-ig-account-limit" class="view hidden">
+      <div class="end-hero">
+        <div class="end-emoji">⏸️</div>
+        <h1 id="ig-limit-title">Daily limit reached</h1>
+        <p class="end-sub" id="ig-limit-summary"></p>
+      </div>
+
+      <div class="card" id="ig-limit-picker-card">
+        <h2>Continue with a different account</h2>
+        <label>Instagram account
+          <select id="ig-limit-account-select"></select>
+        </label>
+        <p class="muted hidden" id="ig-limit-no-accounts">No other Instagram accounts available today — add one in Settings, or come back tomorrow.</p>
+        <div class="row-between">
+          <span class="muted">&nbsp;</span>
+          <button id="ig-limit-continue-btn" class="btn-primary">Continue with this account →</button>
+        </div>
+        <button id="ig-limit-continue-li-btn" class="btn-secondary hidden" type="button">Continue to LinkedIn leads →</button>
+      </div>
+
+      <div class="card hidden" id="ig-limit-cooldown-card">
+        <h2>Switching accounts</h2>
+        <p class="muted">Instagram can flag back-to-back account switching as automated. Waiting a couple hours keeps this looking human.</p>
+        <div class="cooldown-countdown" id="ig-limit-countdown"></div>
+        <div class="modal-actions" style="justify-content:flex-start; gap:12px;">
+          <button id="ig-limit-home-btn" class="btn-secondary">← Go back to home</button>
+          <button id="ig-limit-skip-btn" class="btn-secondary">Skip timer</button>
+        </div>
       </div>
     </section>
 
@@ -631,6 +681,22 @@
           <div class="modal-actions">
             <button id="delete-cancel-btn" class="btn-secondary">Cancel</button>
             <button id="delete-confirm-btn" class="btn-reject">Delete</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Account picker — shown before starting a session with selected
+           Instagram leads, so every send is attributed to an account. -->
+      <div id="leads-session-account-modal" class="modal-overlay hidden">
+        <div class="modal">
+          <h3>Which Instagram account?</h3>
+          <label>Account
+            <select id="leads-session-account-select"></select>
+          </label>
+          <p class="muted hidden" id="leads-session-no-accounts">No Instagram accounts yet — add one in Settings first.</p>
+          <div class="modal-actions">
+            <button id="leads-session-account-cancel-btn" class="btn-secondary">Cancel</button>
+            <button id="leads-session-account-confirm-btn" class="btn-primary">Start session →</button>
           </div>
         </div>
       </div>

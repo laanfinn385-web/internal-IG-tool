@@ -750,7 +750,7 @@ $('#leads-selection-delete').addEventListener('click', () => {
   deleteLeads(ids);
 });
 
-$('#leads-selection-start').addEventListener('click', () => {
+$('#leads-selection-start').addEventListener('click', async () => {
   const selectedLeads = leadsState.leads.filter(l => leadsState.selected.has(l.id));
   if (selectedLeads.length === 0) return;
 
@@ -782,9 +782,45 @@ $('#leads-selection-start').addEventListener('click', () => {
     }
   }
 
+  // Instagram sends need an account attributed to them — same limit/cooldown
+  // system as the Home starter, so a selection-started session here also
+  // pauses/blocks correctly once an account is maxed out.
+  if (kind === 'ig_message') {
+    if (isIgCooldownActive()) {
+      alert(`Instagram is on a switch cooldown for another ${formatCountdown(igCooldownState.until - Date.now())} — new Instagram sessions are blocked until then.`);
+      return;
+    }
+    pendingLeadsSessionSelection = selectedLeads;
+    const accounts = await loadIgAccounts();
+    const usable = populateAccountSelect($('#leads-session-account-select'), accounts);
+    $('#leads-session-no-accounts').classList.toggle('hidden', usable.length > 0);
+    $('#leads-session-account-select').classList.toggle('hidden', usable.length === 0);
+    $('#leads-session-account-confirm-btn').disabled = usable.length === 0;
+    $('#leads-session-account-modal').classList.remove('hidden');
+    return;
+  }
+
   leadsState.selected.clear();
   updateSelectionBar();
   beginSessionWithLeads(selectedLeads, { kind });
+});
+
+let pendingLeadsSessionSelection = null;
+
+$('#leads-session-account-cancel-btn').addEventListener('click', () => {
+  $('#leads-session-account-modal').classList.add('hidden');
+  pendingLeadsSessionSelection = null;
+});
+
+$('#leads-session-account-confirm-btn').addEventListener('click', () => {
+  const accountId = $('#leads-session-account-select').value;
+  if (!accountId || !pendingLeadsSessionSelection) return;
+  const selectedLeads = pendingLeadsSessionSelection;
+  pendingLeadsSessionSelection = null;
+  $('#leads-session-account-modal').classList.add('hidden');
+  leadsState.selected.clear();
+  updateSelectionBar();
+  beginSessionWithLeads(selectedLeads, { kind: 'ig_message', accountId });
 });
 
 // ---------- Delete + undo ----------

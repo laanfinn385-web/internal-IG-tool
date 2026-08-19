@@ -265,6 +265,7 @@ app.post('/api/outreach', asyncRoute(async (req, res) => {
     date: todayStr(),
     createdAt: new Date().toISOString(),
     platform: req.body.platform === 'linkedin' ? 'linkedin' : 'instagram',
+    accountId: req.body.accountId || null,
     username: req.body.username || '',
     profileUrl: req.body.profileUrl || '',
     fullName: req.body.fullName || '',
@@ -279,11 +280,23 @@ app.post('/api/outreach', asyncRoute(async (req, res) => {
   };
 
   await sql`
-    INSERT INTO outreaches (id, date, created_at, platform, username, profile_url, full_name, bio, followers, last_post_weeks, posts_per_week, avg_views, template, message, status)
-    VALUES (${record.id}, ${record.date}, ${record.createdAt}, ${record.platform}, ${record.username}, ${record.profileUrl}, ${record.fullName}, ${record.bio}, ${record.followers}, ${record.lastPostWeeks}, ${record.postsPerWeek}, ${record.avgViews}, ${record.template}, ${record.message}, ${record.status})
+    INSERT INTO outreaches (id, date, created_at, platform, account_id, username, profile_url, full_name, bio, followers, last_post_weeks, posts_per_week, avg_views, template, message, status)
+    VALUES (${record.id}, ${record.date}, ${record.createdAt}, ${record.platform}, ${record.accountId}, ${record.username}, ${record.profileUrl}, ${record.fullName}, ${record.bio}, ${record.followers}, ${record.lastPostWeeks}, ${record.postsPerWeek}, ${record.avgViews}, ${record.template}, ${record.message}, ${record.status})
   `;
 
-  res.json({ ok: true, record });
+  // Lets the client know immediately whether this send just hit the active
+  // account's daily cap, without a second round-trip — only meaningful for a
+  // real Instagram account send that actually counted (a 'sent' status).
+  let accountTodaySentCount = null;
+  if (record.accountId && record.status === 'sent') {
+    const [{ count }] = await sql`
+      SELECT count(*) FROM outreaches
+      WHERE account_id = ${record.accountId} AND status = 'sent' AND date = ${record.date}
+    `;
+    accountTodaySentCount = Number(count);
+  }
+
+  res.json({ ok: true, record, accountTodaySentCount });
 }));
 
 app.get('/api/analytics', asyncRoute(async (req, res) => {
@@ -1031,18 +1044,20 @@ function mapSavedSessionRow(r) {
     sentCount: r.sent_count,
     results: r.results || [],
     remainingProfiles: r.remaining_profiles || [],
-    isDailyGoal: r.is_daily_goal
+    isDailyGoal: r.is_daily_goal,
+    igCooldownUntil: r.ig_cooldown_until,
+    igCooldownAccountId: r.ig_cooldown_account_id
   };
 }
 
 app.post('/api/saved-sessions', asyncRoute(async (req, res) => {
-  const { sessionKind, sessionMode, sessionTarget, sentCount, results, remainingProfiles, isDailyGoal } = req.body;
+  const { sessionKind, sessionMode, sessionTarget, sentCount, results, remainingProfiles, isDailyGoal, igCooldownUntil, igCooldownAccountId } = req.body;
   const remaining = Array.isArray(remainingProfiles) ? remainingProfiles : [];
   if (remaining.length === 0) return res.status(400).json({ error: 'Nothing to save — no remaining profiles.' });
   const id = crypto.randomUUID();
   await sql`
-    INSERT INTO saved_sessions (id, session_kind, session_mode, session_target, sent_count, results, remaining_profiles, is_daily_goal)
-    VALUES (${id}, ${sessionKind || 'ig_message'}, ${sessionMode || 'fixed'}, ${sessionTarget ?? null}, ${sentCount || 0}, ${JSON.stringify(Array.isArray(results) ? results : [])}, ${JSON.stringify(remaining)}, ${!!isDailyGoal})
+    INSERT INTO saved_sessions (id, session_kind, session_mode, session_target, sent_count, results, remaining_profiles, is_daily_goal, ig_cooldown_until, ig_cooldown_account_id)
+    VALUES (${id}, ${sessionKind || 'ig_message'}, ${sessionMode || 'fixed'}, ${sessionTarget ?? null}, ${sentCount || 0}, ${JSON.stringify(Array.isArray(results) ? results : [])}, ${JSON.stringify(remaining)}, ${!!isDailyGoal}, ${igCooldownUntil || null}, ${igCooldownAccountId || null})
   `;
   res.json({ ok: true, id });
 }));
@@ -1193,7 +1208,42 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
     type: 'reminder', id: r.id, text: r.text, earliestDue: r.due_at,
     leadId: r.lead_id, leadPlatform: r.platform, leadUsername: r.username, leadFullName: r.full_name
   }));
-  res.json({ notifications: [...grouped, ...reminders] });
+
+  // The Instagram account-switch cooldown — computed live from saved_sessions
+  // rather than a separate stored notification, same "compute from real
+  // state" approach as everything else here. Kept non-null even once expired
+  // (with `expired: true`) so the global banner can render a "ready" state on
+  // a fresh page load, not just while the same tab counted it down live.
+  const [pendingCooldown] = await sql`
+    SELECT s.id AS saved_session_id, s.ig_cooldown_until, s.ig_cooldown_account_id, a.username AS account_username
+    FROM saved_sessions s
+    LEFT JOIN ig_accounts a ON a.id = s.ig_cooldown_account_id
+    WHERE s.ig_cooldown_until IS NOT NULL
+    ORDER BY s.ig_cooldown_until DESC
+    LIMIT 1
+  `;
+  let igCooldown = null;
+  const cooldownReadyNotifications = [];
+  if (pendingCooldown) {
+    const expired = new Date(pendingCooldown.ig_cooldown_until) <= new Date();
+    igCooldown = {
+      until: pendingCooldown.ig_cooldown_until,
+      accountId: pendingCooldown.ig_cooldown_account_id,
+      accountUsername: pendingCooldown.account_username,
+      savedSessionId: pendingCooldown.saved_session_id,
+      expired
+    };
+    if (expired) {
+      cooldownReadyNotifications.push({
+        type: 'ig_cooldown_ready',
+        savedSessionId: pendingCooldown.saved_session_id,
+        accountUsername: pendingCooldown.account_username,
+        earliestDue: pendingCooldown.ig_cooldown_until
+      });
+    }
+  }
+
+  res.json({ notifications: [...grouped, ...reminders, ...cooldownReadyNotifications], igCooldown });
 }));
 
 app.post('/api/notifications/dismiss', asyncRoute(async (req, res) => {

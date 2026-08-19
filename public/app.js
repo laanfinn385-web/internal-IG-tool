@@ -21,7 +21,19 @@ const state = {
   // True when this session was launched via "Start daily goal session" —
   // tags any resulting quit-save so Home can find it again and offer
   // "Continue" instead of "Start" (see loadHome/renderDailyGoal).
-  isDailyGoal: false
+  isDailyGoal: false,
+  // The Instagram account currently sending, and today's running count for
+  // it — unused for LinkedIn session kinds. todaySentCount comes back from
+  // each /api/outreach response so decide() never needs a second round-trip
+  // just to check whether that send hit the account's daily cap.
+  igAccountId: null,
+  igAccountUsername: null,
+  igAccountTodaySentCount: 0,
+  // Set only while sitting on the "switching accounts" cooldown screen
+  // (before it's been handed off to a saved session via "Go back to home") —
+  // see showIgAccountLimitPause/renderIgCooldownBanner.
+  igCooldownUntil: null,
+  igCooldownAccountId: null
 };
 
 const SESSION_KEY = 'outreach_session_v1';
@@ -41,7 +53,12 @@ function saveSession() {
       sentCount: state.sentCount,
       outOfLeads: state.outOfLeads,
       combi: state.combi,
-      isDailyGoal: state.isDailyGoal
+      isDailyGoal: state.isDailyGoal,
+      igAccountId: state.igAccountId,
+      igAccountUsername: state.igAccountUsername,
+      igAccountTodaySentCount: state.igAccountTodaySentCount,
+      igCooldownUntil: state.igCooldownUntil,
+      igCooldownAccountId: state.igCooldownAccountId
     }));
   } catch (e) { /* storage full or unavailable — non-fatal */ }
 }
@@ -195,7 +212,7 @@ function showView(name) {
   $all('.view').forEach(v => v.classList.add('hidden'));
   $(`#view-${name}`).classList.remove('hidden');
   $all('.navbtn').forEach(btn => btn.classList.toggle('active', btn.dataset.nav === name));
-  if (name === 'home') { loadHome(); loadNotifications(); }
+  if (name === 'home') { loadHome(); loadNotifications(); refreshHomeSessionAccountRow(); }
   if (name === 'leads') { loadLeads(); loadNotifications(); }
   if (name === 'analytics') loadAnalytics(currentRange);
   if (name === 'settings') loadSettingsPage();
@@ -476,15 +493,33 @@ $('#daily-goal-session-btn').addEventListener('click', async () => {
   const igRemaining = Math.max(0, homeDailyGoalData.instagram - homeDailyGoalData.todaySentInstagram);
   const liRemaining = Math.max(0, homeDailyGoalData.linkedin - homeDailyGoalData.todayEngagedLinkedin);
   if (igRemaining === 0 && liRemaining === 0) return;
+
+  if (igRemaining > 0 && isIgCooldownActive()) {
+    alert(`Instagram is on a switch cooldown for another ${formatCountdown(igCooldownState.until - Date.now())} — new Instagram sessions are blocked until then.`);
+    return;
+  }
+  // No dedicated account picker for this button — defaults to the first
+  // available account, same one-click spirit as the rest of the daily-goal
+  // flow (it doesn't ask for platform counts either, just works them out).
+  let accountId = null;
+  if (igRemaining > 0) {
+    const accounts = await loadIgAccounts();
+    if (accounts.length === 0) {
+      alert('Add an Instagram account in Settings before starting an Instagram session.');
+      return;
+    }
+    accountId = accounts[0].id;
+  }
+
   const btn = $('#daily-goal-session-btn');
   btn.disabled = true;
   try {
     if (igRemaining > 0 && liRemaining > 0) {
-      await startCombiSession(igRemaining, liRemaining, true);
+      await startCombiSession(igRemaining, liRemaining, true, accountId);
     } else if (igRemaining > 0) {
-      await startSinglePlatformSession('instagram', igRemaining, true);
+      await startSinglePlatformSession('instagram', igRemaining, true, accountId);
     } else {
-      await startSinglePlatformSession('linkedin', liRemaining, true);
+      await startSinglePlatformSession('linkedin', liRemaining, true, accountId);
     }
   } catch (e) {
     alert(`Could not start the daily goal session: ${e.message}`);
@@ -543,8 +578,13 @@ $all('a[data-nav]').forEach(a => {
   a.addEventListener('click', e => { e.preventDefault(); showView(a.dataset.nav); });
 });
 
-function showHomeError(available, requested) {
+function showHomeError(available, requested, customMessage) {
   const el = $('#home-session-error');
+  if (customMessage) {
+    el.textContent = customMessage;
+    el.classList.remove('hidden');
+    return;
+  }
   el.innerHTML = `You only have <strong>${available}</strong> lead${available === 1 ? '' : 's'} ready to contact, but asked for ${requested}. `;
   const link = document.createElement('button');
   link.type = 'button';
@@ -561,10 +601,55 @@ function hideHomeError() { $('#home-session-error').classList.add('hidden'); }
 // one go" apart from "you genuinely don't have that many uncontacted leads".
 const MAX_SESSION_SIZE = 500;
 
+// ---------- Instagram accounts (rotation, daily limits) ----------
+// Shared across the Home starter, the Leads-page selection-start modal, and
+// the mid-session limit-hit pause screen — loaded once and cached, refreshed
+// (loadIgAccounts(true)) whenever a send might have changed a count.
+let igAccountsCache = null;
+
+async function loadIgAccounts(force) {
+  if (igAccountsCache && !force) return igAccountsCache;
+  try {
+    const data = await fetchJson('/api/accounts');
+    igAccountsCache = data.accounts || [];
+  } catch (e) {
+    console.error('Could not load accounts', e);
+    igAccountsCache = [];
+  }
+  return igAccountsCache;
+}
+
+function findIgAccount(id) {
+  return (igAccountsCache || []).find(a => a.id === id) || null;
+}
+
+// Populates a <select> with every account not in excludeIds, showing each
+// one's live today/limit count so a maxed-out account is obvious before
+// picking it. Returns the list actually shown (so callers can tell if it's
+// empty).
+function populateAccountSelect(selectEl, accounts, excludeIds = []) {
+  const usable = accounts.filter(a => !excludeIds.includes(a.id));
+  selectEl.innerHTML = usable.map(a =>
+    `<option value="${a.id}">@${escapeHtml(a.username)} (${a.todaySentCount}/${a.dailyLimit} today)</option>`
+  ).join('');
+  return usable;
+}
+
 // Which of the three "Start new session" tabs is active. LinkedIn always
 // means an engagement session (per the user's spec — connection/message
 // sessions are notification- or selection-driven, never started from here).
 let homeSessionPlatform = 'instagram';
+
+async function refreshHomeSessionAccountRow() {
+  const needsAccount = homeSessionPlatform === 'instagram' || homeSessionPlatform === 'combi';
+  $('#home-session-account-row').classList.toggle('hidden', !needsAccount);
+  if (!needsAccount) return;
+  const accounts = await loadIgAccounts();
+  const select = $('#home-session-account-select');
+  const usable = populateAccountSelect(select, accounts);
+  $('#home-session-no-accounts').classList.toggle('hidden', usable.length > 0);
+  select.classList.toggle('hidden', usable.length === 0);
+}
 
 $('#home-session-platform-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('.range-tab');
@@ -575,9 +660,10 @@ $('#home-session-platform-tabs').addEventListener('click', (e) => {
   $('#home-session-single').classList.toggle('hidden', homeSessionPlatform === 'combi');
   $('#home-session-combi').classList.toggle('hidden', homeSessionPlatform !== 'combi');
   hideHomeError();
+  refreshHomeSessionAccountRow();
 });
 
-async function startSinglePlatformSession(platform, explicitCount, isDailyGoal) {
+async function startSinglePlatformSession(platform, explicitCount, isDailyGoal, accountId) {
   // `|| 15` would treat an explicit "0" in the field as unset and silently
   // start a 15-profile session instead of rejecting/clamping it.
   const rawCount = explicitCount ?? Number($('#session-size-input').value);
@@ -600,13 +686,13 @@ async function startSinglePlatformSession(platform, explicitCount, isDailyGoal) 
   // decideSimple() keeps topping this session up with fresh leads on every
   // disqualify until sentCount hits `count`, or the available-leads pool
   // runs dry.
-  beginSessionWithLeads(leads, { mode: 'goal', target: count, kind: platform === 'linkedin' ? 'li_engagement' : 'ig_message', isDailyGoal });
+  beginSessionWithLeads(leads, { mode: 'goal', target: count, kind: platform === 'linkedin' ? 'li_engagement' : 'ig_message', isDailyGoal, accountId });
 }
 
 // Fetches both batches up front (rather than pulling LinkedIn leads only once
 // the Instagram portion finishes) so "Save LinkedIn leads for later" on the
 // interstitial screen has concrete leads to save — not just a number.
-async function startCombiSession(explicitIgCount, explicitLiCount, isDailyGoal) {
+async function startCombiSession(explicitIgCount, explicitLiCount, isDailyGoal, accountId) {
   const rawIgCount = explicitIgCount ?? Number($('#combi-ig-size-input').value);
   const igCount = Math.max(1, Number.isFinite(rawIgCount) && rawIgCount > 0 ? Math.round(rawIgCount) : 15);
   const rawLiCount = explicitLiCount ?? Number($('#combi-li-size-input').value);
@@ -633,11 +719,24 @@ async function startCombiSession(explicitIgCount, explicitLiCount, isDailyGoal) 
   // from a saved session) — untouched until the Instagram portion ends (see
   // the goalReached/hasNext branch in decide()).
   state.combi = { liLeads: liLeads.map(leadToProfile) };
-  beginSessionWithLeads(igLeads, { mode: 'goal', target: igCount, kind: 'ig_message', isDailyGoal });
+  beginSessionWithLeads(igLeads, { mode: 'goal', target: igCount, kind: 'ig_message', isDailyGoal, accountId });
 }
 
 $('#start-session-btn').addEventListener('click', async () => {
   hideHomeError();
+  const needsAccount = homeSessionPlatform === 'instagram' || homeSessionPlatform === 'combi';
+  if (needsAccount && isIgCooldownActive()) {
+    showHomeError(0, 0, `Instagram is on a switch cooldown for another ${formatCountdown(igCooldownState.until - Date.now())} — new Instagram sessions are blocked until then. LinkedIn sessions are unaffected.`);
+    return;
+  }
+  let accountId = null;
+  if (needsAccount) {
+    accountId = $('#home-session-account-select').value;
+    if (!accountId) {
+      showHomeError(0, 0, 'Add an Instagram account in Settings before starting an Instagram session.');
+      return;
+    }
+  }
   const btn = $('#start-session-btn');
   btn.disabled = true;
   // No tab reservation here (there used to be one) — no tab opens anywhere
@@ -646,9 +745,9 @@ $('#start-session-btn').addEventListener('click', async () => {
   // about:blank tab this used to leave behind.
   try {
     if (homeSessionPlatform === 'combi') {
-      await startCombiSession();
+      await startCombiSession(undefined, undefined, false, accountId);
     } else {
-      await startSinglePlatformSession(homeSessionPlatform);
+      await startSinglePlatformSession(homeSessionPlatform, undefined, false, accountId);
     }
   } catch (e) {
     alert(`Could not start session: ${e.message}`);
@@ -709,6 +808,18 @@ function beginSessionWithLeads(leads, opts = {}) {
   state.sentCount = 0;
   state.outOfLeads = false;
   state.isDailyGoal = !!opts.isDailyGoal;
+  state.igCooldownUntil = null;
+  state.igCooldownAccountId = null;
+  if (opts.accountId && state.sessionKind === 'ig_message') {
+    const account = findIgAccount(opts.accountId);
+    state.igAccountId = opts.accountId;
+    state.igAccountUsername = account ? account.username : null;
+    state.igAccountTodaySentCount = account ? account.todaySentCount : 0;
+  } else {
+    state.igAccountId = null;
+    state.igAccountUsername = null;
+    state.igAccountTodaySentCount = 0;
+  }
   saveSession();
   if (SIMPLE_SESSION_KINDS.includes(state.sessionKind)) {
     enterSimpleSession();
@@ -1324,13 +1435,15 @@ async function decide(status) {
 
   // "Can't receive messages" means no message was ever sent — there's
   // nothing real to log in outreach analytics for it.
+  let hitAccountLimit = false;
   if (status !== 'cant_message') {
     try {
-      await fetchJson('/api/outreach', {
+      const outreachData = await fetchJson('/api/outreach', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           platform: p.platform,
+          accountId: p.platform === 'instagram' ? state.igAccountId : null,
           username: p.username,
           profileUrl: p.profileUrl,
           fullName: p.fullName,
@@ -1344,6 +1457,13 @@ async function decide(status) {
           status
         })
       });
+      // Server returns the account's live today-count in the same response —
+      // no second round-trip just to check whether this send hit the cap.
+      if (outreachData.accountTodaySentCount !== null && outreachData.accountTodaySentCount !== undefined) {
+        state.igAccountTodaySentCount = outreachData.accountTodaySentCount;
+        const account = findIgAccount(state.igAccountId);
+        if (account && state.igAccountTodaySentCount >= account.dailyLimit) hitAccountLimit = true;
+      }
     } catch (e) {
       console.error('Could not save outreach', e);
       alert(`This one didn't save to your analytics (${e.message}). The decision still went through locally — you may want to note it down.`);
@@ -1423,6 +1543,14 @@ async function decide(status) {
       state.outOfLeads = true;
       if (reservedTab) reservedTab.close();
     }
+  }
+
+  // Takes priority over everything below — even if the goal was also just
+  // reached, or this was the last queued profile, the account being maxed
+  // out for the day is the more urgent fact to surface.
+  if (hitAccountLimit) {
+    showIgAccountLimitPause();
+    return;
   }
 
   const goalReached = state.sessionMode === 'goal' && state.sentCount >= state.sessionTarget;
@@ -1554,6 +1682,194 @@ $('#combi-save-li-btn').addEventListener('click', async () => {
   showEndScreen({ combiLinkedInSaved: true });
 });
 
+// ---------- IG account daily-limit pause + switch cooldown ----------
+
+const IG_COOLDOWN_MS = 2 * 60 * 60 * 1000;
+
+function formatCountdown(ms) {
+  const totalSec = Math.max(0, Math.ceil(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m`;
+  if (m > 0) return `${m}m ${s}s`;
+  return `${s}s`;
+}
+
+// The single source of truth for "is Instagram blocked from starting a new
+// session right now" — populated by loadNotifications() (followups.js)
+// piggybacking on the /api/notifications call every view change already
+// makes, not a separate poll.
+let igCooldownState = null;
+let igCooldownBannerInterval = null;
+
+function isIgCooldownActive() {
+  return !!(igCooldownState && !igCooldownState.expired);
+}
+
+function renderIgCooldownBanner() {
+  const banner = $('#ig-cooldown-banner');
+  clearInterval(igCooldownBannerInterval);
+  if (!igCooldownState) {
+    banner.classList.add('hidden');
+    document.body.classList.remove('has-ig-cooldown-banner');
+    return;
+  }
+  banner.classList.remove('hidden');
+  document.body.classList.add('has-ig-cooldown-banner');
+  const continueBtn = $('#ig-cooldown-banner-continue-btn');
+  const username = igCooldownState.accountUsername || 'your account';
+
+  function tick() {
+    const remaining = new Date(igCooldownState.until).getTime() - Date.now();
+    if (remaining <= 0) {
+      $('#ig-cooldown-banner-text').textContent = `✅ Ready to continue with @${username}`;
+      continueBtn.classList.remove('hidden');
+      clearInterval(igCooldownBannerInterval);
+    } else {
+      $('#ig-cooldown-banner-text').textContent = `⏳ Switching Instagram accounts — @${username} ready in ${formatCountdown(remaining)}`;
+      continueBtn.classList.add('hidden');
+    }
+  }
+  tick();
+  igCooldownBannerInterval = setInterval(tick, 1000);
+}
+
+async function resumeIgCooldownSession(savedSessionId) {
+  try {
+    const data = await fetchJson('/api/saved-sessions');
+    const session = (data.sessions || []).find(s => s.id === savedSessionId);
+    if (!session) {
+      alert("Could not find that saved session — it may already have been resumed elsewhere.");
+      return;
+    }
+    resumeSavedSession(session);
+  } catch (e) {
+    alert(`Could not resume: ${e.message}`);
+  }
+}
+
+$('#ig-cooldown-banner-continue-btn').addEventListener('click', () => {
+  if (igCooldownState && igCooldownState.savedSessionId) resumeIgCooldownSession(igCooldownState.savedSessionId);
+});
+
+$('#ig-cooldown-banner-skip-btn').addEventListener('click', () => {
+  if (!confirm('Skipping this makes account-switching look automated — Instagram may notice the pattern. Skip anyway?')) return;
+  if (igCooldownState && igCooldownState.savedSessionId) resumeIgCooldownSession(igCooldownState.savedSessionId);
+});
+
+// Shown instead of the normal goalReached/hasNext/combi-interstitial/
+// end-screen branch in decide() once an Instagram send pushes the active
+// account to its daily cap.
+function showIgAccountLimitPause() {
+  const account = findIgAccount(state.igAccountId);
+  const username = account ? account.username : (state.igAccountUsername || 'This account');
+  const limit = account ? account.dailyLimit : state.igAccountTodaySentCount;
+  $('#ig-limit-title').textContent = 'Daily limit reached';
+  $('#ig-limit-summary').textContent = `@${username} has hit its ${limit}/day limit. Pick a different account to keep going.`;
+  $('#ig-limit-picker-card').classList.remove('hidden');
+  $('#ig-limit-cooldown-card').classList.add('hidden');
+  $('#ig-limit-continue-li-btn').classList.toggle('hidden', !state.combi);
+
+  loadIgAccounts(true).then(accounts => {
+    const usable = populateAccountSelect($('#ig-limit-account-select'), accounts, [state.igAccountId]);
+    $('#ig-limit-no-accounts').classList.toggle('hidden', usable.length > 0);
+    $('#ig-limit-account-select').classList.toggle('hidden', usable.length === 0);
+    $('#ig-limit-continue-btn').disabled = usable.length === 0;
+  });
+
+  showView('ig-account-limit');
+}
+
+let igLimitCountdownInterval = null;
+function startIgLimitCountdown() {
+  clearInterval(igLimitCountdownInterval);
+  function tick() {
+    const remaining = state.igCooldownUntil - Date.now();
+    if (remaining <= 0) {
+      clearInterval(igLimitCountdownInterval);
+      $('#ig-limit-countdown').textContent = 'Ready!';
+      return;
+    }
+    $('#ig-limit-countdown').textContent = formatCountdown(remaining);
+  }
+  tick();
+  igLimitCountdownInterval = setInterval(tick, 1000);
+}
+
+$('#ig-limit-continue-btn').addEventListener('click', () => {
+  const newAccountId = $('#ig-limit-account-select').value;
+  if (!newAccountId) return;
+  const account = findIgAccount(newAccountId);
+  state.igAccountId = newAccountId;
+  state.igAccountUsername = account ? account.username : null;
+  state.igAccountTodaySentCount = account ? account.todaySentCount : 0;
+  state.igCooldownUntil = Date.now() + IG_COOLDOWN_MS;
+  state.igCooldownAccountId = newAccountId;
+  saveSession();
+
+  $('#ig-limit-title').textContent = 'Switching accounts';
+  $('#ig-limit-summary').textContent = `Ready to continue with @${state.igAccountUsername}.`;
+  $('#ig-limit-picker-card').classList.add('hidden');
+  $('#ig-limit-cooldown-card').classList.remove('hidden');
+  startIgLimitCountdown();
+});
+
+// Bypasses the cooldown entirely — the account-limit system is Instagram-
+// only, so a mid-combi pause doesn't need to hold the LinkedIn half hostage.
+$('#ig-limit-continue-li-btn').addEventListener('click', () => {
+  const liProfiles = state.combi.liLeads;
+  const target = liProfiles.length;
+  const wasDailyGoal = state.isDailyGoal;
+  state.combi = null;
+  beginSessionWithLeads(liProfiles, { mode: 'goal', target, kind: 'li_engagement', alreadyProfiles: true, isDailyGoal: wasDailyGoal });
+});
+
+$('#ig-limit-skip-btn').addEventListener('click', () => {
+  if (!confirm('Skipping this makes account-switching look automated — Instagram may notice the pattern. Skip anyway?')) return;
+  clearInterval(igLimitCountdownInterval);
+  state.igCooldownUntil = null;
+  state.igCooldownAccountId = null;
+  saveSession();
+  showView('dashboard');
+  renderProfile();
+});
+
+$('#ig-limit-home-btn').addEventListener('click', async () => {
+  const btn = $('#ig-limit-home-btn');
+  btn.disabled = true;
+  const remainingProfiles = state.combi
+    ? state.profiles.slice(state.index).map(p => ({ ...p, sessionKind: 'ig_message' }))
+        .concat(state.combi.liLeads.map(p => ({ ...p, sessionKind: 'li_engagement' })))
+    : state.profiles.slice(state.index);
+  try {
+    await fetchJson('/api/saved-sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionKind: state.combi ? 'combi' : state.sessionKind,
+        sessionMode: state.sessionMode,
+        sessionTarget: state.sessionTarget,
+        sentCount: state.sentCount,
+        results: state.results,
+        remainingProfiles,
+        isDailyGoal: state.isDailyGoal,
+        igCooldownUntil: new Date(state.igCooldownUntil).toISOString(),
+        igCooldownAccountId: state.igCooldownAccountId
+      })
+    });
+  } catch (e) {
+    btn.disabled = false;
+    alert(`Could not save the session (${e.message}). Nothing was lost — you're still where you were, try again.`);
+    return;
+  }
+  clearInterval(igLimitCountdownInterval);
+  resetSessionState();
+  clearSession();
+  showView('home');
+  loadNotifications();
+});
+
 function resetSessionState() {
   state.profiles = [];
   state.results = [];
@@ -1565,6 +1881,11 @@ function resetSessionState() {
   state.outOfLeads = false;
   state.combi = null;
   state.isDailyGoal = false;
+  state.igAccountId = null;
+  state.igAccountUsername = null;
+  state.igAccountTodaySentCount = 0;
+  state.igCooldownUntil = null;
+  state.igCooldownAccountId = null;
 }
 
 $('#back-home-btn').addEventListener('click', () => {
@@ -1606,7 +1927,11 @@ $('#quit-save-btn').addEventListener('click', async () => {
           sentCount: state.sentCount,
           results: state.results,
           remainingProfiles,
-          isDailyGoal: state.isDailyGoal
+          isDailyGoal: state.isDailyGoal,
+          // Doubles as "resume with this account" even without an actual
+          // cooldown — see resumeSavedSession, which passes it straight
+          // through to enterResumedSession either way.
+          igCooldownAccountId: state.igAccountId || null
         })
       });
     } catch (e) {
@@ -2024,7 +2349,8 @@ async function resumeSavedSessionPortion(kind) {
     chosen, kind, 'goal',
     chosenIsIg ? session.sessionTarget : chosen.length,
     chosenIsIg ? (session.sentCount || 0) : 0,
-    session.isDailyGoal
+    session.isDailyGoal,
+    session.igCooldownAccountId
   );
 }
 
@@ -2033,7 +2359,7 @@ $('#saved-session-continue-li-btn').addEventListener('click', () => resumeSavedS
 
 // Resumes a plain (non-combi) saved session — always exactly one kind, so
 // this is the shared tail end of resumeSavedSession/resumeSavedSessionPortion.
-function enterResumedSession(profiles, sessionKind, sessionMode, sessionTarget, sentCount, isDailyGoal) {
+async function enterResumedSession(profiles, sessionKind, sessionMode, sessionTarget, sentCount, isDailyGoal, accountId) {
   state.profiles = profiles;
   state.index = 0;
   state.sessionKind = sessionKind;
@@ -2042,6 +2368,19 @@ function enterResumedSession(profiles, sessionKind, sessionMode, sessionTarget, 
   state.sentCount = sentCount;
   state.outOfLeads = false;
   state.isDailyGoal = !!isDailyGoal;
+  state.igCooldownUntil = null;
+  state.igCooldownAccountId = null;
+  if (accountId && sessionKind === 'ig_message') {
+    const accounts = await loadIgAccounts();
+    const account = accounts.find(a => a.id === accountId);
+    state.igAccountId = accountId;
+    state.igAccountUsername = account ? account.username : null;
+    state.igAccountTodaySentCount = account ? account.todaySentCount : 0;
+  } else {
+    state.igAccountId = null;
+    state.igAccountUsername = null;
+    state.igAccountTodaySentCount = 0;
+  }
   saveSession();
   if (SIMPLE_SESSION_KINDS.includes(sessionKind)) {
     enterSimpleSession();
@@ -2073,11 +2412,15 @@ function resumeSavedSession(session) {
     const igProfiles = session.remainingProfiles.filter(p => p.sessionKind === 'ig_message');
     const liProfiles = session.remainingProfiles.filter(p => p.sessionKind === 'li_engagement');
     state.combi = { liLeads: liProfiles };
-    enterResumedSession(igProfiles, 'ig_message', session.sessionMode || 'goal', session.sessionTarget ?? null, session.sentCount || 0, session.isDailyGoal);
+    enterResumedSession(igProfiles, 'ig_message', session.sessionMode || 'goal', session.sessionTarget ?? null, session.sentCount || 0, session.isDailyGoal, session.igCooldownAccountId);
     return;
   }
 
-  enterResumedSession(session.remainingProfiles, session.sessionKind || 'ig_message', session.sessionMode || 'fixed', session.sessionTarget ?? null, session.sentCount || 0, session.isDailyGoal);
+  // igCooldownAccountId doubles as "the account this saved ig_message
+  // session should resume with" whether or not an actual cooldown applied —
+  // see the quit-save-btn handler, which sets it on every Instagram save,
+  // not just cooldown-forced ones.
+  enterResumedSession(session.remainingProfiles, session.sessionKind || 'ig_message', session.sessionMode || 'fixed', session.sessionTarget ?? null, session.sentCount || 0, session.isDailyGoal, session.igCooldownAccountId);
 }
 
 // ---------- ANALYTICS ----------
@@ -2259,7 +2602,23 @@ async function loadViewsThreshold() {
     state.outOfLeads = saved.outOfLeads || false;
     state.combi = saved.combi || null;
     state.isDailyGoal = saved.isDailyGoal || false;
-    if (SIMPLE_SESSION_KINDS.includes(state.sessionKind)) {
+    state.igAccountId = saved.igAccountId || null;
+    state.igAccountUsername = saved.igAccountUsername || null;
+    state.igAccountTodaySentCount = saved.igAccountTodaySentCount || 0;
+    state.igCooldownUntil = saved.igCooldownUntil || null;
+    state.igCooldownAccountId = saved.igCooldownAccountId || null;
+    if (state.igCooldownUntil) {
+      // A reload landed mid-cooldown, before "Go back to home" was ever
+      // clicked (that's the only thing that actually persists it server-side)
+      // — restore straight into the cooldown card rather than the dashboard.
+      $('#ig-limit-title').textContent = 'Switching accounts';
+      $('#ig-limit-summary').textContent = `Ready to continue with @${state.igAccountUsername}.`;
+      $('#ig-limit-picker-card').classList.add('hidden');
+      $('#ig-limit-cooldown-card').classList.remove('hidden');
+      $('#ig-limit-continue-li-btn').classList.toggle('hidden', !state.combi);
+      showView('ig-account-limit');
+      startIgLimitCountdown();
+    } else if (SIMPLE_SESSION_KINDS.includes(state.sessionKind)) {
       showView('simple-session');
       renderSimpleSessionProfile();
     } else {

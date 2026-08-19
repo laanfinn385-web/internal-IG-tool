@@ -17,6 +17,11 @@ async function loadNotifications() {
   try {
     const data = await fetchJson('/api/notifications');
     renderNotifications(data.notifications || []);
+    // igCooldownState/renderIgCooldownBanner live in app.js — piggybacking on
+    // this call (already made everywhere on every view change) instead of a
+    // second /api/notifications fetch just for the banner.
+    igCooldownState = data.igCooldown || null;
+    renderIgCooldownBanner();
   } catch (e) {
     console.error('Could not load notifications', e);
   }
@@ -55,6 +60,21 @@ function renderNotifications(notifications) {
             <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
           </button>
           <button type="button" class="notif-item-delete" data-group-key="${n.groupKey}" title="Dismiss for now">🗑</button>
+        </div>`;
+    }
+    if (n.type === 'ig_cooldown_ready') {
+      // No delete/dismiss here (unlike everything else) — the paused session
+      // is still sitting there either way, dismissing wouldn't accomplish
+      // anything, so this is click-to-resume only.
+      return `
+        <div class="notif-row">
+          <button type="button" class="notif-item" data-type="ig_cooldown_ready" data-saved-session-id="${n.savedSessionId}">
+            <div class="notif-item-main">
+              <span class="notif-item-phase">✅ Ready to continue</span>
+              <span class="notif-item-count">The switch cooldown for @${escapeHtml(n.accountUsername || '')} is over</span>
+            </div>
+            <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
+          </button>
         </div>`;
     }
     if (n.type === 'reminder') {
@@ -137,6 +157,8 @@ $('#notif-list').addEventListener('click', async (e) => {
     showView('settings');
     const card = $('#settings-reminders-card');
     if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } else if (item.dataset.type === 'ig_cooldown_ready') {
+    resumeIgCooldownSession(item.dataset.savedSessionId);
   } else {
     openFollowupSession(Number(item.dataset.phase), item.dataset.platform);
   }
