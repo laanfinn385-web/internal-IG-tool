@@ -33,7 +33,15 @@ const state = {
   // (before it's been handed off to a saved session via "Go back to home") —
   // see showIgAccountLimitPause/renderIgCooldownBanner.
   igCooldownUntil: null,
-  igCooldownAccountId: null
+  igCooldownAccountId: null,
+  // In-session pacing breaks (Instagram only) — real people don't send DMs
+  // back-to-back for hours, so every 8-15 sends (randomized fresh each time,
+  // not a fixed count an outside observer could infer) the session forces an
+  // 8-12 minute pause. nextBreakThreshold is picked whenever a fresh count
+  // starts (session start/resume, or right after a break ends).
+  sendsSinceBreak: 0,
+  nextBreakThreshold: null,
+  pacingBreakUntil: null
 };
 
 const SESSION_KEY = 'outreach_session_v1';
@@ -58,7 +66,10 @@ function saveSession() {
       igAccountUsername: state.igAccountUsername,
       igAccountTodaySentCount: state.igAccountTodaySentCount,
       igCooldownUntil: state.igCooldownUntil,
-      igCooldownAccountId: state.igCooldownAccountId
+      igCooldownAccountId: state.igCooldownAccountId,
+      sendsSinceBreak: state.sendsSinceBreak,
+      nextBreakThreshold: state.nextBreakThreshold,
+      pacingBreakUntil: state.pacingBreakUntil
     }));
   } catch (e) { /* storage full or unavailable — non-fatal */ }
 }
@@ -853,6 +864,21 @@ const SIMPLE_SESSION_KINDS = ['li_engagement', 'li_connection'];
 // LinkedIn support existed). opts.alreadyProfiles skips the leadToProfile
 // mapping for callers that already have profile-shaped objects (the combi
 // "move on to LinkedIn" transition — see state.combi.liLeads).
+// In-session pacing breaks (Instagram sends only) — see the state object's
+// comment. Randomized fresh each time so there's no fixed, inferable count.
+const PACING_BREAK_MIN_SENDS = 8;
+const PACING_BREAK_MAX_SENDS = 15;
+const PACING_BREAK_MIN_MINUTES = 8;
+const PACING_BREAK_MAX_MINUTES = 12;
+
+function randomInt(min, max) {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function pickNextBreakThreshold() {
+  return randomInt(PACING_BREAK_MIN_SENDS, PACING_BREAK_MAX_SENDS);
+}
+
 function beginSessionWithLeads(leads, opts = {}) {
   state.profiles = opts.alreadyProfiles ? leads : leads.map(leadToProfile);
   state.index = 0;
@@ -865,6 +891,9 @@ function beginSessionWithLeads(leads, opts = {}) {
   state.isDailyGoal = !!opts.isDailyGoal;
   state.igCooldownUntil = null;
   state.igCooldownAccountId = null;
+  state.sendsSinceBreak = 0;
+  state.nextBreakThreshold = pickNextBreakThreshold();
+  state.pacingBreakUntil = null;
   if (opts.accountId && state.sessionKind === 'ig_message') {
     const account = findIgAccount(opts.accountId);
     state.igAccountId = opts.accountId;
@@ -1524,6 +1553,15 @@ async function decide(status) {
       alert(`This one didn't save to your analytics (${e.message}). The decision still went through locally — you may want to note it down.`);
     }
   }
+
+  // In-session pacing break — only real Instagram sends count (matches what
+  // an outside observer would actually see as DM activity), not disqualifies
+  // or "can't message" decisions.
+  let needsPacingBreak = false;
+  if (status === 'sent' && p.platform === 'instagram') {
+    state.sendsSinceBreak++;
+    if (state.sendsSinceBreak >= state.nextBreakThreshold) needsPacingBreak = true;
+  }
   acceptBtn.disabled = false;
   rejectBtn.disabled = false;
   nextUnreachableBtn.disabled = false;
@@ -1605,6 +1643,15 @@ async function decide(status) {
   // out for the day is the more urgent fact to surface.
   if (hitAccountLimit) {
     showIgAccountLimitPause();
+    return;
+  }
+
+  // Lower priority than the account limit (a maxed-out account is the more
+  // urgent fact either way) but still ahead of the normal end-of-session
+  // branching — a pacing break can land on what would otherwise have been
+  // the very last profile too.
+  if (needsPacingBreak) {
+    showSendPacingBreak();
     return;
   }
 
@@ -1936,6 +1983,83 @@ $('#ig-limit-home-btn').addEventListener('click', async () => {
   loadNotifications();
 });
 
+// ---------- Send pacing break (Instagram only) ----------
+
+let pacingBreakCountdownInterval = null;
+
+function showSendPacingBreak() {
+  const minutes = randomInt(PACING_BREAK_MIN_MINUTES, PACING_BREAK_MAX_MINUTES);
+  state.sendsSinceBreak = 0;
+  state.nextBreakThreshold = pickNextBreakThreshold();
+  state.pacingBreakUntil = Date.now() + minutes * 60 * 1000;
+  saveSession();
+  showView('send-pacing-break');
+  startPacingBreakCountdown();
+}
+
+function startPacingBreakCountdown() {
+  clearInterval(pacingBreakCountdownInterval);
+  const continueBtn = $('#pacing-break-continue-btn');
+  function tick() {
+    const remaining = state.pacingBreakUntil - Date.now();
+    if (remaining <= 0) {
+      clearInterval(pacingBreakCountdownInterval);
+      $('#pacing-break-countdown').textContent = 'Ready!';
+      $('#pacing-break-status').textContent = "Whenever you're ready — hit continue.";
+      continueBtn.classList.remove('hidden');
+    } else {
+      $('#pacing-break-countdown').textContent = formatCountdown(remaining);
+    }
+  }
+  continueBtn.classList.add('hidden');
+  $('#pacing-break-status').textContent = 'Go scroll your feed, check a few stories, like a couple posts — anything that isn\'t sending another DM.';
+  tick();
+  pacingBreakCountdownInterval = setInterval(tick, 1000);
+}
+
+$('#pacing-break-continue-btn').addEventListener('click', () => {
+  clearInterval(pacingBreakCountdownInterval);
+  state.pacingBreakUntil = null;
+  saveSession();
+  showView('dashboard');
+  renderProfile();
+});
+
+$('#pacing-break-home-btn').addEventListener('click', async () => {
+  const btn = $('#pacing-break-home-btn');
+  btn.disabled = true;
+  const remainingProfiles = state.combi
+    ? state.profiles.slice(state.index).map(p => ({ ...p, sessionKind: 'ig_message' }))
+        .concat(state.combi.liLeads.map(p => ({ ...p, sessionKind: 'li_engagement' })))
+    : state.profiles.slice(state.index);
+  try {
+    await fetchJson('/api/saved-sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sessionKind: state.combi ? 'combi' : state.sessionKind,
+        sessionMode: state.sessionMode,
+        sessionTarget: state.sessionTarget,
+        sentCount: state.sentCount,
+        results: state.results,
+        remainingProfiles,
+        isDailyGoal: state.isDailyGoal,
+        igCooldownAccountId: state.igAccountId || null
+      })
+    });
+  } catch (e) {
+    btn.disabled = false;
+    alert(`Could not save the session (${e.message}). Nothing was lost — you're still where you were, try again.`);
+    return;
+  }
+  clearInterval(pacingBreakCountdownInterval);
+  resetSessionState();
+  clearSession();
+  btn.disabled = false;
+  showView('home');
+  loadNotifications();
+});
+
 function resetSessionState() {
   state.profiles = [];
   state.results = [];
@@ -1952,6 +2076,9 @@ function resetSessionState() {
   state.igAccountTodaySentCount = 0;
   state.igCooldownUntil = null;
   state.igCooldownAccountId = null;
+  state.sendsSinceBreak = 0;
+  state.nextBreakThreshold = null;
+  state.pacingBreakUntil = null;
 }
 
 $('#back-home-btn').addEventListener('click', () => {
@@ -2436,6 +2563,9 @@ async function enterResumedSession(profiles, sessionKind, sessionMode, sessionTa
   state.isDailyGoal = !!isDailyGoal;
   state.igCooldownUntil = null;
   state.igCooldownAccountId = null;
+  state.sendsSinceBreak = 0;
+  state.nextBreakThreshold = pickNextBreakThreshold();
+  state.pacingBreakUntil = null;
   if (accountId && sessionKind === 'ig_message') {
     const accounts = await loadIgAccounts();
     const account = accounts.find(a => a.id === accountId);
@@ -2673,6 +2803,9 @@ async function loadViewsThreshold() {
     state.igAccountTodaySentCount = saved.igAccountTodaySentCount || 0;
     state.igCooldownUntil = saved.igCooldownUntil || null;
     state.igCooldownAccountId = saved.igCooldownAccountId || null;
+    state.sendsSinceBreak = saved.sendsSinceBreak || 0;
+    state.nextBreakThreshold = saved.nextBreakThreshold || pickNextBreakThreshold();
+    state.pacingBreakUntil = saved.pacingBreakUntil || null;
     if (state.igCooldownUntil) {
       // A reload landed mid-cooldown, before "Go back to home" was ever
       // clicked (that's the only thing that actually persists it server-side)
@@ -2684,6 +2817,10 @@ async function loadViewsThreshold() {
       $('#ig-limit-continue-li-btn').classList.toggle('hidden', !state.combi);
       showView('ig-account-limit');
       startIgLimitCountdown();
+    } else if (state.pacingBreakUntil) {
+      // Same idea — a reload mid-break shouldn't skip the rest of it.
+      showView('send-pacing-break');
+      startPacingBreakCountdown();
     } else if (SIMPLE_SESSION_KINDS.includes(state.sessionKind)) {
       showView('simple-session');
       renderSimpleSessionProfile();

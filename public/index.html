@@ -264,6 +264,25 @@
       </div>
     </section>
 
+    <!-- SEND PACING BREAK — forced pause every 8-15 Instagram sends, no skip
+         button (that would defeat the point); "Go back to home" is still
+         available as a genuine exit. -->
+    <section id="view-send-pacing-break" class="view hidden">
+      <div class="end-hero">
+        <div class="end-emoji">⏸️</div>
+        <h1>Take a quick break</h1>
+        <p class="end-sub">Real people don't send DMs back-to-back for hours.</p>
+      </div>
+      <div class="card">
+        <p class="muted" id="pacing-break-status"></p>
+        <div class="cooldown-countdown" id="pacing-break-countdown"></div>
+        <div class="modal-actions" style="justify-content:flex-start; gap:12px;">
+          <button id="pacing-break-home-btn" class="btn-secondary">← Go back to home</button>
+          <button id="pacing-break-continue-btn" class="btn-primary hidden">Continue session →</button>
+        </div>
+      </div>
+    </section>
+
     <!-- SIMPLE SESSION (LinkedIn engagement / connection-request sessions —
          just a name, a clickable profile link, and two buttons) -->
     <section id="view-simple-session" class="view hidden">
