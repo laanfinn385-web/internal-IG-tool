@@ -191,6 +191,7 @@
             <select id="home-session-account-select"></select>
           </label>
           <p class="muted hidden" id="home-session-no-accounts">No Instagram accounts yet — <a href="#" data-nav="settings" class="inline-link">add one in Settings</a> first.</p>
+          <p class="hidden" id="home-session-account-error" style="color: var(--red); font-size: 0.85rem; margin-top: 6px;"></p>
         </div>
 
         <p class="muted" id="home-session-cooldown-notice" style="display:none;"></p>
@@ -244,6 +245,7 @@
           <select id="ig-limit-account-select"></select>
         </label>
         <p class="muted hidden" id="ig-limit-no-accounts">No other Instagram accounts available today — add one in Settings, or come back tomorrow.</p>
+        <p class="hidden" id="ig-limit-account-error" style="color: var(--red); font-size: 0.85rem;"></p>
         <div class="row-between">
           <span class="muted">&nbsp;</span>
           <button id="ig-limit-continue-btn" class="btn-primary">Continue with this account →</button>
@@ -694,6 +696,7 @@
             <select id="leads-session-account-select"></select>
           </label>
           <p class="muted hidden" id="leads-session-no-accounts">No Instagram accounts yet — add one in Settings first.</p>
+          <p class="hidden" id="leads-session-account-error" style="color: var(--red); font-size: 0.85rem;"></p>
           <div class="modal-actions">
             <button id="leads-session-account-cancel-btn" class="btn-secondary">Cancel</button>
             <button id="leads-session-account-confirm-btn" class="btn-primary">Start session →</button>

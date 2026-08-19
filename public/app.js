@@ -499,16 +499,20 @@ $('#daily-goal-session-btn').addEventListener('click', async () => {
     return;
   }
   // No dedicated account picker for this button — defaults to the first
-  // available account, same one-click spirit as the rest of the daily-goal
-  // flow (it doesn't ask for platform counts either, just works them out).
+  // account that can actually send today (not warming up, not already
+  // maxed out), same one-click spirit as the rest of the daily-goal flow
+  // (it doesn't ask for platform counts either, just works them out).
   let accountId = null;
   if (igRemaining > 0) {
-    const accounts = await loadIgAccounts();
-    if (accounts.length === 0) {
-      alert('Add an Instagram account in Settings before starting an Instagram session.');
+    const accounts = await loadIgAccounts(true);
+    const usable = accounts.find(a => accountCanSendToday(a));
+    if (!usable) {
+      alert(accounts.length === 0
+        ? 'Add an Instagram account in Settings before starting an Instagram session.'
+        : "None of your Instagram accounts can send right now — they're either still warming up or already at today's limit.");
       return;
     }
-    accountId = accounts[0].id;
+    accountId = usable.id;
   }
 
   const btn = $('#daily-goal-session-btn');
@@ -635,6 +639,39 @@ function populateAccountSelect(selectEl, accounts, excludeIds = []) {
   return usable;
 }
 
+// True only once the account is past its 7-day warmup (dailyLimit is still 0
+// during warmup, which already fails this the same way a maxed-out account
+// does — no separate phase check needed) and hasn't hit today's cap yet.
+function accountCanSendToday(account) {
+  return !!account && account.todaySentCount < account.dailyLimit;
+}
+
+function accountBlockedReason(account) {
+  if (!account) return '';
+  if (account.dailyLimit === 0) {
+    return `@${account.username} is still warming up${account.warmupDay != null ? ` (day ${account.warmupDay} of 7)` : ''} and can't send yet.`;
+  }
+  return `@${account.username} has already hit its daily limit today (${account.todaySentCount}/${account.dailyLimit}).`;
+}
+
+// Shared by every "pick an account, then start/continue" spot (Home, the
+// Leads-page selection modal, the mid-session limit pause screen) — keeps
+// the action button disabled with an inline reason until the currently
+// selected account can actually send today, rather than only checking once
+// the button's already been clicked.
+function applyAccountSelectionValidation(selectEl, btnEl, errorEl) {
+  const account = findIgAccount(selectEl.value);
+  const canSend = accountCanSendToday(account);
+  btnEl.disabled = !canSend;
+  if (account && !canSend) {
+    errorEl.textContent = accountBlockedReason(account);
+    errorEl.classList.remove('hidden');
+  } else {
+    errorEl.classList.add('hidden');
+  }
+  return canSend;
+}
+
 // Which of the three "Start new session" tabs is active. LinkedIn always
 // means an engagement session (per the user's spec — connection/message
 // sessions are notification- or selection-driven, never started from here).
@@ -643,13 +680,31 @@ let homeSessionPlatform = 'instagram';
 async function refreshHomeSessionAccountRow() {
   const needsAccount = homeSessionPlatform === 'instagram' || homeSessionPlatform === 'combi';
   $('#home-session-account-row').classList.toggle('hidden', !needsAccount);
-  if (!needsAccount) return;
+  const startBtn = $('#start-session-btn');
+  if (!needsAccount) {
+    startBtn.disabled = false;
+    $('#home-session-account-error').classList.add('hidden');
+    return;
+  }
+  // Disabled up front (not just once the account list resolves) — the button
+  // should never look clickable before a usable account is actually
+  // confirmed selected, not even for the brief moment while this loads.
+  startBtn.disabled = true;
   const accounts = await loadIgAccounts();
   const select = $('#home-session-account-select');
   const usable = populateAccountSelect(select, accounts);
   $('#home-session-no-accounts').classList.toggle('hidden', usable.length > 0);
   select.classList.toggle('hidden', usable.length === 0);
+  if (usable.length === 0) {
+    $('#home-session-account-error').classList.add('hidden');
+    return;
+  }
+  applyAccountSelectionValidation(select, startBtn, $('#home-session-account-error'));
 }
+
+$('#home-session-account-select').addEventListener('change', () => {
+  applyAccountSelectionValidation($('#home-session-account-select'), $('#start-session-btn'), $('#home-session-account-error'));
+});
 
 $('#home-session-platform-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('.range-tab');
@@ -1771,15 +1826,26 @@ function showIgAccountLimitPause() {
   $('#ig-limit-cooldown-card').classList.add('hidden');
   $('#ig-limit-continue-li-btn').classList.toggle('hidden', !state.combi);
 
+  $('#ig-limit-continue-btn').disabled = true;
   loadIgAccounts(true).then(accounts => {
-    const usable = populateAccountSelect($('#ig-limit-account-select'), accounts, [state.igAccountId]);
+    const select = $('#ig-limit-account-select');
+    const usable = populateAccountSelect(select, accounts, [state.igAccountId]);
     $('#ig-limit-no-accounts').classList.toggle('hidden', usable.length > 0);
-    $('#ig-limit-account-select').classList.toggle('hidden', usable.length === 0);
-    $('#ig-limit-continue-btn').disabled = usable.length === 0;
+    select.classList.toggle('hidden', usable.length === 0);
+    const errorEl = $('#ig-limit-account-error');
+    if (usable.length === 0) {
+      errorEl.classList.add('hidden');
+      return;
+    }
+    applyAccountSelectionValidation(select, $('#ig-limit-continue-btn'), errorEl);
   });
 
   showView('ig-account-limit');
 }
+
+$('#ig-limit-account-select').addEventListener('change', () => {
+  applyAccountSelectionValidation($('#ig-limit-account-select'), $('#ig-limit-continue-btn'), $('#ig-limit-account-error'));
+});
 
 let igLimitCountdownInterval = null;
 function startIgLimitCountdown() {

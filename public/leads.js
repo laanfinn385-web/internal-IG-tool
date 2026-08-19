@@ -792,10 +792,17 @@ $('#leads-selection-start').addEventListener('click', async () => {
     }
     pendingLeadsSessionSelection = selectedLeads;
     const accounts = await loadIgAccounts();
-    const usable = populateAccountSelect($('#leads-session-account-select'), accounts);
+    const select = $('#leads-session-account-select');
+    const usable = populateAccountSelect(select, accounts);
     $('#leads-session-no-accounts').classList.toggle('hidden', usable.length > 0);
-    $('#leads-session-account-select').classList.toggle('hidden', usable.length === 0);
-    $('#leads-session-account-confirm-btn').disabled = usable.length === 0;
+    select.classList.toggle('hidden', usable.length === 0);
+    const errorEl = $('#leads-session-account-error');
+    if (usable.length === 0) {
+      $('#leads-session-account-confirm-btn').disabled = true;
+      errorEl.classList.add('hidden');
+    } else {
+      applyAccountSelectionValidation(select, $('#leads-session-account-confirm-btn'), errorEl);
+    }
     $('#leads-session-account-modal').classList.remove('hidden');
     return;
   }
@@ -806,6 +813,10 @@ $('#leads-selection-start').addEventListener('click', async () => {
 });
 
 let pendingLeadsSessionSelection = null;
+
+$('#leads-session-account-select').addEventListener('change', () => {
+  applyAccountSelectionValidation($('#leads-session-account-select'), $('#leads-session-account-confirm-btn'), $('#leads-session-account-error'));
+});
 
 $('#leads-session-account-cancel-btn').addEventListener('click', () => {
   $('#leads-session-account-modal').classList.add('hidden');
