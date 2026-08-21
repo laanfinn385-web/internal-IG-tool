@@ -742,8 +742,11 @@ function renderAccountsList() {
     if (isWarming) {
       statusHtml = `
         <div class="account-warmup-badge">
-          <span>⚠️ Account needs warming up — day ${a.warmupDay} of 7</span>
-          <button type="button" class="account-skip-warmup-btn" data-id="${a.id}">Skip warmup</button>
+          <span>⚠️ Account needs warming up — day ${a.warmupDay} of ${a.warmupDays}</span>
+          <div class="account-warmup-badge-actions">
+            <button type="button" class="account-change-warmup-btn" data-id="${a.id}">Change warmup duration</button>
+            <button type="button" class="account-skip-warmup-btn" data-id="${a.id}">Skip warmup</button>
+          </div>
         </div>`;
     } else if (isRamping) {
       statusHtml = `
@@ -829,7 +832,7 @@ $('#accounts-list').addEventListener('click', async (e) => {
     const id = skipWarmupBtn.dataset.id;
     const account = settingsState.accounts.find(a => a.id === id);
     if (!account) return;
-    if (!confirm(`Skip @${account.username}'s 7-day warmup? Sending right away on a brand-new account is more likely to get it flagged — only do this if you know what you're doing.`)) return;
+    if (!confirm(`Skip @${account.username}'s ${account.warmupDays}-day warmup? Sending right away on a brand-new account is more likely to get it flagged — only do this if you know what you're doing.`)) return;
     skipWarmupBtn.disabled = true;
     try {
       await fetchJson(`/api/accounts/${id}/skip-warmup`, { method: 'POST' });
@@ -837,6 +840,33 @@ $('#accounts-list').addEventListener('click', async (e) => {
     } catch (err) {
       alert(`Could not skip warmup: ${err.message}`);
       skipWarmupBtn.disabled = false;
+    }
+    return;
+  }
+
+  const changeWarmupBtn = e.target.closest('.account-change-warmup-btn');
+  if (changeWarmupBtn) {
+    const id = changeWarmupBtn.dataset.id;
+    const account = settingsState.accounts.find(a => a.id === id);
+    if (!account) return;
+    const input = prompt(`How many days should @${account.username}'s warmup be? (Currently ${account.warmupDays}, day ${account.warmupDay} so far.)`, account.warmupDays);
+    if (input === null) return; // cancelled
+    const days = Math.round(Number(input));
+    if (!Number.isFinite(days) || days < 0) {
+      alert('Enter a valid number of days (0 or more).');
+      return;
+    }
+    changeWarmupBtn.disabled = true;
+    try {
+      await fetchJson(`/api/accounts/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ warmupDays: days })
+      });
+      await loadAccounts();
+    } catch (err) {
+      alert(`Could not change warmup duration: ${err.message}`);
+      changeWarmupBtn.disabled = false;
     }
     return;
   }

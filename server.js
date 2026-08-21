@@ -905,8 +905,11 @@ const TIER_CAPS = [40, 60, 80];
 // A brand-new account can't send at all for its first week in the tool (not
 // the Instagram account's own age — this is about the *tool* easing into
 // using it), then ramps up 10/day from there to whatever its tier allows,
-// rather than jumping straight to the tier cap.
-const WARMUP_DAYS = 7;
+// rather than jumping straight to the tier cap. The 7-day default (the
+// ig_accounts.warmup_days column default) is just what a fresh account gets
+// at creation — it's per-account and editable afterward (see
+// PATCH /api/accounts/:id and "Change warmup duration" in Settings), not a
+// fixed global.
 const RAMP_STEP = 10;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -941,9 +944,9 @@ function addDays(date, days) {
 }
 
 // When ramping actually starts: immediately if warmup was skipped, otherwise
-// exactly WARMUP_DAYS after the account was added to the tool.
+// exactly this account's own warmup_days after it was added to the tool.
 function effectiveRampStart(r) {
-  return r.warmup_skipped_at ? toDate(r.warmup_skipped_at) : addDays(toDate(r.created_at), WARMUP_DAYS);
+  return r.warmup_skipped_at ? toDate(r.warmup_skipped_at) : addDays(toDate(r.created_at), r.warmup_days);
 }
 
 function mapAccountRow(r, todaySentCount) {
@@ -958,10 +961,10 @@ function mapAccountRow(r, todaySentCount) {
     if (!r.warmup_skipped_at && new Date() < rampStart) {
       phase = 'warming_up';
       warmupEndsAt = rampStart;
-      // 0-indexed ("day 0 of 7" the day it's added, counting up to "day 6 of
-      // 7" the day before ramp-up starts) — matches WARMUP_DAYS directly
+      // 0-indexed ("day 0 of N" the day it's added, counting up to "day N-1
+      // of N" the day before ramp-up starts) — matches warmup_days directly
       // rather than needing a separate +1/-1 convention to keep straight.
-      warmupDay = WARMUP_DAYS - Math.ceil((rampStart.getTime() - Date.now()) / MS_PER_DAY);
+      warmupDay = r.warmup_days - Math.ceil((rampStart.getTime() - Date.now()) / MS_PER_DAY);
     } else if (r.daily_limit < tierCap) {
       phase = 'ramping_up';
       rampDay = Math.floor((Date.now() - rampStart.getTime()) / MS_PER_DAY) + 1;
@@ -979,6 +982,7 @@ function mapAccountRow(r, todaySentCount) {
     todaySentCount: todaySentCount || 0,
     phase,
     warmupDay,
+    warmupDays: r.warmup_days,
     warmupEndsAt,
     rampDay
   };
@@ -1016,7 +1020,7 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
           if (r.daily_limit === 0) {
             await sql`
               INSERT INTO reminders (id, text, due_at, lead_id)
-              VALUES (${crypto.randomUUID()}, ${`🔥 @${r.username} finished its 7-day warmup and is ready to start ramping up`}, now(), NULL)
+              VALUES (${crypto.randomUUID()}, ${`🔥 @${r.username} finished its ${r.warmup_days}-day warmup and is ready to start ramping up`}, now(), NULL)
             `;
           }
           await sql`UPDATE ig_accounts SET daily_limit = ${rampLimit} WHERE id = ${r.id}`;
@@ -1106,6 +1110,12 @@ app.patch('/api/accounts/:id', asyncRoute(async (req, res) => {
   }
   if (req.body.username !== undefined) { sets.push(`username = $${i++}`); params.push(String(req.body.username).trim().replace('@', '')); }
   if (req.body.profileImageUrl !== undefined) { sets.push(`profile_image_url = $${i++}`); params.push(req.body.profileImageUrl); }
+  if (req.body.warmupDays !== undefined) {
+    // 0 is a valid, deliberate "no warmup" choice (functionally the same as
+    // skipping immediately) — only negative/non-numeric input gets clamped.
+    const clamped = Math.max(0, Math.round(Number(req.body.warmupDays)) || 0);
+    sets.push(`warmup_days = $${i++}`); params.push(clamped);
+  }
   if (sets.length === 0) return res.json({ ok: true });
   params.push(id);
   await sql.query(`UPDATE ig_accounts SET ${sets.join(', ')} WHERE id = $${i}`, params);

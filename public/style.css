@@ -1580,7 +1580,8 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
   font-weight: 600;
   font-size: 0.82rem;
 }
-.account-skip-warmup-btn, .account-skip-rampup-btn {
+.account-warmup-badge-actions { display: flex; gap: 8px; flex-shrink: 0; }
+.account-skip-warmup-btn, .account-skip-rampup-btn, .account-change-warmup-btn {
   flex-shrink: 0;
   border: none;
   border-radius: 999px;
@@ -1590,10 +1591,12 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
   cursor: pointer;
   font-family: inherit;
   background: white;
+  white-space: nowrap;
 }
 .account-skip-warmup-btn { color: var(--red); }
 .account-skip-rampup-btn { color: #92660a; }
-.account-skip-warmup-btn:hover, .account-skip-rampup-btn:hover { filter: brightness(0.95); }
+.account-change-warmup-btn { color: var(--accent); }
+.account-skip-warmup-btn:hover, .account-skip-rampup-btn:hover, .account-change-warmup-btn:hover { filter: brightness(0.95); }
 .account-photo {
   width: 40px;
   height: 40px;
