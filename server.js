@@ -626,7 +626,8 @@ const LEAD_PATCH_FIELDS = {
   headline: 'headline',
   followers: 'followers',
   stage: 'stage',
-  notes: 'notes'
+  notes: 'notes',
+  accountId: 'account_id'
 };
 
 const FOLLOWUP_STAGES = ['phase1', 'phase2', 'phase3'];
@@ -949,7 +950,7 @@ function effectiveRampStart(r) {
   return r.warmup_skipped_at ? toDate(r.warmup_skipped_at) : addDays(toDate(r.created_at), r.warmup_days);
 }
 
-function mapAccountRow(r, todaySentCount) {
+function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount) {
   const ageDays = ageDaysFrom(r.created_on);
   const tierCap = tierCapForAge(ageDays);
   let phase = 'ready';
@@ -980,6 +981,8 @@ function mapAccountRow(r, todaySentCount) {
     tierCap,
     overTierCap: r.daily_limit > tierCap,
     todaySentCount: todaySentCount || 0,
+    pendingPhase1FollowupCount: pendingPhase1FollowupCount || 0,
+    effectiveRemainingForNewSends: Math.max(0, r.daily_limit - (todaySentCount || 0) - (pendingPhase1FollowupCount || 0)),
     phase,
     warmupDay,
     warmupDays: r.warmup_days,
@@ -990,14 +993,41 @@ function mapAccountRow(r, todaySentCount) {
 
 app.get('/api/accounts', asyncRoute(async (req, res) => {
   const today = todayStr();
+  const dueHour = await getFollowupDueHour();
   const accounts = await sql`SELECT * FROM ig_accounts WHERE archived_at IS NULL ORDER BY created_at ASC`;
   const sentRows = await sql`
     SELECT account_id, count(*) FROM outreaches
     WHERE status = 'sent' AND date = ${today} AND account_id IS NOT NULL
     GROUP BY account_id
   `;
+  // Phase-1 follow-ups are sent from the same account and count just as much
+  // toward its daily cap — deliberately not stored in `outreaches` itself
+  // (that would inflate Home's daily-goal/streak and Analytics' funnel
+  // numbers), so today's count is this account's real sends *plus* its
+  // phase-1 follow-up sends, merged here rather than in a shared table.
+  const followupSentRows = await sql`
+    SELECT account_id, count(*) FROM followup_sends
+    WHERE phase = 1 AND date = ${today} AND account_id IS NOT NULL
+    GROUP BY account_id
+  `;
   const sentByAccount = {};
-  sentRows.forEach(r => { sentByAccount[r.account_id] = Number(r.count); });
+  sentRows.forEach(r => { sentByAccount[r.account_id] = (sentByAccount[r.account_id] || 0) + Number(r.count); });
+  followupSentRows.forEach(r => { sentByAccount[r.account_id] = (sentByAccount[r.account_id] || 0) + Number(r.count); });
+
+  // How many phase-1 follow-ups are due right now but not yet sent, per
+  // account — deducted from the account's remaining daily capacity for
+  // *new* cold-outreach sends (see effectiveRemainingForNewSends in
+  // mapAccountRow), so starting a fresh session doesn't blow past the cap
+  // once today's follow-up backlog is also sent.
+  const pendingRows = await sql`
+    SELECT l.account_id, count(*) FROM leads l
+    JOIN followup_templates ft ON ft.platform = 'instagram' AND ft.phase = 1 AND ft.step = l.phase_step + 1
+    WHERE l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
+      AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
+    GROUP BY l.account_id
+  `;
+  const pendingByAccount = {};
+  pendingRows.forEach(r => { pendingByAccount[r.account_id] = Number(r.count); });
 
   // Lazy warmup/ramp-up/tier-upgrade — this app has no background jobs, so
   // all of this (like the follow-up due-query) runs at request time instead.
@@ -1044,7 +1074,7 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
     }
   }
 
-  res.json({ accounts: accounts.map(r => mapAccountRow(r, sentByAccount[r.id])), upgraded });
+  res.json({ accounts: accounts.map(r => mapAccountRow(r, sentByAccount[r.id], pendingByAccount[r.id])), upgraded });
 }));
 
 app.post('/api/accounts/:id/skip-warmup', asyncRoute(async (req, res) => {
@@ -1230,6 +1260,16 @@ async function getLinkedinConnectionDelayDays() {
   return Number.isFinite(n) && n >= 0 ? n : 2;
 }
 
+// The Amsterdam-local hour all follow-up/connection due-times normalize to
+// (see due_at_normalized() in the DB) — so a full day's follow-ups are all
+// visible together first thing, instead of trickling in at the exact hour
+// of the original send throughout the day.
+async function getFollowupDueHour() {
+  const rows = await sql`SELECT value FROM app_settings WHERE key = 'followup_due_hour'`;
+  const n = rows.length ? Number(rows[0].value) : NaN;
+  return Number.isFinite(n) && n >= 0 && n <= 23 ? n : 4;
+}
+
 // Which leads have a follow-up due right now, grouped by (platform, phase). A
 // lead is "due" once phase_started_at + the next step's day_offset has
 // passed — works for both on-time and overdue (haven't opened the app in
@@ -1251,22 +1291,9 @@ async function getNotificationDismissals() {
 }
 
 app.get('/api/notifications', asyncRoute(async (req, res) => {
-  const [followupRows, connectionDelayDays, dismissals, reminderRows] = await Promise.all([
-    sql`
-      SELECT
-        l.platform,
-        CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END AS phase,
-        l.phase_started_at + make_interval(days => ft.day_offset) AS due_at
-      FROM leads l
-      JOIN followup_templates ft
-        ON ft.platform = l.platform
-       AND ft.phase = CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END
-       AND ft.step = l.phase_step + 1
-      WHERE l.deleted_at IS NULL
-        AND l.stage IN ('phase1', 'phase2', 'phase3')
-        AND l.phase_started_at + make_interval(days => ft.day_offset) <= now()
-    `,
+  const [connectionDelayDays, dueHour, dismissals, reminderRows] = await Promise.all([
     getLinkedinConnectionDelayDays(),
+    getFollowupDueHour(),
     getNotificationDismissals(),
     sql`
       SELECT r.id, r.text, r.due_at, r.lead_id, l.platform, l.username, l.full_name
@@ -1277,21 +1304,50 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
     `
   ]);
 
+  const followupRows = await sql`
+    SELECT
+      l.platform,
+      CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END AS phase,
+      l.account_id,
+      a.username AS account_username,
+      due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) AS due_at
+    FROM leads l
+    JOIN followup_templates ft
+      ON ft.platform = l.platform
+     AND ft.phase = CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END
+     AND ft.step = l.phase_step + 1
+    LEFT JOIN ig_accounts a ON a.id = l.account_id
+    WHERE l.deleted_at IS NULL
+      AND l.stage IN ('phase1', 'phase2', 'phase3')
+      AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
+  `;
+
+  // Instagram follow-ups are grouped per-account too (so each account with
+  // due follow-ups gets its own notification, showing which account and
+  // letting the resulting session auto-select it) — LinkedIn has no account
+  // system, so it stays grouped by (platform, phase) only.
   const byKey = {};
   followupRows.forEach(r => {
-    const key = `followup:${r.platform}:${r.phase}`;
+    const accountPart = r.platform === 'instagram' ? `:${r.account_id || 'none'}` : '';
+    const key = `followup:${r.platform}:${r.phase}${accountPart}`;
     const dismissedAt = dismissals[key];
     if (dismissedAt && new Date(r.due_at) <= new Date(dismissedAt)) return;
-    if (!byKey[key]) byKey[key] = { type: 'followup', groupKey: key, platform: r.platform, phase: r.phase, count: 0, earliestDue: r.due_at };
+    if (!byKey[key]) {
+      byKey[key] = {
+        type: 'followup', groupKey: key, platform: r.platform, phase: r.phase, count: 0, earliestDue: r.due_at,
+        accountId: r.platform === 'instagram' ? r.account_id : undefined,
+        accountUsername: r.platform === 'instagram' ? r.account_username : undefined
+      };
+    }
     byKey[key].count++;
     if (new Date(r.due_at) < new Date(byKey[key].earliestDue)) byKey[key].earliestDue = r.due_at;
   });
 
   const connectionRows = await sql`
-    SELECT phase_started_at + make_interval(days => ${connectionDelayDays}) AS due_at
+    SELECT due_at_normalized(phase_started_at, ${connectionDelayDays}, ${dueHour}) AS due_at
     FROM leads
     WHERE deleted_at IS NULL AND platform = 'linkedin' AND stage = 'engaged'
-      AND phase_started_at + make_interval(days => ${connectionDelayDays}) <= now()
+      AND due_at_normalized(phase_started_at, ${connectionDelayDays}, ${dueHour}) <= now()
   `;
   const connKey = 'connections:linkedin';
   const connDismissedAt = dismissals[connKey];
@@ -1405,20 +1461,23 @@ app.delete('/api/reminders/:id', asyncRoute(async (req, res) => {
 app.get('/api/followups/due', asyncRoute(async (req, res) => {
   const phase = Number(req.query.phase);
   const platform = req.query.platform === 'linkedin' ? 'linkedin' : 'instagram';
+  const accountId = platform === 'instagram' && req.query.accountId ? req.query.accountId : null;
   if (![1, 2, 3].includes(phase)) return res.status(400).json({ error: 'phase must be 1, 2, or 3' });
   const stageVal = 'phase' + phase;
-  const [calendarLink, partsByStep] = await Promise.all([getCalendarLink(), getFollowupPartsByPhase(phase, platform)]);
+  const [calendarLink, partsByStep, dueHour] = await Promise.all([getCalendarLink(), getFollowupPartsByPhase(phase, platform), getFollowupDueHour()]);
 
   const rows = await sql`
-    SELECT l.id, l.username, l.profile_url, l.full_name,
+    SELECT l.id, l.username, l.profile_url, l.full_name, l.account_id, a.username AS account_username,
            ft.step, ft.type, ft.message, ft.media_note,
-           l.phase_started_at + make_interval(days => ft.day_offset) AS due_at
+           due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) AS due_at
     FROM leads l
     JOIN followup_templates ft ON ft.platform = ${platform} AND ft.phase = ${phase} AND ft.step = l.phase_step + 1
+    LEFT JOIN ig_accounts a ON a.id = l.account_id
     WHERE l.deleted_at IS NULL
       AND l.platform = ${platform}
       AND l.stage = ${stageVal}
-      AND l.phase_started_at + make_interval(days => ft.day_offset) <= now()
+      AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
+      AND (${accountId}::uuid IS NULL OR l.account_id = ${accountId}::uuid)
     ORDER BY due_at ASC
   `;
 
@@ -1428,6 +1487,8 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
     username: r.username,
     profileUrl: r.profile_url,
     fullName: r.full_name,
+    accountId: r.account_id,
+    accountUsername: r.account_username,
     phase,
     step: r.step,
     type: r.type,
@@ -1441,12 +1502,12 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
 // marked "Engaged" — no message to compose, this just drives the simple
 // swipeable "Connected / Delete" session (see public/app.js).
 app.get('/api/linkedin/connections/due', asyncRoute(async (req, res) => {
-  const connectionDelayDays = await getLinkedinConnectionDelayDays();
+  const [connectionDelayDays, dueHour] = await Promise.all([getLinkedinConnectionDelayDays(), getFollowupDueHour()]);
   const rows = await sql`
     SELECT id, full_name, profile_url, headline
     FROM leads
     WHERE deleted_at IS NULL AND platform = 'linkedin' AND stage = 'engaged'
-      AND phase_started_at + make_interval(days => ${connectionDelayDays}) <= now()
+      AND due_at_normalized(phase_started_at, ${connectionDelayDays}, ${dueHour}) <= now()
     ORDER BY phase_started_at ASC
   `;
   res.json({ leads: rows.map(r => ({ id: r.id, fullName: r.full_name, profileUrl: r.profile_url, headline: r.headline })) });
@@ -1460,15 +1521,31 @@ app.post('/api/leads/:id/followup-sent', asyncRoute(async (req, res) => {
   if (![1, 2, 3].includes(phase) || !step) {
     return res.status(400).json({ error: 'phase and step are required' });
   }
-  const [lead] = await sql`SELECT username, profile_url FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
+  const [lead] = await sql`SELECT username, profile_url, account_id FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
   if (!lead) return res.status(404).json({ error: 'Lead not found' });
 
   await sql`
-    INSERT INTO followup_sends (id, lead_id, username, profile_url, phase, step, message, date)
-    VALUES (${crypto.randomUUID()}, ${id}, ${lead.username}, ${lead.profile_url}, ${phase}, ${step}, ${req.body.message || ''}, ${todayStr()})
+    INSERT INTO followup_sends (id, lead_id, username, profile_url, phase, step, message, date, account_id)
+    VALUES (${crypto.randomUUID()}, ${id}, ${lead.username}, ${lead.profile_url}, ${phase}, ${step}, ${req.body.message || ''}, ${todayStr()}, ${lead.account_id})
   `;
   await sql`UPDATE leads SET phase_step = ${step}, updated_at = now() WHERE id = ${id} AND deleted_at IS NULL`;
-  res.json({ ok: true });
+
+  // Phase-1 follow-ups are sent from the same account as the original cold
+  // message and count just as much toward its daily cap — surfaced here as a
+  // plain warning (not blocked) since the real prevention already happened
+  // up front via effectiveRemainingForNewSends when the session was started.
+  let accountTodaySentCount = null, accountDailyLimit = null;
+  if (phase === 1 && lead.account_id) {
+    const today = todayStr();
+    const [account] = await sql`SELECT daily_limit FROM ig_accounts WHERE id = ${lead.account_id}`;
+    if (account) {
+      const [{ count: outreachCount }] = await sql`SELECT count(*)::int AS count FROM outreaches WHERE account_id = ${lead.account_id} AND status = 'sent' AND date = ${today}`;
+      const [{ count: followupCount }] = await sql`SELECT count(*)::int AS count FROM followup_sends WHERE account_id = ${lead.account_id} AND phase = 1 AND date = ${today}`;
+      accountTodaySentCount = outreachCount + followupCount;
+      accountDailyLimit = account.daily_limit;
+    }
+  }
+  res.json({ ok: true, accountId: lead.account_id, accountTodaySentCount, accountDailyLimit });
 }));
 
 // ---------- SETTINGS ----------
@@ -1545,7 +1622,7 @@ app.get('/api/settings/app', asyncRoute(async (req, res) => {
 }));
 
 app.put('/api/settings/app', asyncRoute(async (req, res) => {
-  const { calendarLink, viewsThreshold, linkedinConnectionDelayDays, dailyGoalInstagram, dailyGoalLinkedin } = req.body;
+  const { calendarLink, viewsThreshold, linkedinConnectionDelayDays, followupDueHour, dailyGoalInstagram, dailyGoalLinkedin } = req.body;
   if (calendarLink !== undefined) {
     await sql`
       INSERT INTO app_settings (key, value) VALUES ('calendar_link', ${calendarLink})
@@ -1562,6 +1639,13 @@ app.put('/api/settings/app', asyncRoute(async (req, res) => {
     const clamped = Math.max(0, Math.round(Number(linkedinConnectionDelayDays)) || 0);
     await sql`
       INSERT INTO app_settings (key, value) VALUES ('linkedin_connection_delay_days', ${String(clamped)})
+      ON CONFLICT (key) DO UPDATE SET value = ${String(clamped)}
+    `;
+  }
+  if (followupDueHour !== undefined) {
+    const clamped = Math.min(23, Math.max(0, Math.round(Number(followupDueHour)) || 0));
+    await sql`
+      INSERT INTO app_settings (key, value) VALUES ('followup_due_hour', ${String(clamped)})
       ON CONFLICT (key) DO UPDATE SET value = ${String(clamped)}
     `;
   }

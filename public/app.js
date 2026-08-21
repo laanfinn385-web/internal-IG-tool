@@ -644,23 +644,31 @@ function findIgAccount(id) {
 // empty).
 function populateAccountSelect(selectEl, accounts, excludeIds = []) {
   const usable = accounts.filter(a => !excludeIds.includes(a.id));
-  selectEl.innerHTML = usable.map(a =>
-    `<option value="${a.id}">@${escapeHtml(a.username)} (${a.todaySentCount}/${a.dailyLimit} today)</option>`
-  ).join('');
+  selectEl.innerHTML = usable.map(a => {
+    const followupNote = a.pendingPhase1FollowupCount > 0 ? `, ${a.pendingPhase1FollowupCount} follow-up${a.pendingPhase1FollowupCount === 1 ? '' : 's'} due` : '';
+    return `<option value="${a.id}">@${escapeHtml(a.username)} (${a.todaySentCount}/${a.dailyLimit} today${followupNote})</option>`;
+  }).join('');
   return usable;
 }
 
-// True only once the account is past its 7-day warmup (dailyLimit is still 0
+// True only once the account is past its warmup (dailyLimit is still 0
 // during warmup, which already fails this the same way a maxed-out account
-// does — no separate phase check needed) and hasn't hit today's cap yet.
+// does — no separate phase check needed), and there's still room for a new
+// send once today's already-sent count *and* today's still-pending phase-1
+// follow-ups (which will also draw from this same daily cap) are accounted
+// for — otherwise the account looks available right up until the follow-up
+// backlog for the day pushes it over.
 function accountCanSendToday(account) {
-  return !!account && account.todaySentCount < account.dailyLimit;
+  return !!account && account.effectiveRemainingForNewSends > 0;
 }
 
 function accountBlockedReason(account) {
   if (!account) return '';
   if (account.dailyLimit === 0) {
-    return `@${account.username} is still warming up${account.warmupDay != null ? ` (day ${account.warmupDay} of 7)` : ''} and can't send yet.`;
+    return `@${account.username} is still warming up${account.warmupDay != null ? ` (day ${account.warmupDay} of ${account.warmupDays})` : ''} and can't send yet.`;
+  }
+  if (account.pendingPhase1FollowupCount > 0 && account.effectiveRemainingForNewSends === 0) {
+    return `@${account.username} has ${account.todaySentCount}/${account.dailyLimit} sent today plus ${account.pendingPhase1FollowupCount} follow-up${account.pendingPhase1FollowupCount === 1 ? '' : 's'} still due — no room left for new sends today.`;
   }
   return `@${account.username} has already hit its daily limit today (${account.todaySentCount}/${account.dailyLimit}).`;
 }
@@ -1583,7 +1591,8 @@ async function decide(status) {
           headline: p.headline,
           bio: p.bio,
           followers: p.followers,
-          stage: 'phase1'
+          stage: 'phase1',
+          accountId: p.platform === 'instagram' ? state.igAccountId : undefined
         })
       }).then(() => loadNotifications()).catch(e => console.error('Could not update lead stage', e));
     } else if (status === 'cant_message') {

@@ -99,11 +99,12 @@ function renderNotifications(notifications) {
           <button type="button" class="notif-item-delete" data-reminder-id="${n.id}" title="Delete reminder">🗑</button>
         </div>`;
     }
+    const accountLabel = n.platform === 'instagram' && n.accountUsername ? ` — @${escapeHtml(n.accountUsername)}` : '';
     return `
       <div class="notif-row">
-        <button type="button" class="notif-item" data-type="followup" data-phase="${n.phase}" data-platform="${n.platform}">
+        <button type="button" class="notif-item" data-type="followup" data-phase="${n.phase}" data-platform="${n.platform}" data-account-id="${n.accountId || ''}">
           <div class="notif-item-main">
-            <span class="notif-item-phase">${PLATFORM_LABELS[n.platform]} ${PHASE_NAMES[n.phase]}</span>
+            <span class="notif-item-phase">${PLATFORM_LABELS[n.platform]} ${PHASE_NAMES[n.phase]}${accountLabel}</span>
             <span class="notif-item-count">${n.count} lead${n.count === 1 ? '' : 's'} to follow up with</span>
           </div>
           <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
@@ -160,7 +161,7 @@ $('#notif-list').addEventListener('click', async (e) => {
   } else if (item.dataset.type === 'ig_cooldown_ready') {
     resumeIgCooldownSession(item.dataset.savedSessionId);
   } else {
-    openFollowupSession(Number(item.dataset.phase), item.dataset.platform);
+    openFollowupSession(Number(item.dataset.phase), item.dataset.platform, item.dataset.accountId || null);
   }
 });
 
@@ -182,19 +183,27 @@ document.addEventListener('click', (e) => {
 
 // ---------- Follow-up session ----------
 
-const followupState = { phase: null, platform: 'instagram', leads: [] };
+const followupState = { phase: null, platform: 'instagram', accountId: null, leads: [] };
 
-async function openFollowupSession(phase, platform) {
+async function openFollowupSession(phase, platform, accountId = null) {
   followupState.phase = phase;
   followupState.platform = platform === 'linkedin' ? 'linkedin' : 'instagram';
+  followupState.accountId = followupState.platform === 'instagram' ? accountId : null;
   $('#followup-title').textContent = `${PLATFORM_LABELS[followupState.platform]} ${PHASE_NAMES[phase]} Follow-ups`;
   $('#followup-list').innerHTML = '<p class="muted">Loading…</p>';
   $('#followup-sub').textContent = '';
   $('#followup-empty').classList.add('hidden');
   showView('followup');
   try {
-    const data = await fetchJson(`/api/followups/due?phase=${phase}&platform=${followupState.platform}`);
+    const accountParam = followupState.accountId ? `&accountId=${encodeURIComponent(followupState.accountId)}` : '';
+    const data = await fetchJson(`/api/followups/due?phase=${phase}&platform=${followupState.platform}${accountParam}`);
     followupState.leads = data.leads || [];
+    // The notification that opened this session was already scoped to one
+    // account (that's how it knew "8 leads to follow up with" in the first
+    // place) — surfacing the username here is the "auto-select the right
+    // account" requirement, since there's no separate picker step to skip.
+    const accountUsername = followupState.leads[0]?.accountUsername;
+    $('#followup-sub').textContent = accountUsername ? `Sending as @${accountUsername}` : '';
     renderFollowupList();
   } catch (e) {
     $('#followup-list').innerHTML = `<p class="import-error">Could not load follow-ups: ${escapeHtml(e.message)}</p>`;
@@ -310,13 +319,20 @@ $('#followup-list').addEventListener('click', async (e) => {
     if (!lead) return;
     sentBtn.disabled = true;
     try {
-      await fetchJson(`/api/leads/${id}/followup-sent`, {
+      const result = await fetchJson(`/api/leads/${id}/followup-sent`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ phase: lead.phase, step: lead.step, message: lead.message || '' })
       });
       removeFollowupCard(id);
       loadNotifications();
+      // Warn, don't block — the real prevention already happened up front
+      // via effectiveRemainingForNewSends when the session was started.
+      if (result.accountTodaySentCount != null && result.accountTodaySentCount >= result.accountDailyLimit) {
+        const account = findIgAccount(result.accountId);
+        const username = account ? account.username : 'This account';
+        alert(`⚠️ @${username} is now over its daily limit (${result.accountTodaySentCount}/${result.accountDailyLimit}) — no action needed, just a heads up.`);
+      }
     } catch (err) {
       alert(`Could not mark as sent: ${err.message}`);
       sentBtn.disabled = false;
@@ -377,6 +393,7 @@ async function loadSettingsPage() {
     $('#settings-calendar-link').value = (appData.settings && appData.settings.calendar_link) || '';
     $('#settings-views-threshold').value = (appData.settings && appData.settings.views_threshold) || 1000;
     $('#settings-connection-delay').value = (appData.settings && appData.settings.linkedin_connection_delay_days) ?? 2;
+    $('#settings-followup-due-hour').value = (appData.settings && appData.settings.followup_due_hour) ?? 4;
     $('#settings-daily-goal-instagram').value = (appData.settings && appData.settings.daily_goal_instagram) || 0;
     $('#settings-daily-goal-linkedin').value = (appData.settings && appData.settings.daily_goal_linkedin) || 0;
     renderSettingsTemplates();
@@ -986,7 +1003,8 @@ $('#settings-general-save').addEventListener('click', async () => {
       body: JSON.stringify({
         calendarLink: $('#settings-calendar-link').value,
         viewsThreshold: Number($('#settings-views-threshold').value) || 0,
-        linkedinConnectionDelayDays: Number($('#settings-connection-delay').value) || 0
+        linkedinConnectionDelayDays: Number($('#settings-connection-delay').value) || 0,
+        followupDueHour: Number($('#settings-followup-due-hour').value) || 0
       })
     });
     state.viewsThreshold = Number($('#settings-views-threshold').value) || 0;

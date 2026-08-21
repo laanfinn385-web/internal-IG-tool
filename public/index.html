@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -894,6 +894,10 @@
         <label>Days to wait after "Engaged" before the LinkedIn connection-request notification
           <input type="number" id="settings-connection-delay" min="0" step="1">
         </label>
+        <label>Hour of day follow-ups become due (Amsterdam time)
+          <input type="number" id="settings-followup-due-hour" min="0" max="23" step="1">
+        </label>
+        <p class="muted" style="margin-top:-8px;">Instead of tracking the exact hour of the original send, all follow-up/connection notifications become due at this hour each day — so a full day's follow-ups are all visible at once.</p>
         <button id="settings-general-save" class="btn-secondary">Save</button>
       </div>
 
@@ -930,9 +934,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=4"></script>
-<script src="app.js?v=4"></script>
-<script src="leads.js?v=4"></script>
-<script src="followups.js?v=4"></script>
+<script src="templates.js?v=5"></script>
+<script src="app.js?v=5"></script>
+<script src="leads.js?v=5"></script>
+<script src="followups.js?v=5"></script>
 </body>
 </html>
