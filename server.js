@@ -1096,6 +1096,96 @@ app.post('/api/accounts/:id/skip-rampup', asyncRoute(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ---------- Daily warmup activity tasks (post + scroll/engage) ----------
+
+// Accounts still genuinely in their warmup window right now — reuses
+// effectiveRampStart() (the same function mapAccountRow's phase === 'warming_up'
+// check is built on) so this never drifts out of sync with what Settings
+// shows as "warming up".
+async function getWarmingUpAccounts() {
+  const accounts = await sql`SELECT id, username, created_at, warmup_days, warmup_skipped_at FROM ig_accounts WHERE archived_at IS NULL`;
+  return accounts.filter(r => !r.warmup_skipped_at && new Date() < effectiveRampStart(r));
+}
+
+function mapWarmupTaskRow(r) {
+  const elapsedSeconds = r.type === 'engage'
+    ? r.accumulated_seconds + (r.run_started_at ? Math.floor((Date.now() - new Date(r.run_started_at).getTime()) / 1000) : 0)
+    : 0;
+  return {
+    id: r.id,
+    accountId: r.account_id,
+    accountUsername: r.account_username,
+    type: r.type,
+    targetSeconds: r.target_seconds,
+    elapsedSeconds,
+    running: !!r.run_started_at,
+    completed: !!r.completed_at,
+    createdAt: r.created_at
+  };
+}
+
+app.get('/api/warmup-tasks/:id', asyncRoute(async (req, res) => {
+  const [row] = await sql`
+    SELECT t.*, a.username AS account_username FROM account_warmup_tasks t
+    JOIN ig_accounts a ON a.id = t.account_id
+    WHERE t.id = ${req.params.id}
+  `;
+  if (!row) return res.status(404).json({ error: 'Task not found.' });
+  // Lazy completion check — covers a session left running unattended past
+  // its target with nobody around to hit Pause.
+  if (row.type === 'engage' && !row.completed_at) {
+    const elapsed = row.accumulated_seconds + (row.run_started_at ? Math.floor((Date.now() - new Date(row.run_started_at).getTime()) / 1000) : 0);
+    if (elapsed >= row.target_seconds) {
+      await sql`UPDATE account_warmup_tasks SET accumulated_seconds = ${elapsed}, run_started_at = NULL, completed_at = now() WHERE id = ${row.id}`;
+      row.accumulated_seconds = elapsed; row.run_started_at = null; row.completed_at = new Date();
+    }
+  }
+  res.json(mapWarmupTaskRow(row));
+}));
+
+app.post('/api/warmup-tasks/:id/complete', asyncRoute(async (req, res) => {
+  const [row] = await sql`SELECT type FROM account_warmup_tasks WHERE id = ${req.params.id}`;
+  if (!row) return res.status(404).json({ error: 'Task not found.' });
+  if (row.type !== 'post') return res.status(400).json({ error: "Only 'post' tasks can be completed directly." });
+  await sql`UPDATE account_warmup_tasks SET completed_at = now() WHERE id = ${req.params.id}`;
+  res.json({ ok: true });
+}));
+
+app.post('/api/warmup-tasks/:id/start', asyncRoute(async (req, res) => {
+  const [row] = await sql`
+    SELECT t.*, a.username AS account_username FROM account_warmup_tasks t
+    JOIN ig_accounts a ON a.id = t.account_id
+    WHERE t.id = ${req.params.id}
+  `;
+  if (!row) return res.status(404).json({ error: 'Task not found.' });
+  if (row.type !== 'engage') return res.status(400).json({ error: "Only 'engage' tasks can be started." });
+  if (!row.completed_at && !row.run_started_at) {
+    await sql`UPDATE account_warmup_tasks SET run_started_at = now() WHERE id = ${req.params.id}`;
+    row.run_started_at = new Date();
+  }
+  res.json(mapWarmupTaskRow(row));
+}));
+
+app.post('/api/warmup-tasks/:id/pause', asyncRoute(async (req, res) => {
+  const [row] = await sql`
+    SELECT t.*, a.username AS account_username FROM account_warmup_tasks t
+    JOIN ig_accounts a ON a.id = t.account_id
+    WHERE t.id = ${req.params.id}
+  `;
+  if (!row) return res.status(404).json({ error: 'Task not found.' });
+  if (row.type !== 'engage') return res.status(400).json({ error: "Only 'engage' tasks can be paused." });
+  const elapsed = row.accumulated_seconds + (row.run_started_at ? Math.floor((Date.now() - new Date(row.run_started_at).getTime()) / 1000) : 0);
+  const completed = elapsed >= row.target_seconds;
+  if (completed) {
+    await sql`UPDATE account_warmup_tasks SET accumulated_seconds = ${elapsed}, run_started_at = NULL, completed_at = now() WHERE id = ${req.params.id}`;
+    row.completed_at = new Date();
+  } else {
+    await sql`UPDATE account_warmup_tasks SET accumulated_seconds = ${elapsed}, run_started_at = NULL WHERE id = ${req.params.id}`;
+  }
+  row.accumulated_seconds = elapsed; row.run_started_at = null;
+  res.json(mapWarmupTaskRow(row));
+}));
+
 // Base64 JSON body (not multipart/raw) — reuses the existing express.json()
 // middleware as-is rather than adding route-specific body parsing, and a
 // profile photo is small enough that the ~33% base64 overhead doesn't matter
@@ -1401,7 +1491,49 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
     }
   }
 
-  res.json({ notifications: [...grouped, ...reminders, ...cooldownReadyNotifications], igCooldown });
+  // Daily warmup activity nudges (post + scroll/engage), one pair per
+  // account still genuinely in its warmup window — created lazily here (the
+  // first /api/notifications call of the day for that account) rather than
+  // via a cron, same as everything else time-sensitive in this app.
+  const warmingUpAccounts = await getWarmingUpAccounts();
+  const today = todayStr();
+  let warmupTaskNotifications = [];
+  if (warmingUpAccounts.length > 0) {
+    for (const a of warmingUpAccounts) {
+      const engageTarget = Math.floor(Math.random() * 301) + 600; // 600-900s = 10-15 min
+      await sql`
+        INSERT INTO account_warmup_tasks (id, account_id, date, type) VALUES (${crypto.randomUUID()}, ${a.id}, ${today}, 'post')
+        ON CONFLICT (account_id, date, type) DO NOTHING
+      `;
+      await sql`
+        INSERT INTO account_warmup_tasks (id, account_id, date, type, target_seconds) VALUES (${crypto.randomUUID()}, ${a.id}, ${today}, 'engage', ${engageTarget})
+        ON CONFLICT (account_id, date, type) DO NOTHING
+      `;
+    }
+    const warmingUpIds = warmingUpAccounts.map(a => a.id);
+    const taskRows = await sql`
+      SELECT t.*, a.username AS account_username FROM account_warmup_tasks t
+      JOIN ig_accounts a ON a.id = t.account_id
+      WHERE t.date = ${today} AND t.completed_at IS NULL AND t.account_id = ANY(${warmingUpIds})
+      ORDER BY t.created_at ASC
+    `;
+    warmupTaskNotifications = taskRows.map(r => {
+      const mapped = mapWarmupTaskRow(r);
+      return {
+        type: r.type === 'post' ? 'warmup_post' : 'warmup_engage',
+        groupKey: `warmup_${r.type}:${r.account_id}:${today}`,
+        taskId: r.id,
+        accountId: r.account_id,
+        accountUsername: r.account_username,
+        earliestDue: r.created_at,
+        targetSeconds: mapped.targetSeconds,
+        elapsedSeconds: mapped.elapsedSeconds,
+        running: mapped.running
+      };
+    });
+  }
+
+  res.json({ notifications: [...grouped, ...reminders, ...cooldownReadyNotifications, ...warmupTaskNotifications], igCooldown });
 }));
 
 app.post('/api/notifications/dismiss', asyncRoute(async (req, res) => {

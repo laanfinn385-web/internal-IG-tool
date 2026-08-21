@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -279,6 +279,26 @@
         <div class="modal-actions" style="justify-content:flex-start; gap:12px;">
           <button id="pacing-break-home-btn" class="btn-secondary">← Go back to home</button>
           <button id="pacing-break-continue-btn" class="btn-primary hidden">Continue session →</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- WARMUP ENGAGEMENT SESSION — daily scroll/engage task for accounts
+         still in warmup. No skip button: only actually letting the timer run
+         (paused or not) counts. -->
+    <section id="view-warmup-engage" class="view hidden">
+      <div class="end-hero">
+        <div class="end-emoji">📱</div>
+        <h1 id="warmup-engage-title">Scroll & engage</h1>
+        <p class="end-sub">Genuinely scroll your feed, watch some stories, like a few posts — real activity, not the tool running in the background.</p>
+      </div>
+      <div class="card">
+        <div class="cooldown-countdown" id="warmup-engage-countdown"></div>
+        <p class="muted hidden" id="warmup-engage-done">🎉 Session complete for today — nice work.</p>
+        <div class="modal-actions" style="justify-content:flex-start; gap:12px;">
+          <button id="warmup-engage-home-btn" class="btn-secondary">← Go back to home</button>
+          <button id="warmup-engage-start-btn" class="btn-primary hidden">Start scrolling session →</button>
+          <button id="warmup-engage-pause-btn" class="btn-secondary hidden">⏸ Pause</button>
         </div>
       </div>
     </section>
@@ -934,9 +954,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=5"></script>
-<script src="app.js?v=5"></script>
-<script src="leads.js?v=5"></script>
-<script src="followups.js?v=5"></script>
+<script src="templates.js?v=6"></script>
+<script src="app.js?v=6"></script>
+<script src="leads.js?v=6"></script>
+<script src="followups.js?v=6"></script>
 </body>
 </html>

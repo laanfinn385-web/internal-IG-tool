@@ -2069,6 +2069,115 @@ $('#pacing-break-home-btn').addEventListener('click', async () => {
   loadNotifications();
 });
 
+// ---------- Warmup engagement session (scroll & engage, warmup-phase accounts only) ----------
+//
+// Deliberately isolated from the big lead-swiping `state` object (like
+// igCooldownState/pacingBreakCountdownInterval above) — this is a standalone
+// per-task timer, not a session over a list of leads. Time genuinely accrues
+// server-side (accumulated_seconds + now-run_started_at), so there's no need
+// to keep a background ticker running once you navigate away — reopening the
+// notification just re-fetches the current computed state.
+
+let warmupEngageState = { taskId: null };
+let warmupEngageTickerInterval = null;
+
+async function openWarmupEngageSession(taskId) {
+  warmupEngageState.taskId = taskId;
+  showView('warmup-engage');
+  try {
+    const task = await fetchJson(`/api/warmup-tasks/${taskId}`);
+    renderWarmupEngageTask(task);
+  } catch (e) {
+    alert(`Could not load that session: ${e.message}`);
+    showView('home');
+  }
+}
+
+function renderWarmupEngageTask(task) {
+  clearInterval(warmupEngageTickerInterval);
+  $('#warmup-engage-title').textContent = `Scroll & engage — @${task.accountUsername}`;
+  const startBtn = $('#warmup-engage-start-btn');
+  const pauseBtn = $('#warmup-engage-pause-btn');
+  const doneEl = $('#warmup-engage-done');
+  const countdownEl = $('#warmup-engage-countdown');
+
+  if (task.completed) {
+    countdownEl.textContent = '';
+    startBtn.classList.add('hidden');
+    pauseBtn.classList.add('hidden');
+    doneEl.classList.remove('hidden');
+    return;
+  }
+  doneEl.classList.add('hidden');
+
+  if (task.running) {
+    startBtn.classList.add('hidden');
+    pauseBtn.classList.remove('hidden');
+    startWarmupEngageTicker(task);
+  } else {
+    pauseBtn.classList.add('hidden');
+    startBtn.classList.remove('hidden');
+    startBtn.textContent = task.elapsedSeconds > 0 ? 'Resume scrolling session →' : 'Start scrolling session →';
+    countdownEl.textContent = formatCountdown((task.targetSeconds - task.elapsedSeconds) * 1000);
+  }
+}
+
+function startWarmupEngageTicker(task) {
+  clearInterval(warmupEngageTickerInterval);
+  const deadline = Date.now() + (task.targetSeconds - task.elapsedSeconds) * 1000;
+  const countdownEl = $('#warmup-engage-countdown');
+  function tick() {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) {
+      clearInterval(warmupEngageTickerInterval);
+      countdownEl.textContent = 'Done!';
+      fetchJson(`/api/warmup-tasks/${warmupEngageState.taskId}/pause`, { method: 'POST' })
+        .then(renderWarmupEngageTask)
+        .catch(() => {});
+      return;
+    }
+    countdownEl.textContent = formatCountdown(remaining);
+  }
+  tick();
+  warmupEngageTickerInterval = setInterval(tick, 1000);
+}
+
+$('#warmup-engage-start-btn').addEventListener('click', async () => {
+  const btn = $('#warmup-engage-start-btn');
+  btn.disabled = true;
+  try {
+    const task = await fetchJson(`/api/warmup-tasks/${warmupEngageState.taskId}/start`, { method: 'POST' });
+    renderWarmupEngageTask(task);
+  } catch (e) {
+    alert(`Could not start: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#warmup-engage-pause-btn').addEventListener('click', async () => {
+  const btn = $('#warmup-engage-pause-btn');
+  btn.disabled = true;
+  clearInterval(warmupEngageTickerInterval);
+  try {
+    const task = await fetchJson(`/api/warmup-tasks/${warmupEngageState.taskId}/pause`, { method: 'POST' });
+    renderWarmupEngageTask(task);
+  } catch (e) {
+    alert(`Could not pause: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#warmup-engage-home-btn').addEventListener('click', () => {
+  // Deliberately doesn't pause — if it's running, it keeps genuinely
+  // accruing server-side while you're away, same as actually going to
+  // scroll Instagram in another tab.
+  clearInterval(warmupEngageTickerInterval);
+  showView('home');
+  loadNotifications();
+});
+
 function resetSessionState() {
   state.profiles = [];
   state.results = [];

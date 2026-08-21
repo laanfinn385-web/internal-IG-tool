@@ -77,6 +77,37 @@ function renderNotifications(notifications) {
           </button>
         </div>`;
     }
+    if (n.type === 'warmup_post') {
+      // Warmup-only, one-click-to-complete — no separate view, no dismiss
+      // (the only way it leaves the list is by actually being done).
+      return `
+        <div class="notif-row">
+          <button type="button" class="notif-item" data-type="warmup_post" data-task-id="${n.taskId}">
+            <div class="notif-item-main">
+              <span class="notif-item-phase">📸 Post something today</span>
+              <span class="notif-item-count">@${escapeHtml(n.accountUsername || '')} is warming up — click to check off</span>
+            </div>
+            <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
+          </button>
+        </div>`;
+    }
+    if (n.type === 'warmup_engage') {
+      const minutes = Math.round(n.targetSeconds / 60);
+      let progress = `~${minutes} min`;
+      let label = 'Start scrolling session →';
+      if (n.running) label = 'Resume →';
+      else if (n.elapsedSeconds > 0) { progress = `${Math.floor(n.elapsedSeconds / 60)}m of ~${minutes}m done`; label = 'Continue →'; }
+      return `
+        <div class="notif-row">
+          <button type="button" class="notif-item" data-type="warmup_engage" data-task-id="${n.taskId}">
+            <div class="notif-item-main">
+              <span class="notif-item-phase">📱 Scroll &amp; engage</span>
+              <span class="notif-item-count">@${escapeHtml(n.accountUsername || '')} — ${progress} — ${label}</span>
+            </div>
+            <span class="notif-item-time">${timeAgo(n.earliestDue)}</span>
+          </button>
+        </div>`;
+    }
     if (n.type === 'reminder') {
       // Linked reminders get an explicit "Take me to lead" action alongside
       // the usual "click the card to manage it in Settings" — the leadId
@@ -160,6 +191,15 @@ $('#notif-list').addEventListener('click', async (e) => {
     if (card) card.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } else if (item.dataset.type === 'ig_cooldown_ready') {
     resumeIgCooldownSession(item.dataset.savedSessionId);
+  } else if (item.dataset.type === 'warmup_post') {
+    try {
+      await fetchJson(`/api/warmup-tasks/${item.dataset.taskId}/complete`, { method: 'POST' });
+      loadNotifications();
+    } catch (err) {
+      alert(`Could not mark as posted: ${err.message}`);
+    }
+  } else if (item.dataset.type === 'warmup_engage') {
+    openWarmupEngageSession(item.dataset.taskId);
   } else {
     openFollowupSession(Number(item.dataset.phase), item.dataset.platform, item.dataset.accountId || null);
   }
