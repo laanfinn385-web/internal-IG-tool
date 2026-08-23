@@ -129,6 +129,15 @@ function daysAgoStr(n, from = new Date()) {
   return todayStr(d);
 }
 
+// Same "T00:00:00" local-as-Amsterdam-midnight construction computeGoalStreak
+// uses for its own Sunday check below — outreach never happens on Sundays,
+// so nothing new should be surfaced to act on that day either (follow-ups,
+// connection requests) — it just all shows up Monday instead, nothing lost.
+// Reminders and warmup tasks are deliberately exempt (see their call sites).
+function isSundayAmsterdam(dateStr = todayStr()) {
+  return new Date(dateStr + 'T00:00:00').getDay() === 0;
+}
+
 // A day "counts" toward the streak once BOTH platform daily-goal thresholds
 // are met (0 = that platform isn't part of the goal, so it's always
 // satisfied). If neither platform has a goal configured, there's nothing to
@@ -1533,7 +1542,16 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
     });
   }
 
-  res.json({ notifications: [...grouped, ...reminders, ...cooldownReadyNotifications, ...warmupTaskNotifications], igCooldown });
+  // No follow-up/connection/cooldown-ready nudges on Sundays — outreach
+  // doesn't happen that day (see the streak's own Sunday-skip above), so
+  // there's nothing to act on until Monday, when anything that became due
+  // over the weekend shows up as normal. Reminders and warmup tasks are
+  // exempt — reminders because you may have deliberately scheduled one for a
+  // Sunday, warmup tasks because building the account is the one thing that
+  // *should* still happen every day.
+  const sundaySafeGrouped = isSundayAmsterdam() ? [] : grouped;
+  const sundaySafeCooldownReady = isSundayAmsterdam() ? [] : cooldownReadyNotifications;
+  res.json({ notifications: [...sundaySafeGrouped, ...reminders, ...sundaySafeCooldownReady, ...warmupTaskNotifications], igCooldown });
 }));
 
 app.post('/api/notifications/dismiss', asyncRoute(async (req, res) => {
