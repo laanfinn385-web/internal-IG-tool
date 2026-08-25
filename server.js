@@ -947,18 +947,11 @@ function ageDaysFrom(createdOn) {
   return Math.floor(ms / MS_PER_DAY);
 }
 
-function addDays(date, days) {
-  const d = new Date(date);
-  d.setDate(d.getDate() + days);
-  return d;
-}
-
-// When ramping actually starts: immediately if warmup was skipped, otherwise
-// exactly this account's own warmup_days after it was added to the tool.
-function effectiveRampStart(r) {
-  return r.warmup_skipped_at ? toDate(r.warmup_skipped_at) : addDays(toDate(r.created_at), r.warmup_days);
-}
-
+// warmup_age_days/ramp_start come pre-computed from the accounts query (see
+// GET /api/accounts) via the same Amsterdam-morning-boundary SQL functions
+// follow-up due-times use — "day 0" is the calendar day the account was
+// added, ticking to "day 1" at the next 4am Amsterdam (or whatever the
+// follow-up due hour setting is), not at the exact clock-time it was created.
 function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount) {
   const ageDays = ageDaysFrom(r.created_on);
   const tierCap = tierCapForAge(ageDays);
@@ -967,17 +960,22 @@ function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount) {
   let warmupDay = null;
   let rampDay = null;
   if (!r.rampup_skipped_at) {
-    const rampStart = effectiveRampStart(r);
+    const rampStart = toDate(r.ramp_start);
     if (!r.warmup_skipped_at && new Date() < rampStart) {
       phase = 'warming_up';
       warmupEndsAt = rampStart;
       // 0-indexed ("day 0 of N" the day it's added, counting up to "day N-1
       // of N" the day before ramp-up starts) — matches warmup_days directly
       // rather than needing a separate +1/-1 convention to keep straight.
-      warmupDay = r.warmup_days - Math.ceil((rampStart.getTime() - Date.now()) / MS_PER_DAY);
+      warmupDay = Math.min(r.warmup_days - 1, Math.max(0, r.warmup_age_days));
     } else if (r.daily_limit < tierCap) {
       phase = 'ramping_up';
-      rampDay = Math.floor((Date.now() - rampStart.getTime()) / MS_PER_DAY) + 1;
+      // Skipping warmup is a deliberate, instant user action — its ramp-day
+      // count stays exact-elapsed-time-based rather than morning-aligned,
+      // since there's no "day it was added" boundary to align to.
+      rampDay = r.warmup_skipped_at
+        ? Math.floor((Date.now() - rampStart.getTime()) / MS_PER_DAY) + 1
+        : Math.max(1, r.warmup_age_days - r.warmup_days + 1);
     }
   }
   return {
@@ -1003,7 +1001,17 @@ function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount) {
 app.get('/api/accounts', asyncRoute(async (req, res) => {
   const today = todayStr();
   const dueHour = await getFollowupDueHour();
-  const accounts = await sql`SELECT * FROM ig_accounts WHERE archived_at IS NULL ORDER BY created_at ASC`;
+  // warmup_age_days/ramp_start are computed here (not in JS) so "a day of
+  // warmup" ticks over at the same Amsterdam morning boundary follow-ups use
+  // (amsterdam_day_index()/due_at_normalized()), not at the exact clock-time
+  // the account happened to be added — see mapAccountRow below.
+  const accounts = await sql`
+    SELECT *,
+      (amsterdam_day_index(now(), ${dueHour}) - amsterdam_day_index(created_at, ${dueHour})) AS warmup_age_days,
+      CASE WHEN warmup_skipped_at IS NOT NULL THEN warmup_skipped_at
+           ELSE due_at_normalized(created_at, warmup_days, ${dueHour}) END AS ramp_start
+    FROM ig_accounts WHERE archived_at IS NULL ORDER BY created_at ASC
+  `;
   const sentRows = await sql`
     SELECT account_id, count(*) FROM outreaches
     WHERE status = 'sent' AND date = ${today} AND account_id IS NOT NULL
@@ -1048,9 +1056,11 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
     const tierCap = tierCapForAge(ageDays);
 
     if (!r.rampup_skipped_at) {
-      const rampStart = effectiveRampStart(r);
+      const rampStart = toDate(r.ramp_start);
       if (new Date() >= rampStart) {
-        const daysInRamp = Math.floor((Date.now() - rampStart.getTime()) / MS_PER_DAY) + 1;
+        const daysInRamp = r.warmup_skipped_at
+          ? Math.floor((Date.now() - rampStart.getTime()) / MS_PER_DAY) + 1
+          : Math.max(1, r.warmup_age_days - r.warmup_days + 1);
         const rampLimit = Math.min(tierCap, daysInRamp * RAMP_STEP);
         if (rampLimit !== r.daily_limit) {
           // The stored value still reading 0 is what tells us this is the
@@ -1107,13 +1117,19 @@ app.post('/api/accounts/:id/skip-rampup', asyncRoute(async (req, res) => {
 
 // ---------- Daily warmup activity tasks (post + scroll/engage) ----------
 
-// Accounts still genuinely in their warmup window right now — reuses
-// effectiveRampStart() (the same function mapAccountRow's phase === 'warming_up'
-// check is built on) so this never drifts out of sync with what Settings
-// shows as "warming up".
+// Accounts still genuinely in their warmup window right now — computes
+// ramp_start the same way GET /api/accounts does (due_at_normalized, morning-
+// aligned) so this never drifts out of sync with what Settings shows as
+// "warming up".
 async function getWarmingUpAccounts() {
-  const accounts = await sql`SELECT id, username, created_at, warmup_days, warmup_skipped_at FROM ig_accounts WHERE archived_at IS NULL`;
-  return accounts.filter(r => !r.warmup_skipped_at && new Date() < effectiveRampStart(r));
+  const dueHour = await getFollowupDueHour();
+  const accounts = await sql`
+    SELECT id, username, warmup_skipped_at,
+      CASE WHEN warmup_skipped_at IS NOT NULL THEN warmup_skipped_at
+           ELSE due_at_normalized(created_at, warmup_days, ${dueHour}) END AS ramp_start
+    FROM ig_accounts WHERE archived_at IS NULL
+  `;
+  return accounts.filter(r => !r.warmup_skipped_at && new Date() < new Date(r.ramp_start));
 }
 
 function mapWarmupTaskRow(r) {
