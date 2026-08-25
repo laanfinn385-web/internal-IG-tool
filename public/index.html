@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=6">
+<link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -857,6 +857,11 @@
             <input type="number" id="settings-daily-goal-linkedin" min="0" step="1">
           </label>
         </div>
+        <label class="radio-label">
+          <input type="checkbox" id="settings-daily-goal-instagram-sync">
+          Sync to Instagram combined accounts max sends
+        </label>
+        <p class="muted" style="margin-top:-8px;" id="settings-daily-goal-sync-note">When on, the Instagram goal above is ignored — it's set automatically to the combined daily limit across every connected account, minus today's pending phase-1 follow-ups, and updates itself as accounts ramp up.</p>
         <button id="settings-daily-goal-save" class="btn-secondary">Save</button>
       </div>
 
@@ -954,9 +959,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=6"></script>
-<script src="app.js?v=6"></script>
-<script src="leads.js?v=6"></script>
-<script src="followups.js?v=6"></script>
+<script src="templates.js?v=7"></script>
+<script src="app.js?v=7"></script>
+<script src="leads.js?v=7"></script>
+<script src="followups.js?v=7"></script>
 </body>
 </html>

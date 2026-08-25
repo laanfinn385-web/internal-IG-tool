@@ -436,6 +436,8 @@ async function loadSettingsPage() {
     $('#settings-followup-due-hour').value = (appData.settings && appData.settings.followup_due_hour) ?? 4;
     $('#settings-daily-goal-instagram').value = (appData.settings && appData.settings.daily_goal_instagram) || 0;
     $('#settings-daily-goal-linkedin').value = (appData.settings && appData.settings.daily_goal_linkedin) || 0;
+    $('#settings-daily-goal-instagram-sync').checked = !!(appData.settings && appData.settings.daily_goal_instagram_sync === 'true');
+    applyDailyGoalSyncState();
     renderSettingsTemplates();
     renderSettingsFollowups();
   } catch (e) {
@@ -1014,6 +1016,14 @@ $('#add-account-confirm-btn').addEventListener('click', async () => {
   }
 });
 
+// While syncing, the manual number is server-overridden anyway — disabling
+// the input here is just so it doesn't look editable, matching how a
+// ramping-up account's daily-limit field is treated in the accounts list.
+function applyDailyGoalSyncState() {
+  $('#settings-daily-goal-instagram').disabled = $('#settings-daily-goal-instagram-sync').checked;
+}
+$('#settings-daily-goal-instagram-sync').addEventListener('change', applyDailyGoalSyncState);
+
 $('#settings-daily-goal-save').addEventListener('click', async () => {
   const btn = $('#settings-daily-goal-save');
   btn.disabled = true;
@@ -1023,7 +1033,8 @@ $('#settings-daily-goal-save').addEventListener('click', async () => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         dailyGoalInstagram: Number($('#settings-daily-goal-instagram').value) || 0,
-        dailyGoalLinkedin: Number($('#settings-daily-goal-linkedin').value) || 0
+        dailyGoalLinkedin: Number($('#settings-daily-goal-linkedin').value) || 0,
+        dailyGoalInstagramSync: $('#settings-daily-goal-instagram-sync').checked
       })
     });
   } catch (err) {

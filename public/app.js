@@ -477,7 +477,7 @@ function renderDailyGoal(dailyGoal) {
   $('#daily-goal-bar-linkedin').style.width = `${(liShare * liPct) / 100}%`;
 
   const textParts = [];
-  if (igGoal > 0) textParts.push(`${igDone}/${igGoal} Instagram`);
+  if (igGoal > 0) textParts.push(`${igDone}/${igGoal} Instagram${dailyGoal.instagramSynced ? ' (synced)' : ''}`);
   if (liGoal > 0) textParts.push(`${liDone}/${liGoal} LinkedIn`);
   $('#daily-goal-text').textContent = textParts.join(' · ');
 

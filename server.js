@@ -237,15 +237,45 @@ app.get('/api/home', asyncRoute(async (req, res) => {
     liEngagedByDateRows,
     [dailyGoalSession]
   ] = await Promise.all([
-    sql`SELECT key, value FROM app_settings WHERE key IN ('daily_goal_instagram', 'daily_goal_linkedin')`,
+    sql`SELECT key, value FROM app_settings WHERE key IN ('daily_goal_instagram', 'daily_goal_linkedin', 'daily_goal_instagram_sync')`,
     sql`SELECT date, count(*) FROM outreaches WHERE platform = 'instagram' AND status = 'sent' GROUP BY date`,
     sql`SELECT e.date, count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'engaged' AND l.platform = 'linkedin' GROUP BY e.date`,
     sql`SELECT * FROM saved_sessions WHERE is_daily_goal = true ORDER BY created_at DESC LIMIT 1`
   ]);
   const goalSettings = {};
   goalSettingRows.forEach(r => { goalSettings[r.key] = r.value; });
-  const dailyGoalInstagram = Number(goalSettings.daily_goal_instagram) || 0;
+  const dailyGoalInstagramSynced = goalSettings.daily_goal_instagram_sync === 'true';
+  let dailyGoalInstagram = Number(goalSettings.daily_goal_instagram) || 0;
   const dailyGoalLinkedin = Number(goalSettings.daily_goal_linkedin) || 0;
+
+  // "Sync to Instagram combined accounts max sends" — instead of a manually
+  // typed number, the Instagram goal becomes the live combined ceiling
+  // across every connected account: each account's current daily_limit
+  // (already reflecting today's ramp-up step, if any — recomputed here live
+  // just like everywhere else in this app, not a stored snapshot that'd go
+  // stale as accounts ramp up) minus today's still-pending phase-1
+  // follow-ups for that account, since those draw from the same daily cap
+  // and would otherwise silently blow past it (same accounting as
+  // effectiveRemainingForNewSends in GET /api/accounts, just summed).
+  if (dailyGoalInstagramSynced) {
+    const dueHour = await getFollowupDueHour();
+    const [{ total_limit, total_pending }] = await sql`
+      SELECT
+        COALESCE(SUM(a.daily_limit), 0) AS total_limit,
+        COALESCE(SUM(pending.cnt), 0) AS total_pending
+      FROM ig_accounts a
+      LEFT JOIN (
+        SELECT l.account_id, count(*) AS cnt
+        FROM leads l
+        JOIN followup_templates ft ON ft.platform = 'instagram' AND ft.phase = 1 AND ft.step = l.phase_step + 1
+        WHERE l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
+          AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
+        GROUP BY l.account_id
+      ) pending ON pending.account_id = a.id
+      WHERE a.archived_at IS NULL
+    `;
+    dailyGoalInstagram = Math.max(0, Number(total_limit) - Number(total_pending));
+  }
 
   const igSentByDate = {};
   igSentByDateRows.forEach(r => { igSentByDate[r.date] = Number(r.count); });
@@ -260,6 +290,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
     connectionsSent: eventCounts.connection_sent, connectionsAccepted: eventCounts.connection_accepted, car,
     dailyGoal: {
       instagram: dailyGoalInstagram,
+      instagramSynced: dailyGoalInstagramSynced,
       linkedin: dailyGoalLinkedin,
       todaySentInstagram: igSentByDate[today] || 0,
       todayEngagedLinkedin: liEngagedByDate[today] || 0,
@@ -1788,7 +1819,7 @@ app.get('/api/settings/app', asyncRoute(async (req, res) => {
 }));
 
 app.put('/api/settings/app', asyncRoute(async (req, res) => {
-  const { calendarLink, viewsThreshold, linkedinConnectionDelayDays, followupDueHour, dailyGoalInstagram, dailyGoalLinkedin } = req.body;
+  const { calendarLink, viewsThreshold, linkedinConnectionDelayDays, followupDueHour, dailyGoalInstagram, dailyGoalInstagramSync, dailyGoalLinkedin } = req.body;
   if (calendarLink !== undefined) {
     await sql`
       INSERT INTO app_settings (key, value) VALUES ('calendar_link', ${calendarLink})
@@ -1820,6 +1851,13 @@ app.put('/api/settings/app', asyncRoute(async (req, res) => {
     await sql`
       INSERT INTO app_settings (key, value) VALUES ('daily_goal_instagram', ${String(clamped)})
       ON CONFLICT (key) DO UPDATE SET value = ${String(clamped)}
+    `;
+  }
+  if (dailyGoalInstagramSync !== undefined) {
+    const value = dailyGoalInstagramSync ? 'true' : 'false';
+    await sql`
+      INSERT INTO app_settings (key, value) VALUES ('daily_goal_instagram_sync', ${value})
+      ON CONFLICT (key) DO UPDATE SET value = ${value}
     `;
   }
   if (dailyGoalLinkedin !== undefined) {
