@@ -826,6 +826,7 @@ function renderAccountsList() {
             <input type="number" min="1" class="account-limit-input" data-id="${a.id}" value="${a.dailyLimit}"${isWarming || isRamping ? ' disabled' : ''}>
           </label>
           ${a.overTierCap ? '<span class="account-over-cap" title="Above the recommended limit for an account this age">⚠️</span>' : '<span class="account-over-cap-spacer"></span>'}
+          <button type="button" class="account-restart-warmup-btn" data-id="${a.id}" title="Send this account back into warmup, whatever phase it's in">↩️ Restart warmup</button>
           <button type="button" class="account-archive-btn" data-id="${a.id}" title="Archive this account">🗑</button>
         </div>
         ${statusHtml}
@@ -882,6 +883,23 @@ $('#accounts-list').addEventListener('click', async (e) => {
     } catch (err) {
       alert(`Could not archive account: ${err.message}`);
       archiveBtn.disabled = false;
+    }
+    return;
+  }
+
+  const restartWarmupBtn = e.target.closest('.account-restart-warmup-btn');
+  if (restartWarmupBtn) {
+    const id = restartWarmupBtn.dataset.id;
+    const account = settingsState.accounts.find(a => a.id === id);
+    if (!account) return;
+    if (!confirm(`Restart @${account.username}'s warmup from scratch? Its daily limit resets to 0 and it goes through the full warmup + ramp-up cycle again — use this if something's gone wrong on Instagram's end and the account needs a genuine reset.`)) return;
+    restartWarmupBtn.disabled = true;
+    try {
+      await fetchJson(`/api/accounts/${id}/restart-warmup`, { method: 'POST' });
+      await loadAccounts();
+    } catch (err) {
+      alert(`Could not restart warmup: ${err.message}`);
+      restartWarmupBtn.disabled = false;
     }
     return;
   }

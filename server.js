@@ -1035,12 +1035,16 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
   // warmup_age_days/ramp_start are computed here (not in JS) so "a day of
   // warmup" ticks over at the same Amsterdam morning boundary follow-ups use
   // (amsterdam_day_index()/due_at_normalized()), not at the exact clock-time
-  // the account happened to be added — see mapAccountRow below.
+  // the account happened to be added — see mapAccountRow below. The clock
+  // starts from warmup_restarted_at when set (see POST .../restart-warmup) —
+  // an account can be sent back into warmup from any phase without touching
+  // created_at, which still means "when this row was added to the tool" for
+  // list ordering and everywhere else.
   const accounts = await sql`
     SELECT *,
-      (amsterdam_day_index(now(), ${dueHour}) - amsterdam_day_index(created_at, ${dueHour})) AS warmup_age_days,
+      (amsterdam_day_index(now(), ${dueHour}) - amsterdam_day_index(COALESCE(warmup_restarted_at, created_at), ${dueHour})) AS warmup_age_days,
       CASE WHEN warmup_skipped_at IS NOT NULL THEN warmup_skipped_at
-           ELSE due_at_normalized(created_at, warmup_days, ${dueHour}) END AS ramp_start
+           ELSE due_at_normalized(COALESCE(warmup_restarted_at, created_at), warmup_days, ${dueHour}) END AS ramp_start
     FROM ig_accounts WHERE archived_at IS NULL ORDER BY created_at ASC
   `;
   const sentRows = await sql`
@@ -1146,6 +1150,26 @@ app.post('/api/accounts/:id/skip-rampup', asyncRoute(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Sends an account back into warmup from any phase (ready, ramping_up, or
+// even mid-warmup) — for when something's gone wrong on Instagram's end and
+// the account needs to genuinely start over, not just have its limit
+// lowered. warmup_restarted_at (not created_at) becomes the new clock
+// reference everywhere warmup/ramp timing is computed, so this doesn't
+// disturb created_at's "when this row was added to the tool" meaning (list
+// ordering) or created_on's real-world IG account age (tier eligibility).
+// Clears both skip flags and zeroes the limit — a full do-over, matching a
+// brand-new account's starting state.
+app.post('/api/accounts/:id/restart-warmup', asyncRoute(async (req, res) => {
+  const [account] = await sql`SELECT username FROM ig_accounts WHERE id = ${req.params.id} AND archived_at IS NULL`;
+  if (!account) return res.status(404).json({ error: 'Account not found.' });
+  await sql`
+    UPDATE ig_accounts
+    SET warmup_restarted_at = now(), warmup_skipped_at = NULL, rampup_skipped_at = NULL, daily_limit = 0
+    WHERE id = ${req.params.id}
+  `;
+  res.json({ ok: true });
+}));
+
 // ---------- Daily warmup activity tasks (post + scroll/engage) ----------
 
 // Accounts still genuinely in their warmup window right now — computes
@@ -1157,7 +1181,7 @@ async function getWarmingUpAccounts() {
   const accounts = await sql`
     SELECT id, username, warmup_skipped_at,
       CASE WHEN warmup_skipped_at IS NOT NULL THEN warmup_skipped_at
-           ELSE due_at_normalized(created_at, warmup_days, ${dueHour}) END AS ramp_start
+           ELSE due_at_normalized(COALESCE(warmup_restarted_at, created_at), warmup_days, ${dueHour}) END AS ramp_start
     FROM ig_accounts WHERE archived_at IS NULL
   `;
   return accounts.filter(r => !r.warmup_skipped_at && new Date() < new Date(r.ramp_start));
