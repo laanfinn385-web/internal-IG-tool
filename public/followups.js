@@ -417,18 +417,18 @@ $('#followup-done-btn').addEventListener('click', () => showView('home'));
 
 // ---------- Settings ----------
 
-const settingsState = { templates: [], followups: [], phase: 1, followupPlatform: 'instagram', reminders: [], accounts: [] };
+// followups here are LinkedIn's only — Instagram's own follow-up sequence
+// now lives per Messaging sequence (see loadMessageSequences() below).
+const settingsState = { followups: [], phase: 1, reminders: [], accounts: [] };
 
 async function loadSettingsPage() {
   try {
-    const [tplData, fuData, appData] = await Promise.all([
-      fetchJson('/api/settings/templates'),
-      fetchJson(`/api/settings/followups?platform=${settingsState.followupPlatform}`),
+    const [fuData, appData] = await Promise.all([
+      fetchJson('/api/settings/followups?platform=linkedin'),
       fetchJson('/api/settings/app'),
       loadReminders(),
       loadAccounts()
     ]);
-    settingsState.templates = tplData.templates || [];
     settingsState.followups = fuData.followups || [];
     $('#settings-calendar-link').value = (appData.settings && appData.settings.calendar_link) || '';
     $('#settings-views-threshold').value = (appData.settings && appData.settings.views_threshold) || 1000;
@@ -438,61 +438,11 @@ async function loadSettingsPage() {
     $('#settings-daily-goal-linkedin').value = (appData.settings && appData.settings.daily_goal_linkedin) || 0;
     $('#settings-daily-goal-instagram-sync').checked = !!(appData.settings && appData.settings.daily_goal_instagram_sync === 'true');
     applyDailyGoalSyncState();
-    renderSettingsTemplates();
     renderSettingsFollowups();
   } catch (e) {
     alert(`Could not load settings: ${e.message}`);
   }
 }
-
-async function loadFollowupsForPlatform() {
-  try {
-    const fuData = await fetchJson(`/api/settings/followups?platform=${settingsState.followupPlatform}`);
-    settingsState.followups = fuData.followups || [];
-  } catch (e) {
-    alert(`Could not load ${settingsState.followupPlatform} follow-ups: ${e.message}`);
-    return;
-  }
-  renderSettingsFollowups();
-}
-
-$('#settings-followup-platform-tabs').addEventListener('click', (e) => {
-  const btn = e.target.closest('.range-tab');
-  if (!btn) return;
-  $all('#settings-followup-platform-tabs .range-tab').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active');
-  settingsState.followupPlatform = btn.dataset.platform;
-  loadFollowupsForPlatform();
-});
-
-// The actual wording (opener/hook/value/cta per category) lives in the
-// database and is composed + rotated behind the scenes by app.js — only the
-// category label is exposed here to edit.
-function renderSettingsTemplates() {
-  const wrap = $('#settings-templates');
-  wrap.innerHTML = settingsState.templates.map(t => `
-    <div class="settings-template-item">
-      <label>Label
-        <input type="text" value="${escapeHtml(t.label)}" data-tpl-id="${t.id}" data-field="label">
-      </label>
-    </div>
-  `).join('');
-}
-
-$('#settings-templates').addEventListener('change', async (e) => {
-  const field = e.target.dataset.field;
-  if (field !== 'label') return;
-  const id = e.target.dataset.tplId;
-  try {
-    await fetchJson(`/api/settings/templates/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ label: e.target.value })
-    });
-  } catch (err) {
-    alert(`Could not save template: ${err.message}`);
-  }
-});
 
 $('#settings-phase-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-phase]');
@@ -543,7 +493,7 @@ $('#settings-followups').addEventListener('change', async (e) => {
     await fetchJson(`/api/settings/followups/${phase}/${step}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [field]: e.target.value, platform: settingsState.followupPlatform })
+      body: JSON.stringify({ [field]: e.target.value, platform: 'linkedin' })
     });
     if (field === 'type') renderSettingsFollowups();
   } catch (err) {
@@ -764,14 +714,17 @@ $('#reminder-add-btn').addEventListener('click', async () => {
 
 async function loadAccounts() {
   try {
-    const [data, timingData] = await Promise.all([
+    const [data, timingData, messageData] = await Promise.all([
       fetchJson('/api/accounts'),
-      fetchJson('/api/timing-sequences')
+      fetchJson('/api/timing-sequences'),
+      fetchJson('/api/message-sequences')
     ]);
     settingsState.accounts = data.accounts || [];
-    // Shared with the dedicated Timing sequences page's own cache — just
-    // names/ids are needed here for the per-account assignment dropdown.
+    // Shared with the dedicated Timing/Messaging sequences pages' own
+    // caches — just names/ids are needed here for the per-account
+    // assignment dropdowns.
     timingSeqState.sequences = timingData.sequences || [];
+    messageSeqState.sequences = messageData.sequences || [];
     // A warmup-just-ended transition may have just fired server-side (see
     // GET /api/accounts) and inserted a reminder announcing it — refresh the
     // bell so it shows up without waiting for the next unrelated reload.
@@ -822,6 +775,9 @@ function renderAccountsList() {
     const sequenceOptions = timingSeqState.sequences.map(s =>
       `<option value="${s.id}"${s.id === a.timingSequenceId ? ' selected' : ''}>${escapeHtml(s.name)}</option>`
     ).join('');
+    const messageSequenceOptions = messageSeqState.sequences.map(s =>
+      `<option value="${s.id}"${s.id === a.messageSequenceId ? ' selected' : ''}>${escapeHtml(s.name)}</option>`
+    ).join('');
     return `
       <div class="account-row${isWarming ? ' account-row-warming' : ''}" data-id="${a.id}">
         <div class="account-row-main">
@@ -833,6 +789,9 @@ function renderAccountsList() {
           <label class="account-limit-label">Timing sequence
             <select class="account-timing-seq-select" data-id="${a.id}">${sequenceOptions}</select>
           </label>
+          <label class="account-limit-label">Messaging sequence
+            <select class="account-message-seq-select" data-id="${a.id}">${messageSequenceOptions}</select>
+          </label>
           ${a.overTierCap ? '<span class="account-over-cap" title="Above the recommended max for an account this age">⚠️</span>' : '<span class="account-over-cap-spacer"></span>'}
           <button type="button" class="account-restart-warmup-btn" data-id="${a.id}" title="Send this account back into warmup, whatever phase it's in">↩️ Restart warmup</button>
           <button type="button" class="account-archive-btn" data-id="${a.id}" title="Archive this account">🗑</button>
@@ -843,24 +802,27 @@ function renderAccountsList() {
 }
 
 $('#accounts-list').addEventListener('change', async (e) => {
-  const select = e.target.closest('.account-timing-seq-select');
+  const timingSelect = e.target.closest('.account-timing-seq-select');
+  const messageSelect = e.target.closest('.account-message-seq-select');
+  const select = timingSelect || messageSelect;
   if (!select) return;
   const id = select.dataset.id;
   const account = settingsState.accounts.find(a => a.id === id);
   if (!account) return;
-  const previous = account.timingSequenceId;
+  const field = timingSelect ? 'timingSequenceId' : 'messageSequenceId';
+  const previous = account[field];
   const newSequenceId = select.value;
   select.disabled = true;
   try {
     await fetchJson(`/api/accounts/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ timingSequenceId: newSequenceId })
+      body: JSON.stringify({ [field]: newSequenceId })
     });
     await loadAccounts(); // limit/phase/warmup-days all derive from the new sequence
   } catch (err) {
     select.value = previous;
-    alert(`Could not reassign Timing sequence: ${err.message}`);
+    alert(`Could not reassign ${timingSelect ? 'Timing' : 'Messaging'} sequence: ${err.message}`);
   } finally {
     select.disabled = false;
   }
@@ -1367,6 +1329,255 @@ $('#timing-seq-delete-btn').addEventListener('click', async () => {
     await fetchJson(`/api/timing-sequences/${seq.id}`, { method: 'DELETE' });
     timingSeqState.activeId = null;
     await loadTimingSequences();
+  } catch (err) {
+    alert(`Could not delete sequence: ${err.message}`);
+  }
+});
+
+// ---------- Message sequences ----------
+// Named, reusable presets bundling one first-message block (text + a
+// with/without-video flag) and phase1/2/3 follow-up steps, assignable per
+// Instagram account. Mirrors the Timing sequences page structurally — same
+// picker/CRUD, same "+N days after the previous row" offset editing the
+// ramp curve uses (reorder-by-editing, not drag — a step's position is
+// inherently defined by its cumulative day offset, same as a ramp day).
+// Instagram-only; LinkedIn keeps its separate single-template + follow-up
+// system in the General Settings page, untouched.
+
+const messageSeqState = { sequences: [], activeId: null, phase: 1 };
+
+function activeMessageSeq() {
+  return messageSeqState.sequences.find(s => s.id === messageSeqState.activeId) || null;
+}
+
+async function loadMessageSequences(preserveActiveId) {
+  try {
+    const data = await fetchJson('/api/message-sequences');
+    messageSeqState.sequences = data.sequences || [];
+    const wantId = preserveActiveId || messageSeqState.activeId;
+    messageSeqState.activeId = messageSeqState.sequences.some(s => s.id === wantId)
+      ? wantId
+      : (messageSeqState.sequences[0]?.id || null);
+    renderMessageSeqPicker();
+    renderMessageSeqEditor();
+  } catch (e) {
+    alert(`Could not load Messaging sequences: ${e.message}`);
+  }
+}
+
+function renderMessageSeqPicker() {
+  const select = $('#message-seq-select');
+  const hasAny = messageSeqState.sequences.length > 0;
+  select.innerHTML = messageSeqState.sequences.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+  if (messageSeqState.activeId) select.value = messageSeqState.activeId;
+  $('#message-seq-empty').classList.toggle('hidden', hasAny);
+  select.classList.toggle('hidden', !hasAny);
+  $('#message-seq-duplicate-btn').disabled = !hasAny;
+  $('#message-seq-rename-btn').disabled = !hasAny;
+  $('#message-seq-delete-btn').disabled = !hasAny;
+}
+
+$('#message-seq-select').addEventListener('change', () => {
+  messageSeqState.activeId = $('#message-seq-select').value;
+  renderMessageSeqEditor();
+});
+
+function renderMessageSeqEditor() {
+  const seq = activeMessageSeq();
+  $('#message-seq-editor').classList.toggle('hidden', !seq);
+  if (!seq) return;
+  $('#message-seq-first-text').value = seq.firstMessageText || '';
+  $('#message-seq-first-video').checked = !!seq.firstMessageHasVideo;
+  renderMessageSeqSteps(seq);
+}
+
+$('#message-seq-first-save-btn').addEventListener('click', async () => {
+  const seq = activeMessageSeq();
+  if (!seq) return;
+  const btn = $('#message-seq-first-save-btn');
+  btn.disabled = true;
+  try {
+    await fetchJson(`/api/message-sequences/${seq.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        firstMessageText: $('#message-seq-first-text').value,
+        firstMessageHasVideo: $('#message-seq-first-video').checked
+      })
+    });
+    seq.firstMessageText = $('#message-seq-first-text').value;
+    seq.firstMessageHasVideo = $('#message-seq-first-video').checked;
+  } catch (err) {
+    alert(`Could not save first message: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#message-seq-phase-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.range-tab');
+  if (!btn) return;
+  $all('#message-seq-phase-tabs .range-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  messageSeqState.phase = Number(btn.dataset.phase);
+  const seq = activeMessageSeq();
+  if (seq) renderMessageSeqSteps(seq);
+});
+
+function renderMessageSeqSteps(seq) {
+  const steps = seq.followups.filter(f => f.phase === messageSeqState.phase).sort((a, b) => a.step - b.step);
+  $('#message-seq-steps-list').innerHTML = steps.map((s, i) => `
+    <div class="timing-ramp-day-row message-seq-step-row">
+      <span class="timing-ramp-day-label">Step ${s.step}</span>
+      ${i > 0 ? `<label>+ days after previous
+        <input type="number" min="1" class="timing-ramp-day-offset-input" data-index="${i}" value="${s.dayOffset - steps[i - 1].dayOffset}">
+      </label>` : `<span class="muted">day ${s.dayOffset}</span>`}
+      <select class="message-seq-step-type-input" data-index="${i}">
+        <option value="text"${s.type === 'text' ? ' selected' : ''}>Text</option>
+        <option value="gif"${s.type === 'gif' ? ' selected' : ''}>GIF</option>
+        <option value="meme"${s.type === 'meme' ? ' selected' : ''}>Meme</option>
+      </select>
+      <input type="text" class="message-seq-step-message-input" data-index="${i}" placeholder="Message" value="${escapeHtml(s.message || '')}">
+      ${s.type !== 'text' ? `<input type="text" class="message-seq-step-media-input" data-index="${i}" placeholder="Media description" value="${escapeHtml(s.mediaNote || '')}">` : ''}
+      <button type="button" class="timing-ramp-day-delete-btn" data-index="${i}" title="Remove this step">🗑</button>
+    </div>`).join('');
+}
+
+async function saveMessageSeqSteps(seq) {
+  const steps = seq.followups.filter(f => f.phase === messageSeqState.phase).sort((a, b) => a.step - b.step);
+  try {
+    await fetchJson(`/api/message-sequences/${seq.id}/followups/${messageSeqState.phase}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ steps: steps.map(s => ({ dayOffset: s.dayOffset, type: s.type, message: s.message, mediaNote: s.mediaNote })) })
+    });
+  } catch (err) {
+    alert(`Could not save follow-up steps: ${err.message}`);
+  }
+}
+
+$('#message-seq-steps-list').addEventListener('change', async (e) => {
+  const seq = activeMessageSeq();
+  if (!seq) return;
+  const offsetInput = e.target.closest('.timing-ramp-day-offset-input');
+  const typeInput = e.target.closest('.message-seq-step-type-input');
+  const messageInput = e.target.closest('.message-seq-step-message-input');
+  const mediaInput = e.target.closest('.message-seq-step-media-input');
+  const target = offsetInput || typeInput || messageInput || mediaInput;
+  if (!target) return;
+  const steps = seq.followups.filter(f => f.phase === messageSeqState.phase).sort((a, b) => a.step - b.step);
+  const i = Number(target.dataset.index);
+  if (offsetInput) {
+    const newOffset = Math.max(1, Math.round(Number(offsetInput.value)) || 1);
+    const delta = (steps[i - 1].dayOffset + newOffset) - steps[i].dayOffset;
+    for (let j = i; j < steps.length; j++) steps[j].dayOffset += delta;
+  }
+  if (typeInput) steps[i].type = typeInput.value;
+  if (messageInput) steps[i].message = messageInput.value;
+  if (mediaInput) steps[i].mediaNote = mediaInput.value;
+  await saveMessageSeqSteps(seq);
+  if (typeInput) renderMessageSeqSteps(seq); // type change toggles the media-note field's visibility
+});
+
+$('#message-seq-steps-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.timing-ramp-day-delete-btn');
+  if (!btn) return;
+  const seq = activeMessageSeq();
+  if (!seq) return;
+  if (!confirm('Remove this step?')) return;
+  const otherPhaseSteps = seq.followups.filter(f => f.phase !== messageSeqState.phase);
+  const thisPhaseSteps = seq.followups.filter(f => f.phase === messageSeqState.phase).sort((a, b) => a.step - b.step);
+  thisPhaseSteps.splice(Number(btn.dataset.index), 1);
+  seq.followups = [...otherPhaseSteps, ...thisPhaseSteps];
+  await saveMessageSeqSteps(seq);
+  renderMessageSeqSteps(seq);
+});
+
+$('#message-seq-step-add-btn').addEventListener('click', async () => {
+  const seq = activeMessageSeq();
+  if (!seq) return;
+  const steps = seq.followups.filter(f => f.phase === messageSeqState.phase).sort((a, b) => a.step - b.step);
+  let dayOffset;
+  if (steps.length === 0) {
+    const first = prompt('How many days after this phase starts?', '1');
+    if (first === null) return;
+    dayOffset = Math.max(0, Math.round(Number(first)) || 0);
+  } else {
+    const lastDay = steps[steps.length - 1].dayOffset;
+    const offsetInput = prompt(`How many days after day ${lastDay}?`, '1');
+    if (offsetInput === null) return;
+    dayOffset = lastDay + Math.max(1, Math.round(Number(offsetInput)) || 1);
+  }
+  const otherPhaseSteps = seq.followups.filter(f => f.phase !== messageSeqState.phase);
+  seq.followups = [...otherPhaseSteps, ...steps, { phase: messageSeqState.phase, step: steps.length + 1, dayOffset, type: 'text', message: '', mediaNote: null }];
+  await saveMessageSeqSteps(seq);
+  renderMessageSeqSteps(seq);
+});
+
+$('#open-message-sequences-btn').addEventListener('click', () => showView('message-sequences'));
+$('#message-seq-back-btn').addEventListener('click', () => showView('settings'));
+
+$('#message-seq-new-btn').addEventListener('click', async () => {
+  const name = prompt('Name for the new sequence:');
+  if (!name || !name.trim()) return;
+  try {
+    const result = await fetchJson('/api/message-sequences', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim() })
+    });
+    await loadMessageSequences(result.id);
+  } catch (err) {
+    alert(`Could not create sequence: ${err.message}`);
+  }
+});
+
+$('#message-seq-duplicate-btn').addEventListener('click', async () => {
+  const seq = activeMessageSeq();
+  if (!seq) return;
+  const name = prompt('Name for the duplicate:', `${seq.name} (copy)`);
+  if (!name || !name.trim()) return;
+  try {
+    const result = await fetchJson('/api/message-sequences', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim(), duplicateFrom: seq.id })
+    });
+    await loadMessageSequences(result.id);
+  } catch (err) {
+    alert(`Could not duplicate sequence: ${err.message}`);
+  }
+});
+
+$('#message-seq-rename-btn').addEventListener('click', async () => {
+  const seq = activeMessageSeq();
+  if (!seq) return;
+  const name = prompt('Rename sequence:', seq.name);
+  if (!name || !name.trim() || name.trim() === seq.name) return;
+  try {
+    await fetchJson(`/api/message-sequences/${seq.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim() })
+    });
+    await loadMessageSequences(seq.id);
+  } catch (err) {
+    alert(`Could not rename sequence: ${err.message}`);
+  }
+});
+
+$('#message-seq-delete-btn').addEventListener('click', async () => {
+  const seq = activeMessageSeq();
+  if (!seq) return;
+  if (seq.accountsUsing.length > 0) {
+    alert(`Can't delete "${seq.name}" — ${seq.accountsUsing.map(a => '@' + a.username).join(', ')} ${seq.accountsUsing.length === 1 ? 'is' : 'are'} still using it. Reassign first.`);
+    return;
+  }
+  if (!confirm(`Delete "${seq.name}"? This can't be undone.`)) return;
+  try {
+    await fetchJson(`/api/message-sequences/${seq.id}`, { method: 'DELETE' });
+    messageSeqState.activeId = null;
+    await loadMessageSequences();
   } catch (err) {
     alert(`Could not delete sequence: ${err.message}`);
   }

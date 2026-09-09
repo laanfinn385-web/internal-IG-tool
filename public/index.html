@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=10">
+<link rel="stylesheet" href="style.css?v=11">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -403,18 +403,11 @@
 
         <div class="card message-card">
           <h2>Message</h2>
-          <div id="template-select-row">
-            <label>Selected template
-              <select id="f-template"></select>
-            </label>
-            <div class="suggestion-reason muted" id="suggestion-reason"></div>
-          </div>
           <label>Message (editable)
             <textarea id="f-message" rows="7"></textarea>
           </label>
           <div class="message-actions">
             <button id="copy-btn" class="btn-secondary">📋 Copy message</button>
-            <button id="reshuffle-btn" class="btn-secondary" type="button" title="Keep this template but swap in a different wording">🔀 Different wording</button>
             <a id="dm-link" href="#" target="_blank" rel="noopener" class="btn-secondary">💬 Open Instagram DM ↗</a>
           </div>
         </div>
@@ -933,18 +926,14 @@
       </div>
 
       <div class="card">
-        <h3>Initial message templates</h3>
-        <p class="muted">These are the 6 categories the dashboard suggests based on a profile's stats. Each is built from several interchangeable opener/hook/value/CTA sentences that the session starter recombines at random, so the same category almost never sends the same message twice. Use "🔀 Different wording" on the session starter to reroll it manually.</p>
-        <div id="settings-templates"></div>
+        <h3>💬 Messaging sequences</h3>
+        <p class="muted" style="margin-top:-8px;">Named, reusable presets for Instagram's first message and phase1/2/3 follow-up steps — since your messaging keeps changing, edit these instead of digging through code. Assign one to each account above.</p>
+        <button type="button" id="open-message-sequences-btn" class="btn-secondary">Open Messaging sequences →</button>
       </div>
 
       <div class="card">
-        <h3>Follow-up sequence</h3>
-        <p class="muted">Timing is days since the phase started. <code>{naam}</code> becomes the lead's first name, <code>{link}</code> your calendar link. Each step's wording is composed from several phrasings, so leads due for the same step at the same time don't all get the identical nudge.</p>
-        <div class="range-tabs" id="settings-followup-platform-tabs">
-          <button type="button" class="range-tab active" data-platform="instagram">Instagram</button>
-          <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
-        </div>
+        <h3>Follow-up sequence (LinkedIn)</h3>
+        <p class="muted">Timing is days since the phase started. <code>{naam}</code> becomes the lead's first name, <code>{link}</code> your calendar link. Each step's wording is composed from several phrasings, so leads due for the same step at the same time don't all get the identical nudge. Instagram's follow-up sequence now lives per Messaging sequence above.</p>
         <div class="settings-phase-tabs" id="settings-phase-tabs">
           <button type="button" class="range-tab active" data-phase="1">Phase 1</button>
           <button type="button" class="range-tab" data-phase="2">Phase 2</button>
@@ -991,6 +980,51 @@
       </div>
     </section>
 
+    <!-- MESSAGING SEQUENCES — named, reusable first-message + phase1/2/3
+         follow-up-step presets, assignable per Instagram account. -->
+    <section id="view-message-sequences" class="view hidden">
+      <div class="row-between leads-header">
+        <h1 class="page-title">Messaging sequences</h1>
+        <button type="button" id="message-seq-back-btn" class="btn-secondary">← Back to Settings</button>
+      </div>
+
+      <div class="card">
+        <div class="combi-size-row" style="align-items:flex-end;">
+          <label style="flex:1;">Sequence
+            <select id="message-seq-select"></select>
+          </label>
+          <button type="button" id="message-seq-new-btn" class="btn-secondary">+ New</button>
+          <button type="button" id="message-seq-duplicate-btn" class="btn-secondary">Duplicate</button>
+          <button type="button" id="message-seq-rename-btn" class="btn-secondary">Rename</button>
+          <button type="button" id="message-seq-delete-btn" class="btn-secondary">Delete</button>
+        </div>
+        <p class="muted" id="message-seq-empty" style="margin-top:8px;">No sequences yet — click "+ New" to create one.</p>
+      </div>
+
+      <div class="card hidden" id="message-seq-editor">
+        <h3>First message</h3>
+        <p class="muted" style="margin-top:-8px;"><code>{naam}</code> becomes the lead's first name. This is what a fresh cold-outreach session opens with for any account using this sequence.</p>
+        <label>Message
+          <textarea id="message-seq-first-text" rows="5"></textarea>
+        </label>
+        <label class="radio-label">
+          <input type="checkbox" id="message-seq-first-video">
+          Send with a personalized video
+        </label>
+        <button type="button" id="message-seq-first-save-btn" class="btn-secondary">Save first message</button>
+
+        <h3 style="margin-top:24px;">Follow-up steps</h3>
+        <p class="muted" style="margin-top:-8px;">Each step timed as "+N days after the previous step in this phase" — same idea as the Timing sequence ramp curve.</p>
+        <div class="settings-phase-tabs" id="message-seq-phase-tabs">
+          <button type="button" class="range-tab active" data-phase="1">Phase 1</button>
+          <button type="button" class="range-tab" data-phase="2">Phase 2</button>
+          <button type="button" class="range-tab" data-phase="3">Phase 3</button>
+        </div>
+        <div id="message-seq-steps-list" class="timing-ramp-days-list"></div>
+        <button type="button" id="message-seq-step-add-btn" class="btn-secondary">+ Add step</button>
+      </div>
+    </section>
+
   </main></div>
 
   <div id="undo-toast" class="undo-toast hidden">
@@ -1002,9 +1036,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=10"></script>
-<script src="app.js?v=10"></script>
-<script src="leads.js?v=10"></script>
-<script src="followups.js?v=10"></script>
+<script src="templates.js?v=11"></script>
+<script src="app.js?v=11"></script>
+<script src="leads.js?v=11"></script>
+<script src="followups.js?v=11"></script>
 </body>
 </html>

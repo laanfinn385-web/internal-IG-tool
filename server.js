@@ -258,7 +258,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   // and would otherwise silently blow past it (same accounting as
   // effectiveRemainingForNewSends in GET /api/accounts, just summed).
   if (dailyGoalInstagramSynced) {
-    const dueHour = await getFollowupDueHour();
+    const [dueHour, defaultSeqId] = await Promise.all([getFollowupDueHour(), getDefaultMessageSequenceId()]);
     const [{ total_limit, total_pending }] = await sql`
       SELECT
         COALESCE(SUM(a.daily_limit), 0) AS total_limit,
@@ -267,9 +267,12 @@ app.get('/api/home', asyncRoute(async (req, res) => {
       LEFT JOIN (
         SELECT l.account_id, count(*) AS cnt
         FROM leads l
-        JOIN followup_templates ft ON ft.platform = 'instagram' AND ft.phase = 1 AND ft.step = l.phase_step + 1
+        JOIN ig_accounts la ON la.id = l.account_id
+        JOIN message_sequence_followups msf
+          ON msf.sequence_id = COALESCE(la.message_sequence_id, ${defaultSeqId})
+         AND msf.phase = 1 AND msf.step = l.phase_step + 1
         WHERE l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
-          AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
+          AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
         GROUP BY l.account_id
       ) pending ON pending.account_id = a.id
       WHERE a.archived_at IS NULL
@@ -1049,7 +1052,8 @@ function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount, rampDays) 
     warmupDays: zeroDayCount,
     plateauLimit: lastDay != null ? curveLimitForDay(rampDays, lastDay) : null,
     rampDay,
-    timingSequenceId: r.timing_sequence_id
+    timingSequenceId: r.timing_sequence_id,
+    messageSequenceId: r.message_sequence_id
   };
 }
 
@@ -1069,7 +1073,7 @@ async function getRampDaysBySequence() {
 
 app.get('/api/accounts', asyncRoute(async (req, res) => {
   const today = todayStr();
-  const dueHour = await getFollowupDueHour();
+  const [dueHour, defaultMessageSeqId] = await Promise.all([getFollowupDueHour(), getDefaultMessageSequenceId()]);
   // days_since_clock_start is computed here (not in JS) so "a day" ticks
   // over at the same Amsterdam morning boundary follow-ups use
   // (amsterdam_day_index()), not at the exact clock-time of the reference —
@@ -1112,9 +1116,12 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
   // once today's follow-up backlog is also sent.
   const pendingRows = await sql`
     SELECT l.account_id, count(*) FROM leads l
-    JOIN followup_templates ft ON ft.platform = 'instagram' AND ft.phase = 1 AND ft.step = l.phase_step + 1
+    JOIN ig_accounts la ON la.id = l.account_id
+    JOIN message_sequence_followups msf
+      ON msf.sequence_id = COALESCE(la.message_sequence_id, ${defaultMessageSeqId})
+     AND msf.phase = 1 AND msf.step = l.phase_step + 1
     WHERE l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
-      AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
+      AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
     GROUP BY l.account_id
   `;
   const pendingByAccount = {};
@@ -1341,11 +1348,14 @@ app.post('/api/accounts', asyncRoute(async (req, res) => {
   // starts on, editable/reassignable afterward from Settings → Timing
   // sequences).
   const tierCap = tierCapForAge(ageDaysFrom(createdOn));
-  const [defaultSeq] = await sql`SELECT id FROM timing_sequences WHERE name = ${DEFAULT_TIMING_SEQUENCE_NAMES[tierCap]} AND archived_at IS NULL`;
+  const [[defaultSeq], defaultMessageSeqId] = await Promise.all([
+    sql`SELECT id FROM timing_sequences WHERE name = ${DEFAULT_TIMING_SEQUENCE_NAMES[tierCap]} AND archived_at IS NULL`,
+    getDefaultMessageSequenceId()
+  ]);
   const id = crypto.randomUUID();
   await sql`
-    INSERT INTO ig_accounts (id, username, created_on, profile_image_url, daily_limit, timing_sequence_id)
-    VALUES (${id}, ${username}, ${createdOn}, ${req.body.profileImageUrl || null}, 0, ${defaultSeq ? defaultSeq.id : null})
+    INSERT INTO ig_accounts (id, username, created_on, profile_image_url, daily_limit, timing_sequence_id, message_sequence_id)
+    VALUES (${id}, ${username}, ${createdOn}, ${req.body.profileImageUrl || null}, 0, ${defaultSeq ? defaultSeq.id : null}, ${defaultMessageSeqId})
   `;
   res.json({ ok: true, id });
 }));
@@ -1356,6 +1366,7 @@ app.patch('/api/accounts/:id', asyncRoute(async (req, res) => {
   if (req.body.username !== undefined) { sets.push(`username = $${i++}`); params.push(String(req.body.username).trim().replace('@', '')); }
   if (req.body.profileImageUrl !== undefined) { sets.push(`profile_image_url = $${i++}`); params.push(req.body.profileImageUrl); }
   if (req.body.timingSequenceId !== undefined) { sets.push(`timing_sequence_id = $${i++}`); params.push(req.body.timingSequenceId); }
+  if (req.body.messageSequenceId !== undefined) { sets.push(`message_sequence_id = $${i++}`); params.push(req.body.messageSequenceId); }
   if (sets.length === 0) return res.json({ ok: true });
   params.push(id);
   await sql.query(`UPDATE ig_accounts SET ${sets.join(', ')} WHERE id = $${i}`, params);
@@ -1463,6 +1474,103 @@ app.put('/api/timing-sequences/:id/pacing-blocks', asyncRoute(async (req, res) =
     await sql`
       INSERT INTO timing_sequence_pacing_blocks (id, sequence_id, position, block_type, min_value, max_value, label, message)
       VALUES (${crypto.randomUUID()}, ${req.params.id}, ${i}, ${blockType}, ${minValue}, ${maxValue}, ${b.label || null}, ${b.message || null})
+    `;
+  }
+  res.json({ ok: true });
+}));
+
+// ---------- MESSAGE SEQUENCES ----------
+// Named, reusable presets bundling a single first-message block (text + a
+// with/without-video flag) and a drag-and-drop-reorderable phase1/2/3
+// follow-up step list, assignable per Instagram account
+// (ig_accounts.message_sequence_id) — see Settings → Messaging sequences.
+// Instagram-only, same as Timing sequences — LinkedIn keeps its own
+// completely separate single-template + global follow-up system untouched.
+
+app.get('/api/message-sequences', asyncRoute(async (req, res) => {
+  const [sequences, followupRows, accountRows] = await Promise.all([
+    sql`SELECT * FROM message_sequences WHERE archived_at IS NULL ORDER BY created_at ASC`,
+    sql`SELECT * FROM message_sequence_followups ORDER BY sequence_id, phase, step ASC`,
+    sql`SELECT id, username, message_sequence_id FROM ig_accounts WHERE archived_at IS NULL AND message_sequence_id IS NOT NULL`
+  ]);
+  res.json({
+    sequences: sequences.map(s => ({
+      id: s.id,
+      name: s.name,
+      firstMessageText: s.first_message_text,
+      firstMessageHasVideo: s.first_message_has_video,
+      followups: followupRows.filter(r => r.sequence_id === s.id).map(r => ({
+        phase: r.phase, step: r.step, dayOffset: r.day_offset, type: r.type, message: r.message, mediaNote: r.media_note
+      })),
+      accountsUsing: accountRows.filter(a => a.message_sequence_id === s.id).map(a => ({ id: a.id, username: a.username }))
+    }))
+  });
+}));
+
+app.post('/api/message-sequences', asyncRoute(async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Name is required.' });
+  const id = crypto.randomUUID();
+  if (req.body.duplicateFrom) {
+    const [source] = await sql`SELECT first_message_text, first_message_has_video FROM message_sequences WHERE id = ${req.body.duplicateFrom}`;
+    await sql`
+      INSERT INTO message_sequences (id, name, first_message_text, first_message_has_video)
+      VALUES (${id}, ${name}, ${source ? source.first_message_text : ''}, ${source ? source.first_message_has_video : false})
+    `;
+    const followups = await sql`SELECT phase, step, day_offset, type, message, media_note FROM message_sequence_followups WHERE sequence_id = ${req.body.duplicateFrom} ORDER BY phase, step`;
+    for (const f of followups) {
+      await sql`
+        INSERT INTO message_sequence_followups (id, sequence_id, phase, step, day_offset, type, message, media_note)
+        VALUES (${crypto.randomUUID()}, ${id}, ${f.phase}, ${f.step}, ${f.day_offset}, ${f.type}, ${f.message}, ${f.media_note})
+      `;
+    }
+  } else {
+    await sql`INSERT INTO message_sequences (id, name) VALUES (${id}, ${name})`;
+  }
+  res.json({ ok: true, id });
+}));
+
+app.patch('/api/message-sequences/:id', asyncRoute(async (req, res) => {
+  const sets = []; const params = []; let i = 1;
+  if (req.body.name !== undefined) {
+    const name = String(req.body.name).trim();
+    if (!name) return res.status(400).json({ error: 'Name is required.' });
+    sets.push(`name = $${i++}`); params.push(name);
+  }
+  if (req.body.firstMessageText !== undefined) { sets.push(`first_message_text = $${i++}`); params.push(String(req.body.firstMessageText)); }
+  if (req.body.firstMessageHasVideo !== undefined) { sets.push(`first_message_has_video = $${i++}`); params.push(!!req.body.firstMessageHasVideo); }
+  if (sets.length === 0) return res.json({ ok: true });
+  params.push(req.params.id);
+  await sql.query(`UPDATE message_sequences SET ${sets.join(', ')} WHERE id = $${i}`, params);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/message-sequences/:id', asyncRoute(async (req, res) => {
+  const [inUse] = await sql`SELECT count(*)::int AS count FROM ig_accounts WHERE message_sequence_id = ${req.params.id} AND archived_at IS NULL`;
+  if (inUse.count > 0) {
+    return res.status(400).json({ error: `${inUse.count} account${inUse.count === 1 ? ' is' : 's are'} still using this sequence — reassign them first.` });
+  }
+  await sql`UPDATE message_sequences SET archived_at = now() WHERE id = ${req.params.id}`;
+  res.json({ ok: true });
+}));
+
+// Bulk replace, one phase at a time — the client edits each step as "+N days
+// after the previous step in this phase" (same reasoning as Timing
+// sequences' ramp days: one offset change cascades through the rest of that
+// phase's steps), and phases are independent step lists so a save to one
+// never touches the other two.
+app.put('/api/message-sequences/:id/followups/:phase', asyncRoute(async (req, res) => {
+  const phase = Number(req.params.phase);
+  if (![1, 2, 3].includes(phase)) return res.status(400).json({ error: 'phase must be 1, 2, or 3' });
+  const steps = Array.isArray(req.body.steps) ? req.body.steps : [];
+  await sql`DELETE FROM message_sequence_followups WHERE sequence_id = ${req.params.id} AND phase = ${phase}`;
+  for (let i = 0; i < steps.length; i++) {
+    const s = steps[i];
+    const dayOffset = Math.max(0, Math.round(Number(s.dayOffset)) || 0);
+    const type = s.type || 'text';
+    await sql`
+      INSERT INTO message_sequence_followups (id, sequence_id, phase, step, day_offset, type, message, media_note)
+      VALUES (${crypto.randomUUID()}, ${req.params.id}, ${phase}, ${i + 1}, ${dayOffset}, ${type}, ${s.message || null}, ${s.mediaNote || null})
     `;
   }
   res.json({ ok: true });
@@ -1581,6 +1689,16 @@ async function getFollowupDueHour() {
   return Number.isFinite(n) && n >= 0 && n <= 23 ? n : 4;
 }
 
+// Fallback for an Instagram lead/account with no Messaging sequence assigned
+// (shouldn't normally happen — every account gets one at creation — but a
+// lead predating the account system, or an account whose sequence was
+// deleted out from under it, still needs somewhere to resolve to instead of
+// silently vanishing from due-queries).
+async function getDefaultMessageSequenceId() {
+  const [row] = await sql`SELECT id FROM message_sequences WHERE name = 'Default' AND archived_at IS NULL`;
+  return row ? row.id : null;
+}
+
 // Which leads have a follow-up due right now, grouped by (platform, phase). A
 // lead is "due" once phase_started_at + the next step's day_offset has
 // passed — works for both on-time and overdue (haven't opened the app in
@@ -1602,9 +1720,10 @@ async function getNotificationDismissals() {
 }
 
 app.get('/api/notifications', asyncRoute(async (req, res) => {
-  const [connectionDelayDays, dueHour, dismissals, reminderRows] = await Promise.all([
+  const [connectionDelayDays, dueHour, defaultMessageSeqId, dismissals, reminderRows] = await Promise.all([
     getLinkedinConnectionDelayDays(),
     getFollowupDueHour(),
+    getDefaultMessageSequenceId(),
     getNotificationDismissals(),
     sql`
       SELECT r.id, r.text, r.due_at, r.lead_id, l.platform, l.username, l.full_name
@@ -1615,23 +1734,46 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
     `
   ]);
 
-  const followupRows = await sql`
-    SELECT
-      l.platform,
-      CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END AS phase,
-      l.account_id,
-      a.username AS account_username,
-      due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) AS due_at
-    FROM leads l
-    JOIN followup_templates ft
-      ON ft.platform = l.platform
-     AND ft.phase = CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END
-     AND ft.step = l.phase_step + 1
-    LEFT JOIN ig_accounts a ON a.id = l.account_id
-    WHERE l.deleted_at IS NULL
-      AND l.stage IN ('phase1', 'phase2', 'phase3')
-      AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
-  `;
+  // Instagram resolves its follow-up content through the lead's account's
+  // assigned Messaging sequence; LinkedIn is untouched, still the one global
+  // followup_templates set — two separate queries (a single join can't
+  // switch which table it hits per row) concatenated below.
+  const [followupRowsIg, followupRowsLi] = await Promise.all([
+    sql`
+      SELECT
+        'instagram' AS platform,
+        CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END AS phase,
+        l.account_id,
+        a.username AS account_username,
+        due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) AS due_at
+      FROM leads l
+      LEFT JOIN ig_accounts a ON a.id = l.account_id
+      JOIN message_sequence_followups msf
+        ON msf.sequence_id = COALESCE(a.message_sequence_id, ${defaultMessageSeqId})
+       AND msf.phase = CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END
+       AND msf.step = l.phase_step + 1
+      WHERE l.deleted_at IS NULL AND l.platform = 'instagram'
+        AND l.stage IN ('phase1', 'phase2', 'phase3')
+        AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
+    `,
+    sql`
+      SELECT
+        'linkedin' AS platform,
+        CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END AS phase,
+        NULL::uuid AS account_id,
+        NULL AS account_username,
+        due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) AS due_at
+      FROM leads l
+      JOIN followup_templates ft
+        ON ft.platform = 'linkedin'
+       AND ft.phase = CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END
+       AND ft.step = l.phase_step + 1
+      WHERE l.deleted_at IS NULL AND l.platform = 'linkedin'
+        AND l.stage IN ('phase1', 'phase2', 'phase3')
+        AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
+    `
+  ]);
+  const followupRows = [...followupRowsIg, ...followupRowsLi];
 
   // Instagram follow-ups are grouped per-account too (so each account with
   // due follow-ups gets its own notification, showing which account and
@@ -1826,22 +1968,51 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
   const accountId = platform === 'instagram' && req.query.accountId ? req.query.accountId : null;
   if (![1, 2, 3].includes(phase)) return res.status(400).json({ error: 'phase must be 1, 2, or 3' });
   const stageVal = 'phase' + phase;
-  const [calendarLink, partsByStep, dueHour] = await Promise.all([getCalendarLink(), getFollowupPartsByPhase(phase, platform), getFollowupDueHour()]);
+  const calendarLink = await getCalendarLink();
 
-  const rows = await sql`
-    SELECT l.id, l.username, l.profile_url, l.full_name, l.account_id, a.username AS account_username,
-           ft.step, ft.type, ft.message, ft.media_note,
-           due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) AS due_at
-    FROM leads l
-    JOIN followup_templates ft ON ft.platform = ${platform} AND ft.phase = ${phase} AND ft.step = l.phase_step + 1
-    LEFT JOIN ig_accounts a ON a.id = l.account_id
-    WHERE l.deleted_at IS NULL
-      AND l.platform = ${platform}
-      AND l.stage = ${stageVal}
-      AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
-      AND (${accountId}::uuid IS NULL OR l.account_id = ${accountId}::uuid)
-    ORDER BY due_at ASC
-  `;
+  let rows;
+  if (platform === 'instagram') {
+    const [dueHour, defaultSeqId] = await Promise.all([getFollowupDueHour(), getDefaultMessageSequenceId()]);
+    rows = await sql`
+      SELECT l.id, l.username, l.profile_url, l.full_name, l.account_id, a.username AS account_username,
+             msf.step, msf.type, msf.message, msf.media_note,
+             due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) AS due_at
+      FROM leads l
+      LEFT JOIN ig_accounts a ON a.id = l.account_id
+      JOIN message_sequence_followups msf
+        ON msf.sequence_id = COALESCE(a.message_sequence_id, ${defaultSeqId})
+       AND msf.phase = ${phase} AND msf.step = l.phase_step + 1
+      WHERE l.deleted_at IS NULL
+        AND l.platform = 'instagram'
+        AND l.stage = ${stageVal}
+        AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
+        AND (${accountId}::uuid IS NULL OR l.account_id = ${accountId}::uuid)
+      ORDER BY due_at ASC
+    `;
+  } else {
+    // LinkedIn — untouched, still the one global followup_templates set with
+    // its own wording-variation parts system (composeFollowupMessage/
+    // getFollowupPartsByPhase), no account/sequence concept to resolve.
+    const [partsByStep, dueHour] = await Promise.all([getFollowupPartsByPhase(phase, platform), getFollowupDueHour()]);
+    const liRows = await sql`
+      SELECT l.id, l.username, l.profile_url, l.full_name,
+             ft.step, ft.type, ft.message, ft.media_note,
+             due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) AS due_at
+      FROM leads l
+      JOIN followup_templates ft ON ft.platform = 'linkedin' AND ft.phase = ${phase} AND ft.step = l.phase_step + 1
+      WHERE l.deleted_at IS NULL
+        AND l.platform = 'linkedin'
+        AND l.stage = ${stageVal}
+        AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
+      ORDER BY due_at ASC
+    `;
+    const leads = liRows.map(r => ({
+      id: r.id, platform, username: r.username, profileUrl: r.profile_url, fullName: r.full_name,
+      accountId: null, accountUsername: null, phase, step: r.step, type: r.type, mediaNote: r.media_note,
+      message: composeFollowupMessage(partsByStep[r.step], r.message, r, calendarLink)
+    }));
+    return res.json({ leads });
+  }
 
   const leads = rows.map(r => ({
     id: r.id,
@@ -1855,7 +2026,9 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
     step: r.step,
     type: r.type,
     mediaNote: r.media_note,
-    message: composeFollowupMessage(partsByStep[r.step], r.message, r, calendarLink)
+    // No wording-variation system for the new sequence model — one message
+    // per step, composeFollowupMessage's no-componentGroups fallback path.
+    message: composeFollowupMessage(null, r.message, r, calendarLink)
   }));
   res.json({ leads });
 }));
@@ -1912,12 +2085,14 @@ app.post('/api/leads/:id/followup-sent', asyncRoute(async (req, res) => {
 
 // ---------- SETTINGS ----------
 
-// Each category (e.g. "haven't posted in months") is built from 4 sentence
-// slots — opener/hook/value/cta — each with several independently-worded
-// versions. public/app.js draws one version per slot at random per profile,
-// so recombination alone gives far more distinct renderings than any one
-// slot's version count, without ever mixing a slot from one category into
-// another (see pickPart() there).
+// Instagram's initial-message category system (message_templates/
+// message_template_parts, 6 stats-suggested categories x 4 recombinable
+// slots) is retired — replaced by the one-message-per-Messaging-sequence
+// first-message block, so the Settings card that edited category labels and
+// its PUT endpoint are gone. The GET below stays: LinkedIn stores its own
+// single fixed template in this same table (no suggestion, always been just
+// one row) and still needs it, loaded via loadTemplatesFromServer('linkedin')
+// — nothing about LinkedIn's template system is changing here.
 app.get('/api/settings/templates', asyncRoute(async (req, res) => {
   const platform = req.query.platform === 'linkedin' ? 'linkedin' : 'instagram';
   const templates = await sql`SELECT id, label FROM message_templates WHERE platform = ${platform} ORDER BY sort_order`;
@@ -1934,16 +2109,11 @@ app.get('/api/settings/templates', asyncRoute(async (req, res) => {
   });
 }));
 
-app.put('/api/settings/templates/:id', asyncRoute(async (req, res) => {
-  const { id } = req.params;
-  const { label } = req.body;
-  if (label === undefined) return res.json({ ok: true });
-  await sql`UPDATE message_templates SET label = ${label}, updated_at = now() WHERE id = ${id}`;
-  res.json({ ok: true });
-}));
-
+// Instagram's follow-up sequence now lives per Messaging sequence (see
+// /api/message-sequences) — these two endpoints are LinkedIn-only going
+// forward, its own global followup_templates set unchanged.
 app.get('/api/settings/followups', asyncRoute(async (req, res) => {
-  const platform = req.query.platform === 'linkedin' ? 'linkedin' : 'instagram';
+  const platform = 'linkedin';
   const rows = await sql`SELECT phase, step, day_offset, type, message, media_note FROM followup_templates WHERE platform = ${platform} ORDER BY phase, step`;
   res.json({
     followups: rows.map(r => ({
@@ -1956,7 +2126,7 @@ app.get('/api/settings/followups', asyncRoute(async (req, res) => {
 app.put('/api/settings/followups/:phase/:step', asyncRoute(async (req, res) => {
   const phase = Number(req.params.phase);
   const step = Number(req.params.step);
-  const platform = req.body.platform === 'linkedin' ? 'linkedin' : 'instagram';
+  const platform = 'linkedin';
   const { dayOffset, type, message, mediaNote } = req.body;
   const sets = []; const params = []; let i = 1;
   if (dayOffset !== undefined) {

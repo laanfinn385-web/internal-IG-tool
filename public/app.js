@@ -160,12 +160,11 @@ function shuffle(arr) {
   return a;
 }
 
-// TEMPLATES (Instagram, 6 categories x 4 slots each, picked by
-// suggestTemplate) vs TEMPLATES_LINKEDIN (one fixed opener, no suggestion —
-// see templates.js) are kept as separate objects so Instagram's dropdown
-// never sees the LinkedIn entry; this is the one place that picks between them.
+// Instagram no longer has an equivalent category system (see templates.js) —
+// this only ever resolves LinkedIn's TEMPLATES_LINKEDIN now, but still takes
+// a platform param since pickPart/renderMessageText are written generically.
 function templatesFor(platform) {
-  return platform === 'linkedin' ? TEMPLATES_LINKEDIN : TEMPLATES;
+  return platform === 'linkedin' ? TEMPLATES_LINKEDIN : {};
 }
 
 // Picks the next wording id for one slot (opener/hook/value/cta) of one
@@ -239,6 +238,7 @@ function showView(name) {
   if (name === 'settings') loadSettingsPage();
   if (name === 'saved-sessions') loadSavedSessions();
   if (name === 'timing-sequences') loadTimingSequences();
+  if (name === 'message-sequences') loadMessageSequences();
 }
 
 $('#settings-btn').addEventListener('click', () => showView('settings'));
@@ -636,10 +636,14 @@ let igAccountsCache = null;
 async function loadIgAccounts(force) {
   if (igAccountsCache && !force) return igAccountsCache;
   // Loaded alongside accounts (not lazily inside decide()) so an account's
-  // pacing-block pattern is always ready synchronously by the time a session
-  // actually needs to check it.
+  // pacing-block pattern and Messaging sequence are always ready
+  // synchronously by the time a session actually needs to check them.
   try {
-    const [data] = await Promise.all([fetchJson('/api/accounts'), loadTimingSequencesForSession(force)]);
+    const [data] = await Promise.all([
+      fetchJson('/api/accounts'),
+      loadTimingSequencesForSession(force),
+      loadMessageSequencesForSession(force)
+    ]);
     igAccountsCache = data.accounts || [];
   } catch (e) {
     console.error('Could not load accounts', e);
@@ -918,6 +922,27 @@ function pacingBlocksForAccount(account) {
   return seq ? seq.pacingBlocks : [];
 }
 
+// Same pattern as timingSequencesCache — the active account's assigned
+// Messaging sequence (first message text/video flag + follow-up steps),
+// used by updateMessage() to render an Instagram lead's first message.
+let messageSequencesCache = null;
+async function loadMessageSequencesForSession(force) {
+  if (messageSequencesCache && !force) return messageSequencesCache;
+  try {
+    const data = await fetchJson('/api/message-sequences');
+    messageSequencesCache = data.sequences || [];
+  } catch (e) {
+    console.error('Could not load message sequences', e);
+    messageSequencesCache = [];
+  }
+  return messageSequencesCache;
+}
+
+function messageSequenceForAccount(account) {
+  if (!account || !account.messageSequenceId || !messageSequencesCache) return null;
+  return messageSequencesCache.find(s => s.id === account.messageSequenceId) || null;
+}
+
 // Next block of the given type at or after fromIndex, wrapping — -1 if the
 // pattern has none of that type at all (a misconfigured/edited-mid-session
 // sequence shouldn't hang the session, just skip pacing until it's fixed).
@@ -1019,39 +1044,21 @@ function renderProfile() {
   $('#f-username-row').classList.toggle('hidden', isLinkedin);
   $('#f-headline-row').classList.toggle('hidden', !isLinkedin);
   $('.stats-card').classList.toggle('hidden', isLinkedin);
-  $('#template-select-row').classList.toggle('hidden', isLinkedin);
   // No public LinkedIn DM deep link exists (see leadDmUrl) — "Open DM" would
   // just duplicate the profile-link button above for a LinkedIn profile.
   $('#dm-link').classList.toggle('hidden', isLinkedin);
-  // LinkedIn has exactly one wording (no bag to reshuffle from) — the button
-  // would visibly do nothing, which reads as broken rather than "already varied".
-  $('#reshuffle-btn').classList.toggle('hidden', isLinkedin);
 
-  if (isLinkedin) {
-    updateMessage(false);
-  } else {
-    populateTemplateSelect();
-    // Only auto-suggest for a profile that hasn't had a template chosen yet —
-    // otherwise navigating away and back would silently discard a manual override.
-    $('#f-template').value = p.template || Object.keys(TEMPLATES)[0];
-    updateMessage(!p.template);
-  }
+  updateMessage();
+  // The video card only makes sense for Instagram, and only when the active
+  // account's assigned Messaging sequence actually calls for a video — no
+  // point offering video generation for a sequence that's text-only.
+  const seq = isLinkedin ? null : messageSequenceForAccount(findIgAccount(state.igAccountId));
+  $('.video-card').classList.toggle('hidden', !seq || !seq.firstMessageHasVideo);
   renderVideoSection();
   renderLeadStatusSection();
 
   $('#prev-btn').disabled = state.index === 0;
   $('#next-btn').disabled = state.index === state.profiles.length - 1;
-}
-
-function populateTemplateSelect() {
-  const sel = $('#f-template');
-  sel.innerHTML = '';
-  Object.entries(TEMPLATES).forEach(([key, t]) => {
-    const opt = document.createElement('option');
-    opt.value = key;
-    opt.textContent = t.label;
-    sel.appendChild(opt);
-  });
 }
 
 function buildPlaceholders(p) {
@@ -1063,12 +1070,12 @@ function buildPlaceholders(p) {
   return { naam, months, views };
 }
 
-function updateMessage(useSuggestion) {
+function updateMessage() {
   const p = currentProfile();
   if (!p) return;
 
   // LinkedIn has exactly one template and no stats to suggest from — always
-  // that one key, no dropdown/suggestion-reason UI (hidden in renderProfile).
+  // that one key.
   if (p.platform === 'linkedin') {
     const key = Object.keys(TEMPLATES_LINKEDIN)[0];
     p.template = key;
@@ -1080,30 +1087,16 @@ function updateMessage(useSuggestion) {
     return;
   }
 
-  if (useSuggestion) {
-    const suggestion = suggestTemplate({
-      lastPostWeeks: p.lastPostWeeks,
-      postsPerWeek: p.postsPerWeek,
-      avgViews: p.avgViews,
-      viewsThreshold: state.viewsThreshold
-    });
-    p.template = suggestion.key;
-    $('#f-template').value = suggestion.key;
-    $('#suggestion-reason').textContent = '💡 ' + suggestion.reason;
-  }
-
-  const key = $('#f-template').value || p.template;
-  p.template = key;
-  // The category (which of the 6 templates fits this account) only changes
-  // when the suggestion re-runs or the user picks a different one manually —
-  // draw fresh wording in those cases, but keep whatever's already cached on
-  // this profile otherwise (so paging back/forth or editing an unrelated
-  // field doesn't keep reshuffling the wording under you).
-  if (p.partsKey !== key || !p.partIds) {
-    p.partIds = pickAllParts(key, p.platform);
-    p.partsKey = key;
-  }
-  renderMessageText();
+  // Instagram — the first message comes from the active account's assigned
+  // Messaging sequence (Settings → Messaging sequences), not a
+  // stats-suggested category anymore. Deterministic (no rotation/reshuffle
+  // to preserve across renders) since there's only one wording per sequence.
+  const seq = messageSequenceForAccount(findIgAccount(state.igAccountId));
+  const text = seq ? renderTemplateString(seq.firstMessageText, buildPlaceholders(p)) : '';
+  p.message = text;
+  $('#f-message').value = text;
+  $('#dm-link').href = leadDmUrl(p);
+  saveSession();
 }
 
 // Renders p.template + p.partIds into #f-message by composing one wording per
@@ -1117,7 +1110,7 @@ function renderMessageText() {
   const placeholders = buildPlaceholders(p);
   const templates = templatesFor(p.platform);
   const parts = templates[key] && templates[key].parts;
-  // Guards against TEMPLATES still being {} if loadTemplatesFromServer()
+  // Guards against TEMPLATES_LINKEDIN still being {} if loadTemplatesFromServer()
   // hasn't resolved yet (or failed), or a cached part id no longer existing —
   // without this a stray click during that window throws mid-render and
   // leaves the message/template UI broken. Falls back to each slot's first
@@ -1148,16 +1141,15 @@ function renderMessageText() {
 });
 // naam placeholder in the message depends on these two, so re-render the message text
 ['f-fullname', 'f-username'].forEach(id => {
-  $(`#${id}`).addEventListener('input', () => { syncFieldsToState(); updateMessage(false); });
+  $(`#${id}`).addEventListener('input', () => { syncFieldsToState(); updateMessage(); });
 });
-// These three all feed suggestTemplate() (lastPostWeeks/postsPerWeek/avgViews),
-// so any of them can change which template is suggested — avgViews used to be
-// left out here, so filling it in last (after the other two) never re-ran the
-// suggestion even when it should have won by priority.
-$('#f-lastpost').addEventListener('input', () => { syncFieldsToState(); updateMessage(true); });
-$('#f-postsperweek').addEventListener('input', () => { syncFieldsToState(); updateMessage(true); });
-$('#f-avgviews').addEventListener('input', () => { syncFieldsToState(); updateMessage(true); });
-$('#f-template').addEventListener('change', () => { syncFieldsToState(); updateMessage(false); });
+// {months} in a message depends on lastPostWeeks — postsPerWeek/avgViews no
+// longer feed any placeholder (they used to only feed the now-removed
+// category suggestion) but stay as plain lead metadata, still worth tracking
+// even though nothing recomposes from them anymore.
+$('#f-lastpost').addEventListener('input', () => { syncFieldsToState(); updateMessage(); });
+$('#f-postsperweek').addEventListener('input', syncFieldsToState);
+$('#f-avgviews').addEventListener('input', syncFieldsToState);
 $('#f-message').addEventListener('input', () => { currentProfile().message = $('#f-message').value; saveSession(); });
 
 function syncFieldsToState() {
@@ -1180,17 +1172,6 @@ $('#copy-btn').addEventListener('click', async () => {
   const original = btn.textContent;
   btn.textContent = '✓ Copied!';
   setTimeout(() => { btn.textContent = original; }, 1200);
-});
-
-$('#reshuffle-btn').addEventListener('click', () => {
-  const p = currentProfile();
-  if (!p || !p.template) return;
-  // Redraws all 4 slots from the same rotation used automatically, so a
-  // manual reshuffle here still counts toward "every wording gets used before
-  // any repeat" instead of just picking uniformly at random.
-  p.partIds = pickAllParts(p.template);
-  p.partsKey = p.template;
-  renderMessageText();
 });
 
 // ---------- Personalized video ----------
@@ -1800,7 +1781,13 @@ function showEndScreen(opts = {}) {
   // every other place in the app that renders lead-supplied text.
   const sentList = $('#end-sent-list');
   sentList.innerHTML = sent.length
-    ? sent.map(r => `<li><strong>${escapeHtml(leadDisplayName(r))}</strong> ${r.fullName && r.platform !== 'linkedin' ? `(${escapeHtml(r.fullName)})` : ''} — ${escapeHtml(templatesFor(r.platform)[r.template]?.label || r.template)}</li>`).join('')
+    ? sent.map(r => {
+        // Instagram no longer has a template category to show (one fixed
+        // first message per Messaging sequence now) — only LinkedIn still
+        // has a label worth surfacing here.
+        const templateLabel = r.platform === 'linkedin' ? (templatesFor('linkedin')[r.template]?.label || r.template) : null;
+        return `<li><strong>${escapeHtml(leadDisplayName(r))}</strong> ${r.fullName && r.platform !== 'linkedin' ? `(${escapeHtml(r.fullName)})` : ''}${templateLabel ? ` — ${escapeHtml(templateLabel)}` : ''}</li>`;
+      }).join('')
     : '<li class="muted">None</li>';
 
   const rejList = $('#end-rejected-list');
@@ -2998,7 +2985,9 @@ async function loadViewsThreshold() {
   // loadIgAccounts() here too (not just when a session actually starts) so
   // a page reload landing mid-pacing-break (see the restoration block below)
   // has the active account's pacing blocks ready for activePauseBlock().
-  await Promise.all([loadTemplatesFromServer(), loadTemplatesFromServer('linkedin'), loadViewsThreshold(), loadIgAccounts()]);
+  // Instagram no longer uses loadTemplatesFromServer()'s category system —
+  // only LinkedIn's own fixed template still comes from it.
+  await Promise.all([loadTemplatesFromServer('linkedin'), loadViewsThreshold(), loadIgAccounts()]);
   const saved = loadSession();
   if (saved && Array.isArray(saved.profiles) && saved.profiles.length > 0 && saved.index < saved.profiles.length) {
     state.profiles = saved.profiles;
