@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=8">
+<link rel="stylesheet" href="style.css?v=9">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -270,7 +270,7 @@
     <section id="view-send-pacing-break" class="view hidden">
       <div class="end-hero">
         <div class="end-emoji">⏸️</div>
-        <h1>Take a quick break</h1>
+        <h1 id="pacing-break-title">Take a quick break</h1>
         <p class="end-sub">Real people don't send DMs back-to-back for hours.</p>
       </div>
       <div class="card">
@@ -819,9 +819,15 @@
 
       <div class="card" id="settings-accounts-card">
         <h3>Instagram accounts</h3>
-        <p class="muted" style="margin-top:-8px;">Rotate between accounts to keep Instagram from flagging any one of them for high-volume DMing. Daily limits are per account and get stricter for younger accounts — see the tier note next to each one.</p>
+        <p class="muted" style="margin-top:-8px;">Rotate between accounts to keep Instagram from flagging any one of them for high-volume DMing. Each account's daily limit and in-session pacing come from its assigned Timing sequence below.</p>
         <div id="accounts-list" class="accounts-list"></div>
         <button id="accounts-add-btn" class="btn-secondary">+ Add account</button>
+      </div>
+
+      <div class="card">
+        <h3>⏱️ Timing sequences</h3>
+        <p class="muted" style="margin-top:-8px;">Named, reusable presets for how an account ramps up its daily send limit and paces itself in-session — since Instagram's rules shift, edit these instead of digging through code. Assign one to each account above.</p>
+        <button type="button" id="open-timing-sequences-btn" class="btn-secondary">Open Timing sequences →</button>
       </div>
 
       <!-- Add account modal -->
@@ -948,6 +954,43 @@
       </div>
     </section>
 
+    <!-- TIMING SEQUENCES — named, reusable ramp-curve + in-session pacing
+         presets, assignable per Instagram account. -->
+    <section id="view-timing-sequences" class="view hidden">
+      <div class="row-between leads-header">
+        <h1 class="page-title">Timing sequences</h1>
+        <button type="button" id="timing-seq-back-btn" class="btn-secondary">← Back to Settings</button>
+      </div>
+
+      <div class="card">
+        <div class="combi-size-row" style="align-items:flex-end;">
+          <label style="flex:1;">Sequence
+            <select id="timing-seq-select"></select>
+          </label>
+          <button type="button" id="timing-seq-new-btn" class="btn-secondary">+ New</button>
+          <button type="button" id="timing-seq-duplicate-btn" class="btn-secondary">Duplicate</button>
+          <button type="button" id="timing-seq-rename-btn" class="btn-secondary">Rename</button>
+          <button type="button" id="timing-seq-delete-btn" class="btn-secondary">Delete</button>
+        </div>
+        <p class="muted" id="timing-seq-empty" style="margin-top:8px;">No sequences yet — click "+ New" to create one.</p>
+      </div>
+
+      <div class="card hidden" id="timing-seq-editor">
+        <h3>Daily limit ramp curve</h3>
+        <p class="muted" style="margin-top:-8px;">One row per day the limit changes — it holds steady until the next row, and forever after the last one. Day 1 at 0 is what "warmup" is.</p>
+        <div id="timing-ramp-days-list" class="timing-ramp-days-list"></div>
+        <button type="button" id="timing-ramp-day-add-btn" class="btn-secondary">+ Add day</button>
+
+        <h3 style="margin-top:24px;">In-session pacing pattern</h3>
+        <p class="muted" style="margin-top:-8px;">Drag to reorder. Loops back to the top once it reaches the end, for as long as a sending session runs.</p>
+        <div id="timing-pacing-blocks-list" class="timing-pacing-blocks-list"></div>
+        <div class="modal-actions" style="justify-content:flex-start; gap:12px;">
+          <button type="button" id="timing-pacing-add-send-btn" class="btn-secondary">+ Add send block</button>
+          <button type="button" id="timing-pacing-add-pause-btn" class="btn-secondary">+ Add pause block</button>
+        </div>
+      </div>
+    </section>
+
   </main></div>
 
   <div id="undo-toast" class="undo-toast hidden">
@@ -959,9 +1002,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=8"></script>
-<script src="app.js?v=8"></script>
-<script src="leads.js?v=8"></script>
-<script src="followups.js?v=8"></script>
+<script src="templates.js?v=9"></script>
+<script src="app.js?v=9"></script>
+<script src="leads.js?v=9"></script>
+<script src="followups.js?v=9"></script>
 </body>
 </html>

@@ -764,10 +764,16 @@ $('#reminder-add-btn').addEventListener('click', async () => {
 
 async function loadAccounts() {
   try {
-    const data = await fetchJson('/api/accounts');
+    const [data, timingData] = await Promise.all([
+      fetchJson('/api/accounts'),
+      fetchJson('/api/timing-sequences')
+    ]);
     settingsState.accounts = data.accounts || [];
-    // A lazy auto-upgrade may have just fired server-side (see GET
-    // /api/accounts) and inserted a reminder announcing it — refresh the
+    // Shared with the dedicated Timing sequences page's own cache — just
+    // names/ids are needed here for the per-account assignment dropdown.
+    timingSeqState.sequences = timingData.sequences || [];
+    // A warmup-just-ended transition may have just fired server-side (see
+    // GET /api/accounts) and inserted a reminder announcing it — refresh the
     // bell so it shows up without waiting for the next unrelated reload.
     if (data.upgraded && data.upgraded.length > 0) loadNotifications();
   } catch (e) {
@@ -803,29 +809,31 @@ function renderAccountsList() {
         <div class="account-warmup-badge">
           <span>⚠️ Account needs warming up — day ${a.warmupDay} of ${a.warmupDays}</span>
           <div class="account-warmup-badge-actions">
-            <button type="button" class="account-change-warmup-btn" data-id="${a.id}">Change warmup duration</button>
             <button type="button" class="account-skip-warmup-btn" data-id="${a.id}">Skip warmup</button>
           </div>
         </div>`;
     } else if (isRamping) {
       statusHtml = `
         <div class="account-ramp-note">
-          <span>🔥 Ramping up — day ${a.rampDay}, ${a.dailyLimit}/day so far (target ${a.tierCap}/day)</span>
+          <span>🔥 Ramping up — day ${a.rampDay}, ${a.dailyLimit}/day so far (target ${a.plateauLimit}/day)</span>
           <button type="button" class="account-skip-rampup-btn" data-id="${a.id}">Skip ramp up</button>
         </div>`;
     }
+    const sequenceOptions = timingSeqState.sequences.map(s =>
+      `<option value="${s.id}"${s.id === a.timingSequenceId ? ' selected' : ''}>${escapeHtml(s.name)}</option>`
+    ).join('');
     return `
       <div class="account-row${isWarming ? ' account-row-warming' : ''}" data-id="${a.id}">
         <div class="account-row-main">
           ${accountPhotoHtml(a)}
           <div class="account-main">
             <div class="account-username">@${escapeHtml(a.username)}</div>
-            <div class="muted account-meta">${formatAccountAge(a.ageDays)} · tier cap ${a.tierCap}/day · sent ${a.todaySentCount} today</div>
+            <div class="muted account-meta">${formatAccountAge(a.ageDays)} · recommended max ${a.tierCap}/day · sent ${a.todaySentCount} today · ${a.dailyLimit}/day limit</div>
           </div>
-          <label class="account-limit-label">Daily limit
-            <input type="number" min="1" class="account-limit-input" data-id="${a.id}" value="${a.dailyLimit}"${isWarming || isRamping ? ' disabled' : ''}>
+          <label class="account-limit-label">Timing sequence
+            <select class="account-timing-seq-select" data-id="${a.id}">${sequenceOptions}</select>
           </label>
-          ${a.overTierCap ? '<span class="account-over-cap" title="Above the recommended limit for an account this age">⚠️</span>' : '<span class="account-over-cap-spacer"></span>'}
+          ${a.overTierCap ? '<span class="account-over-cap" title="Above the recommended max for an account this age">⚠️</span>' : '<span class="account-over-cap-spacer"></span>'}
           <button type="button" class="account-restart-warmup-btn" data-id="${a.id}" title="Send this account back into warmup, whatever phase it's in">↩️ Restart warmup</button>
           <button type="button" class="account-archive-btn" data-id="${a.id}" title="Archive this account">🗑</button>
         </div>
@@ -835,36 +843,26 @@ function renderAccountsList() {
 }
 
 $('#accounts-list').addEventListener('change', async (e) => {
-  const input = e.target.closest('.account-limit-input');
-  if (!input) return;
-  const id = input.dataset.id;
+  const select = e.target.closest('.account-timing-seq-select');
+  if (!select) return;
+  const id = select.dataset.id;
   const account = settingsState.accounts.find(a => a.id === id);
   if (!account) return;
-  const newValue = Math.max(1, Math.round(Number(input.value)) || 1);
-
-  if (newValue > account.tierCap) {
-    const ok = confirm(`This is above the recommended ${account.tierCap}/day limit for an account ${formatAccountAge(account.ageDays)} — Instagram may flag unusually high send volume. Set it anyway?`);
-    if (!ok) {
-      input.value = account.dailyLimit;
-      return;
-    }
-  }
-
-  const previous = account.dailyLimit;
-  account.dailyLimit = newValue;
-  input.value = newValue;
+  const previous = account.timingSequenceId;
+  const newSequenceId = select.value;
+  select.disabled = true;
   try {
     await fetchJson(`/api/accounts/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dailyLimit: newValue })
+      body: JSON.stringify({ timingSequenceId: newSequenceId })
     });
-    account.overTierCap = newValue > account.tierCap;
-    renderAccountsList();
+    await loadAccounts(); // limit/phase/warmup-days all derive from the new sequence
   } catch (err) {
-    account.dailyLimit = previous;
-    input.value = previous;
-    alert(`Could not save daily limit: ${err.message}`);
+    select.value = previous;
+    alert(`Could not reassign Timing sequence: ${err.message}`);
+  } finally {
+    select.disabled = false;
   }
 });
 
@@ -921,39 +919,12 @@ $('#accounts-list').addEventListener('click', async (e) => {
     return;
   }
 
-  const changeWarmupBtn = e.target.closest('.account-change-warmup-btn');
-  if (changeWarmupBtn) {
-    const id = changeWarmupBtn.dataset.id;
-    const account = settingsState.accounts.find(a => a.id === id);
-    if (!account) return;
-    const input = prompt(`How many days should @${account.username}'s warmup be? (Currently ${account.warmupDays}, day ${account.warmupDay} so far.)`, account.warmupDays);
-    if (input === null) return; // cancelled
-    const days = Math.round(Number(input));
-    if (!Number.isFinite(days) || days < 0) {
-      alert('Enter a valid number of days (0 or more).');
-      return;
-    }
-    changeWarmupBtn.disabled = true;
-    try {
-      await fetchJson(`/api/accounts/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ warmupDays: days })
-      });
-      await loadAccounts();
-    } catch (err) {
-      alert(`Could not change warmup duration: ${err.message}`);
-      changeWarmupBtn.disabled = false;
-    }
-    return;
-  }
-
   const skipRampupBtn = e.target.closest('.account-skip-rampup-btn');
   if (skipRampupBtn) {
     const id = skipRampupBtn.dataset.id;
     const account = settingsState.accounts.find(a => a.id === id);
     if (!account) return;
-    if (!confirm(`Skip @${account.username}'s ramp-up and jump straight to ${account.tierCap}/day? Ramping up gradually is the safer way to grow a new account's sending volume — only do this if you know what you're doing.`)) return;
+    if (!confirm(`Skip @${account.username}'s ramp-up and jump straight to ${account.plateauLimit}/day? Ramping up gradually is the safer way to grow a new account's sending volume — only do this if you know what you're doing.`)) return;
     skipRampupBtn.disabled = true;
     try {
       await fetchJson(`/api/accounts/${id}/skip-rampup`, { method: 'POST' });
@@ -1081,6 +1052,311 @@ $('#settings-general-save').addEventListener('click', async () => {
     alert(`Could not save settings: ${err.message}`);
   } finally {
     btn.disabled = false;
+  }
+});
+
+// ---------- Timing sequences ----------
+// Named, reusable presets bundling a daily-limit ramp curve + an in-session
+// send/pause pacing pattern, assignable per Instagram account (see the
+// Timing-sequence <select> on each account row, further down). Reached from
+// Settings rather than living inline there, so Settings itself doesn't get
+// cluttered as this grows.
+
+const timingSeqState = { sequences: [], activeId: null };
+
+function activeTimingSeq() {
+  return timingSeqState.sequences.find(s => s.id === timingSeqState.activeId) || null;
+}
+
+async function loadTimingSequences(preserveActiveId) {
+  try {
+    const data = await fetchJson('/api/timing-sequences');
+    timingSeqState.sequences = data.sequences || [];
+    const wantId = preserveActiveId || timingSeqState.activeId;
+    timingSeqState.activeId = timingSeqState.sequences.some(s => s.id === wantId)
+      ? wantId
+      : (timingSeqState.sequences[0]?.id || null);
+    renderTimingSeqPicker();
+    renderTimingSeqEditor();
+  } catch (e) {
+    alert(`Could not load Timing sequences: ${e.message}`);
+  }
+}
+
+function renderTimingSeqPicker() {
+  const select = $('#timing-seq-select');
+  const hasAny = timingSeqState.sequences.length > 0;
+  select.innerHTML = timingSeqState.sequences.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+  if (timingSeqState.activeId) select.value = timingSeqState.activeId;
+  $('#timing-seq-empty').classList.toggle('hidden', hasAny);
+  select.classList.toggle('hidden', !hasAny);
+  $('#timing-seq-duplicate-btn').disabled = !hasAny;
+  $('#timing-seq-rename-btn').disabled = !hasAny;
+  $('#timing-seq-delete-btn').disabled = !hasAny;
+}
+
+$('#timing-seq-select').addEventListener('change', () => {
+  timingSeqState.activeId = $('#timing-seq-select').value;
+  renderTimingSeqEditor();
+});
+
+function renderTimingSeqEditor() {
+  const seq = activeTimingSeq();
+  $('#timing-seq-editor').classList.toggle('hidden', !seq);
+  if (!seq) return;
+  renderRampDays(seq);
+  renderPacingBlocks(seq);
+}
+
+function renderRampDays(seq) {
+  const rows = [...seq.rampDays].sort((a, b) => a.dayNumber - b.dayNumber);
+  $('#timing-ramp-days-list').innerHTML = rows.map(r => `
+    <div class="timing-ramp-day-row">
+      <span class="timing-ramp-day-label">Day ${r.dayNumber}</span>
+      <label>Daily limit
+        <input type="number" min="0" class="timing-ramp-day-input" data-day="${r.dayNumber}" value="${r.dailyLimit}">
+      </label>
+      <button type="button" class="timing-ramp-day-delete-btn" data-day="${r.dayNumber}" title="Remove this day">🗑</button>
+    </div>`).join('');
+}
+
+$('#timing-ramp-days-list').addEventListener('change', async (e) => {
+  const input = e.target.closest('.timing-ramp-day-input');
+  if (!input) return;
+  const seq = activeTimingSeq();
+  if (!seq) return;
+  const dayNumber = Number(input.dataset.day);
+  const value = Math.max(0, Math.round(Number(input.value)) || 0);
+  input.disabled = true;
+  try {
+    await fetchJson(`/api/timing-sequences/${seq.id}/ramp-days/${dayNumber}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dailyLimit: value })
+    });
+    const row = seq.rampDays.find(r => r.dayNumber === dayNumber);
+    if (row) row.dailyLimit = value;
+  } catch (err) {
+    alert(`Could not save: ${err.message}`);
+  } finally {
+    input.disabled = false;
+  }
+});
+
+$('#timing-ramp-days-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.timing-ramp-day-delete-btn');
+  if (!btn) return;
+  const seq = activeTimingSeq();
+  if (!seq) return;
+  const dayNumber = Number(btn.dataset.day);
+  if (!confirm(`Remove day ${dayNumber} from this curve?`)) return;
+  btn.disabled = true;
+  try {
+    await fetchJson(`/api/timing-sequences/${seq.id}/ramp-days/${dayNumber}`, { method: 'DELETE' });
+    seq.rampDays = seq.rampDays.filter(r => r.dayNumber !== dayNumber);
+    renderRampDays(seq);
+  } catch (err) {
+    alert(`Could not remove: ${err.message}`);
+    btn.disabled = false;
+  }
+});
+
+$('#timing-ramp-day-add-btn').addEventListener('click', async () => {
+  const seq = activeTimingSeq();
+  if (!seq) return;
+  const nextDay = seq.rampDays.length ? Math.max(...seq.rampDays.map(r => r.dayNumber)) + 1 : 1;
+  const dayInput = prompt('Day number:', nextDay);
+  if (dayInput === null) return;
+  const dayNumber = Math.max(1, Math.round(Number(dayInput)) || 1);
+  const limitInput = prompt(`Daily limit for day ${dayNumber}:`, '0');
+  if (limitInput === null) return;
+  const dailyLimit = Math.max(0, Math.round(Number(limitInput)) || 0);
+  try {
+    await fetchJson(`/api/timing-sequences/${seq.id}/ramp-days/${dayNumber}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dailyLimit })
+    });
+    const existing = seq.rampDays.find(r => r.dayNumber === dayNumber);
+    if (existing) existing.dailyLimit = dailyLimit;
+    else seq.rampDays.push({ dayNumber, dailyLimit });
+    renderRampDays(seq);
+  } catch (err) {
+    alert(`Could not add day: ${err.message}`);
+  }
+});
+
+function renderPacingBlocks(seq) {
+  $('#timing-pacing-blocks-list').innerHTML = seq.pacingBlocks.map((b, i) => `
+    <div class="timing-pacing-block-row" draggable="true" data-index="${i}">
+      <span class="timing-pacing-drag-handle" title="Drag to reorder">⠿</span>
+      <span class="timing-pacing-block-type timing-pacing-block-type-${b.blockType}">${b.blockType === 'send' ? '📤 Send' : '⏸ Pause'}</span>
+      <label>Min <input type="number" min="0" class="timing-pacing-min-input" data-index="${i}" value="${b.minValue}"></label>
+      <label>Max <input type="number" min="0" class="timing-pacing-max-input" data-index="${i}" value="${b.maxValue}"></label>
+      <span class="muted">${b.blockType === 'send' ? 'sends' : 'min'}</span>
+      ${b.blockType === 'pause' ? `
+        <input type="text" class="timing-pacing-label-input" data-index="${i}" placeholder="Label (e.g. Scroll session)" value="${escapeHtml(b.label || '')}">
+        <input type="text" class="timing-pacing-message-input" data-index="${i}" placeholder="Message shown during the pause" value="${escapeHtml(b.message || '')}">
+      ` : ''}
+      <button type="button" class="timing-pacing-remove-btn" data-index="${i}" title="Remove this block">✕</button>
+    </div>`).join('');
+}
+
+async function savePacingBlocks(seq) {
+  try {
+    await fetchJson(`/api/timing-sequences/${seq.id}/pacing-blocks`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ blocks: seq.pacingBlocks })
+    });
+  } catch (err) {
+    alert(`Could not save pacing pattern: ${err.message}`);
+  }
+}
+
+$('#timing-pacing-blocks-list').addEventListener('change', (e) => {
+  const seq = activeTimingSeq();
+  if (!seq) return;
+  const minInput = e.target.closest('.timing-pacing-min-input');
+  const maxInput = e.target.closest('.timing-pacing-max-input');
+  const labelInput = e.target.closest('.timing-pacing-label-input');
+  const messageInput = e.target.closest('.timing-pacing-message-input');
+  const target = minInput || maxInput || labelInput || messageInput;
+  if (!target) return;
+  const b = seq.pacingBlocks[Number(target.dataset.index)];
+  if (!b) return;
+  if (minInput) b.minValue = Math.max(0, Math.round(Number(minInput.value)) || 0);
+  if (maxInput) b.maxValue = Math.max(b.minValue, Math.round(Number(maxInput.value)) || b.minValue);
+  if (labelInput) b.label = labelInput.value;
+  if (messageInput) b.message = messageInput.value;
+  savePacingBlocks(seq);
+});
+
+$('#timing-pacing-blocks-list').addEventListener('click', (e) => {
+  const btn = e.target.closest('.timing-pacing-remove-btn');
+  if (!btn) return;
+  const seq = activeTimingSeq();
+  if (!seq) return;
+  seq.pacingBlocks.splice(Number(btn.dataset.index), 1);
+  renderPacingBlocks(seq);
+  savePacingBlocks(seq);
+});
+
+$('#timing-pacing-add-send-btn').addEventListener('click', () => {
+  const seq = activeTimingSeq();
+  if (!seq) return;
+  seq.pacingBlocks.push({ blockType: 'send', minValue: 8, maxValue: 15, label: null, message: null });
+  renderPacingBlocks(seq);
+  savePacingBlocks(seq);
+});
+
+$('#timing-pacing-add-pause-btn').addEventListener('click', () => {
+  const seq = activeTimingSeq();
+  if (!seq) return;
+  seq.pacingBlocks.push({ blockType: 'pause', minValue: 8, maxValue: 12, label: 'Pause', message: '' });
+  renderPacingBlocks(seq);
+  savePacingBlocks(seq);
+});
+
+// Plain HTML5 drag-and-drop reordering — no library needed for a list this
+// short. Saves immediately on drop so a reorder is never lost by navigating
+// away without a separate "Save" click.
+let timingDragSrcIndex = null;
+$('#timing-pacing-blocks-list').addEventListener('dragstart', (e) => {
+  const row = e.target.closest('.timing-pacing-block-row');
+  if (!row) return;
+  timingDragSrcIndex = Number(row.dataset.index);
+  e.dataTransfer.effectAllowed = 'move';
+});
+$('#timing-pacing-blocks-list').addEventListener('dragover', (e) => {
+  if (e.target.closest('.timing-pacing-block-row')) e.preventDefault();
+});
+$('#timing-pacing-blocks-list').addEventListener('drop', (e) => {
+  const row = e.target.closest('.timing-pacing-block-row');
+  if (!row || timingDragSrcIndex === null) return;
+  e.preventDefault();
+  const targetIndex = Number(row.dataset.index);
+  const seq = activeTimingSeq();
+  if (!seq || targetIndex === timingDragSrcIndex) { timingDragSrcIndex = null; return; }
+  // Adjacent swaps (the common case for a short list like this) land exactly
+  // right in both directions with a plain remove-then-insert-at-target; only
+  // longer-distance drags end up slightly direction-dependent (landing just
+  // after the target going forward, just before it going backward) — a much
+  // rarer case and an easy one-more-drag fix, not worth the adjusted-index
+  // version that would make adjacent forward swaps a no-op instead.
+  const [moved] = seq.pacingBlocks.splice(timingDragSrcIndex, 1);
+  seq.pacingBlocks.splice(targetIndex, 0, moved);
+  timingDragSrcIndex = null;
+  renderPacingBlocks(seq);
+  savePacingBlocks(seq);
+});
+
+$('#open-timing-sequences-btn').addEventListener('click', () => showView('timing-sequences'));
+$('#timing-seq-back-btn').addEventListener('click', () => showView('settings'));
+
+$('#timing-seq-new-btn').addEventListener('click', async () => {
+  const name = prompt('Name for the new sequence:');
+  if (!name || !name.trim()) return;
+  try {
+    const result = await fetchJson('/api/timing-sequences', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim() })
+    });
+    await loadTimingSequences(result.id);
+  } catch (err) {
+    alert(`Could not create sequence: ${err.message}`);
+  }
+});
+
+$('#timing-seq-duplicate-btn').addEventListener('click', async () => {
+  const seq = activeTimingSeq();
+  if (!seq) return;
+  const name = prompt('Name for the duplicate:', `${seq.name} (copy)`);
+  if (!name || !name.trim()) return;
+  try {
+    const result = await fetchJson('/api/timing-sequences', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim(), duplicateFrom: seq.id })
+    });
+    await loadTimingSequences(result.id);
+  } catch (err) {
+    alert(`Could not duplicate sequence: ${err.message}`);
+  }
+});
+
+$('#timing-seq-rename-btn').addEventListener('click', async () => {
+  const seq = activeTimingSeq();
+  if (!seq) return;
+  const name = prompt('Rename sequence:', seq.name);
+  if (!name || !name.trim() || name.trim() === seq.name) return;
+  try {
+    await fetchJson(`/api/timing-sequences/${seq.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: name.trim() })
+    });
+    await loadTimingSequences(seq.id);
+  } catch (err) {
+    alert(`Could not rename sequence: ${err.message}`);
+  }
+});
+
+$('#timing-seq-delete-btn').addEventListener('click', async () => {
+  const seq = activeTimingSeq();
+  if (!seq) return;
+  if (seq.accountsUsing.length > 0) {
+    alert(`Can't delete "${seq.name}" — ${seq.accountsUsing.map(a => '@' + a.username).join(', ')} ${seq.accountsUsing.length === 1 ? 'is' : 'are'} still using it. Reassign first.`);
+    return;
+  }
+  if (!confirm(`Delete "${seq.name}"? This can't be undone.`)) return;
+  try {
+    await fetchJson(`/api/timing-sequences/${seq.id}`, { method: 'DELETE' });
+    timingSeqState.activeId = null;
+    await loadTimingSequences();
+  } catch (err) {
+    alert(`Could not delete sequence: ${err.message}`);
   }
 });
 

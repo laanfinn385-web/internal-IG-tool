@@ -34,14 +34,22 @@ const state = {
   // see showIgAccountLimitPause/renderIgCooldownBanner.
   igCooldownUntil: null,
   igCooldownAccountId: null,
-  // In-session pacing breaks (Instagram only) — real people don't send DMs
-  // back-to-back for hours, so every 8-15 sends (randomized fresh each time,
-  // not a fixed count an outside observer could infer) the session forces an
-  // 8-12 minute pause. nextBreakThreshold is picked whenever a fresh count
-  // starts (session start/resume, or right after a break ends).
-  sendsSinceBreak: 0,
-  nextBreakThreshold: null,
-  pacingBreakUntil: null
+  // In-session pacing (Instagram only) — real people don't send DMs
+  // back-to-back for hours, so the active account's assigned Timing
+  // sequence's pacing-block pattern (send N, pause, send N, pause...) is
+  // walked throughout the session, looping once it reaches the end. Which
+  // block is currently accumulating sends is tracked by index into that
+  // pattern (looked up live via igAccountId, not duplicated into state);
+  // currentBlockThreshold is picked fresh (randomized within that block's
+  // min-max) whenever a new send-block starts.
+  pacingBlockIndex: 0,
+  sendsInCurrentBlock: 0,
+  currentBlockThreshold: null,
+  pacingBreakUntil: null,
+  // Which pause block is currently showing (its label/message/range) — a
+  // separate index from pacingBlockIndex, which is already pointing at
+  // wherever sending resumes *after* this pause completes.
+  activePauseBlockIndex: null
 };
 
 const SESSION_KEY = 'outreach_session_v1';
@@ -67,9 +75,11 @@ function saveSession() {
       igAccountTodaySentCount: state.igAccountTodaySentCount,
       igCooldownUntil: state.igCooldownUntil,
       igCooldownAccountId: state.igCooldownAccountId,
-      sendsSinceBreak: state.sendsSinceBreak,
-      nextBreakThreshold: state.nextBreakThreshold,
-      pacingBreakUntil: state.pacingBreakUntil
+      pacingBlockIndex: state.pacingBlockIndex,
+      sendsInCurrentBlock: state.sendsInCurrentBlock,
+      currentBlockThreshold: state.currentBlockThreshold,
+      pacingBreakUntil: state.pacingBreakUntil,
+      activePauseBlockIndex: state.activePauseBlockIndex
     }));
   } catch (e) { /* storage full or unavailable — non-fatal */ }
 }
@@ -228,6 +238,7 @@ function showView(name) {
   if (name === 'analytics') loadAnalytics(currentRange);
   if (name === 'settings') loadSettingsPage();
   if (name === 'saved-sessions') loadSavedSessions();
+  if (name === 'timing-sequences') loadTimingSequences();
 }
 
 $('#settings-btn').addEventListener('click', () => showView('settings'));
@@ -624,8 +635,11 @@ let igAccountsCache = null;
 
 async function loadIgAccounts(force) {
   if (igAccountsCache && !force) return igAccountsCache;
+  // Loaded alongside accounts (not lazily inside decide()) so an account's
+  // pacing-block pattern is always ready synchronously by the time a session
+  // actually needs to check it.
   try {
-    const data = await fetchJson('/api/accounts');
+    const [data] = await Promise.all([fetchJson('/api/accounts'), loadTimingSequencesForSession(force)]);
     igAccountsCache = data.accounts || [];
   } catch (e) {
     console.error('Could not load accounts', e);
@@ -872,19 +886,47 @@ const SIMPLE_SESSION_KINDS = ['li_engagement', 'li_connection'];
 // LinkedIn support existed). opts.alreadyProfiles skips the leadToProfile
 // mapping for callers that already have profile-shaped objects (the combi
 // "move on to LinkedIn" transition — see state.combi.liLeads).
-// In-session pacing breaks (Instagram sends only) — see the state object's
-// comment. Randomized fresh each time so there's no fixed, inferable count.
-const PACING_BREAK_MIN_SENDS = 8;
-const PACING_BREAK_MAX_SENDS = 15;
-const PACING_BREAK_MIN_MINUTES = 8;
-const PACING_BREAK_MAX_MINUTES = 12;
-
+// In-session pacing (Instagram sends only) — see the state object's
+// comment. Driven by the active account's assigned Timing sequence's
+// pacing-block pattern rather than a fixed global range, so different
+// accounts (or the same account after a sequence edit) can behave
+// differently — randomized fresh within each block's own min-max so there's
+// no fixed, inferable count.
 function randomInt(min, max) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
 }
 
-function pickNextBreakThreshold() {
-  return randomInt(PACING_BREAK_MIN_SENDS, PACING_BREAK_MAX_SENDS);
+// Separate small cache from followups.js's own timingSeqState (that one's
+// scoped to the Timing-sequences settings page) — this is just what the
+// session engine needs to look up an account's pacing pattern.
+let timingSequencesCache = null;
+async function loadTimingSequencesForSession(force) {
+  if (timingSequencesCache && !force) return timingSequencesCache;
+  try {
+    const data = await fetchJson('/api/timing-sequences');
+    timingSequencesCache = data.sequences || [];
+  } catch (e) {
+    console.error('Could not load timing sequences', e);
+    timingSequencesCache = [];
+  }
+  return timingSequencesCache;
+}
+
+function pacingBlocksForAccount(account) {
+  if (!account || !account.timingSequenceId || !timingSequencesCache) return [];
+  const seq = timingSequencesCache.find(s => s.id === account.timingSequenceId);
+  return seq ? seq.pacingBlocks : [];
+}
+
+// Next block of the given type at or after fromIndex, wrapping — -1 if the
+// pattern has none of that type at all (a misconfigured/edited-mid-session
+// sequence shouldn't hang the session, just skip pacing until it's fixed).
+function findNextBlockOfType(blocks, fromIndex, type) {
+  for (let i = 0; i < blocks.length; i++) {
+    const idx = (fromIndex + i) % blocks.length;
+    if (blocks[idx].blockType === type) return idx;
+  }
+  return -1;
 }
 
 function beginSessionWithLeads(leads, opts = {}) {
@@ -899,9 +941,11 @@ function beginSessionWithLeads(leads, opts = {}) {
   state.isDailyGoal = !!opts.isDailyGoal;
   state.igCooldownUntil = null;
   state.igCooldownAccountId = null;
-  state.sendsSinceBreak = 0;
-  state.nextBreakThreshold = pickNextBreakThreshold();
+  state.pacingBlockIndex = 0;
+  state.sendsInCurrentBlock = 0;
+  state.currentBlockThreshold = null;
   state.pacingBreakUntil = null;
+  state.activePauseBlockIndex = null;
   if (opts.accountId && state.sessionKind === 'ig_message') {
     const account = findIgAccount(opts.accountId);
     state.igAccountId = opts.accountId;
@@ -1562,13 +1606,40 @@ async function decide(status) {
     }
   }
 
-  // In-session pacing break — only real Instagram sends count (matches what
-  // an outside observer would actually see as DM activity), not disqualifies
-  // or "can't message" decisions.
+  // In-session pacing — only real Instagram sends count (matches what an
+  // outside observer would actually see as DM activity), not disqualifies or
+  // "can't message" decisions. Walks the active account's assigned Timing
+  // sequence's pacing-block pattern (send N, pause, send N, pause...),
+  // looping once it reaches the end. No account/sequence/blocks assigned
+  // (e.g. a misconfigured sequence, or somehow no account at all) just means
+  // no pacing gets enforced rather than a broken session.
   let needsPacingBreak = false;
   if (status === 'sent' && p.platform === 'instagram') {
-    state.sendsSinceBreak++;
-    if (state.sendsSinceBreak >= state.nextBreakThreshold) needsPacingBreak = true;
+    const pacingBlocks = pacingBlocksForAccount(findIgAccount(state.igAccountId));
+    if (pacingBlocks.length > 0) {
+      const sendIdx = pacingBlocks[state.pacingBlockIndex]?.blockType === 'send'
+        ? state.pacingBlockIndex
+        : findNextBlockOfType(pacingBlocks, state.pacingBlockIndex, 'send');
+      if (sendIdx !== -1) {
+        state.pacingBlockIndex = sendIdx;
+        if (state.currentBlockThreshold == null) {
+          const block = pacingBlocks[sendIdx];
+          state.currentBlockThreshold = randomInt(block.minValue, block.maxValue);
+        }
+        state.sendsInCurrentBlock++;
+        if (state.sendsInCurrentBlock >= state.currentBlockThreshold) {
+          const pauseIdx = findNextBlockOfType(pacingBlocks, sendIdx + 1, 'pause');
+          state.sendsInCurrentBlock = 0;
+          state.currentBlockThreshold = null;
+          if (pauseIdx !== -1) {
+            needsPacingBreak = true;
+            state.activePauseBlockIndex = pauseIdx;
+            const nextSendIdx = findNextBlockOfType(pacingBlocks, pauseIdx + 1, 'send');
+            state.pacingBlockIndex = nextSendIdx !== -1 ? nextSendIdx : sendIdx;
+          }
+        }
+      }
+    }
   }
   acceptBtn.disabled = false;
   rejectBtn.disabled = false;
@@ -1928,6 +1999,12 @@ $('#ig-limit-continue-btn').addEventListener('click', () => {
   state.igAccountTodaySentCount = account ? account.todaySentCount : 0;
   state.igCooldownUntil = Date.now() + IG_COOLDOWN_MS;
   state.igCooldownAccountId = newAccountId;
+  // A different account may have a different (or no) Timing sequence
+  // assigned — its pacing pattern is independent, so progress against the
+  // old account's blocks doesn't carry over.
+  state.pacingBlockIndex = 0;
+  state.sendsInCurrentBlock = 0;
+  state.currentBlockThreshold = null;
   saveSession();
 
   $('#ig-limit-title').textContent = 'Switching accounts';
@@ -1996,10 +2073,17 @@ $('#ig-limit-home-btn').addEventListener('click', async () => {
 
 let pacingBreakCountdownInterval = null;
 
+// The active pause block's own label/message/range drives this screen —
+// falls back to generic copy if a block somehow has neither set (a bare
+// "pause" block with no custom text).
+function activePauseBlock() {
+  const blocks = pacingBlocksForAccount(findIgAccount(state.igAccountId));
+  return state.activePauseBlockIndex != null ? blocks[state.activePauseBlockIndex] : null;
+}
+
 function showSendPacingBreak() {
-  const minutes = randomInt(PACING_BREAK_MIN_MINUTES, PACING_BREAK_MAX_MINUTES);
-  state.sendsSinceBreak = 0;
-  state.nextBreakThreshold = pickNextBreakThreshold();
+  const block = activePauseBlock();
+  const minutes = block ? randomInt(block.minValue, block.maxValue) : randomInt(8, 12);
   state.pacingBreakUntil = Date.now() + minutes * 60 * 1000;
   saveSession();
   showView('send-pacing-break');
@@ -2009,6 +2093,7 @@ function showSendPacingBreak() {
 function startPacingBreakCountdown() {
   clearInterval(pacingBreakCountdownInterval);
   const continueBtn = $('#pacing-break-continue-btn');
+  const block = activePauseBlock();
   function tick() {
     const remaining = state.pacingBreakUntil - Date.now();
     if (remaining <= 0) {
@@ -2021,7 +2106,10 @@ function startPacingBreakCountdown() {
     }
   }
   continueBtn.classList.add('hidden');
-  $('#pacing-break-status').textContent = 'Go scroll your feed, check a few stories, like a couple posts — anything that isn\'t sending another DM.';
+  $('#pacing-break-title').textContent = (block && block.label) ? block.label : 'Take a quick break';
+  $('#pacing-break-status').textContent = (block && block.message)
+    ? block.message
+    : 'Go scroll your feed, check a few stories, like a couple posts — anything that isn\'t sending another DM.';
   tick();
   pacingBreakCountdownInterval = setInterval(tick, 1000);
 }
@@ -2194,9 +2282,11 @@ function resetSessionState() {
   state.igAccountTodaySentCount = 0;
   state.igCooldownUntil = null;
   state.igCooldownAccountId = null;
-  state.sendsSinceBreak = 0;
-  state.nextBreakThreshold = null;
+  state.pacingBlockIndex = 0;
+  state.sendsInCurrentBlock = 0;
+  state.currentBlockThreshold = null;
   state.pacingBreakUntil = null;
+  state.activePauseBlockIndex = null;
 }
 
 $('#back-home-btn').addEventListener('click', () => {
@@ -2681,9 +2771,11 @@ async function enterResumedSession(profiles, sessionKind, sessionMode, sessionTa
   state.isDailyGoal = !!isDailyGoal;
   state.igCooldownUntil = null;
   state.igCooldownAccountId = null;
-  state.sendsSinceBreak = 0;
-  state.nextBreakThreshold = pickNextBreakThreshold();
+  state.pacingBlockIndex = 0;
+  state.sendsInCurrentBlock = 0;
+  state.currentBlockThreshold = null;
   state.pacingBreakUntil = null;
+  state.activePauseBlockIndex = null;
   if (accountId && sessionKind === 'ig_message') {
     const accounts = await loadIgAccounts();
     const account = accounts.find(a => a.id === accountId);
@@ -2903,7 +2995,10 @@ async function loadViewsThreshold() {
 }
 
 (async function init() {
-  await Promise.all([loadTemplatesFromServer(), loadTemplatesFromServer('linkedin'), loadViewsThreshold()]);
+  // loadIgAccounts() here too (not just when a session actually starts) so
+  // a page reload landing mid-pacing-break (see the restoration block below)
+  // has the active account's pacing blocks ready for activePauseBlock().
+  await Promise.all([loadTemplatesFromServer(), loadTemplatesFromServer('linkedin'), loadViewsThreshold(), loadIgAccounts()]);
   const saved = loadSession();
   if (saved && Array.isArray(saved.profiles) && saved.profiles.length > 0 && saved.index < saved.profiles.length) {
     state.profiles = saved.profiles;
@@ -2921,9 +3016,11 @@ async function loadViewsThreshold() {
     state.igAccountTodaySentCount = saved.igAccountTodaySentCount || 0;
     state.igCooldownUntil = saved.igCooldownUntil || null;
     state.igCooldownAccountId = saved.igCooldownAccountId || null;
-    state.sendsSinceBreak = saved.sendsSinceBreak || 0;
-    state.nextBreakThreshold = saved.nextBreakThreshold || pickNextBreakThreshold();
+    state.pacingBlockIndex = saved.pacingBlockIndex || 0;
+    state.sendsInCurrentBlock = saved.sendsInCurrentBlock || 0;
+    state.currentBlockThreshold = saved.currentBlockThreshold ?? null;
     state.pacingBreakUntil = saved.pacingBreakUntil || null;
+    state.activePauseBlockIndex = saved.activePauseBlockIndex ?? null;
     if (state.igCooldownUntil) {
       // A reload landed mid-cooldown, before "Go back to home" was ever
       // clicked (that's the only thing that actually persists it server-side)

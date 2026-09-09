@@ -1581,7 +1581,7 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
   font-size: 0.82rem;
 }
 .account-warmup-badge-actions { display: flex; gap: 8px; flex-shrink: 0; }
-.account-skip-warmup-btn, .account-skip-rampup-btn, .account-change-warmup-btn, .account-restart-warmup-btn {
+.account-skip-warmup-btn, .account-skip-rampup-btn, .account-restart-warmup-btn {
   flex-shrink: 0;
   border: none;
   border-radius: 999px;
@@ -1595,9 +1595,8 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 }
 .account-skip-warmup-btn { color: var(--red); }
 .account-skip-rampup-btn { color: #92660a; }
-.account-change-warmup-btn { color: var(--accent); }
 .account-restart-warmup-btn { color: var(--muted); border: 1px solid var(--border); }
-.account-skip-warmup-btn:hover, .account-skip-rampup-btn:hover, .account-change-warmup-btn:hover, .account-restart-warmup-btn:hover { filter: brightness(0.95); }
+.account-skip-warmup-btn:hover, .account-skip-rampup-btn:hover, .account-restart-warmup-btn:hover { filter: brightness(0.95); }
 .account-photo {
   width: 40px;
   height: 40px;
@@ -1628,7 +1627,7 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
   margin-bottom: 0;
   flex-shrink: 0;
 }
-.account-limit-input { width: 64px; margin-bottom: 0; }
+.account-timing-seq-select { width: 160px; margin-bottom: 0; }
 .account-over-cap, .account-over-cap-spacer { flex-shrink: 0; width: 20px; text-align: center; font-size: 1rem; }
 .account-archive-btn {
   flex-shrink: 0;
@@ -1642,6 +1641,41 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
   transition: background 0.15s;
 }
 .account-archive-btn:hover { background: rgba(255, 49, 49, 0.12); }
+
+.timing-ramp-days-list, .timing-pacing-blocks-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+.timing-ramp-day-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.timing-ramp-day-label { font-weight: 700; font-size: 0.88rem; width: 64px; flex-shrink: 0; }
+.timing-ramp-day-row label { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--muted); font-weight: 600; margin-bottom: 0; }
+.timing-ramp-day-input { width: 72px; margin-bottom: 0; }
+.timing-ramp-day-delete-btn { margin-left: auto; flex-shrink: 0; background: none; border: none; cursor: pointer; font-size: 0.9rem; }
+
+.timing-pacing-block-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--card-bg);
+  cursor: grab;
+}
+.timing-pacing-block-row:active { cursor: grabbing; }
+.timing-pacing-drag-handle { color: var(--muted); flex-shrink: 0; }
+.timing-pacing-block-type { flex-shrink: 0; font-weight: 700; font-size: 0.82rem; white-space: nowrap; }
+.timing-pacing-block-type-send { color: var(--accent); }
+.timing-pacing-block-type-pause { color: #92660a; }
+.timing-pacing-block-row label { display: flex; align-items: center; gap: 4px; font-size: 0.72rem; color: var(--muted); font-weight: 600; margin-bottom: 0; flex-shrink: 0; }
+.timing-pacing-min-input, .timing-pacing-max-input { width: 56px; margin-bottom: 0; }
+.timing-pacing-label-input { width: 140px; margin-bottom: 0; }
+.timing-pacing-message-input { flex: 1; min-width: 120px; margin-bottom: 0; }
+.timing-pacing-remove-btn { margin-left: auto; flex-shrink: 0; background: none; border: none; cursor: pointer; font-size: 0.9rem; }
 
 .reminder-lead-picker-row { display: flex; align-items: center; margin-bottom: 12px; }
 .reminder-lead-selected {

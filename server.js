@@ -942,26 +942,7 @@ function tierCapForAge(ageDays) {
   return 80;
 }
 
-const TIER_CAPS = [40, 60, 80];
-// A brand-new account can't send at all for its first week in the tool (not
-// the Instagram account's own age — this is about the *tool* easing into
-// using it), then ramps up 10/day from there to whatever its tier allows,
-// rather than jumping straight to the tier cap. The 7-day default (the
-// ig_accounts.warmup_days column default) is just what a fresh account gets
-// at creation — it's per-account and editable afterward (see
-// PATCH /api/accounts/:id and "Change warmup duration" in Settings), not a
-// fixed global.
-const RAMP_STEP = 10;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
-// Only bumps an account that's currently sitting *at* the tier it's outgrown
-// — a deliberately-lower custom value (e.g. 25) doesn't match any tier
-// boundary and is left alone, per the user's explicit call on this.
-function maybeAutoUpgrade(dailyLimit, ageDays) {
-  const currentTierCap = tierCapForAge(ageDays);
-  if (TIER_CAPS.includes(dailyLimit) && dailyLimit < currentTierCap) return currentTierCap;
-  return null;
-}
 
 // createdOn/createdAt arrive as plain strings from a fresh POST body, but as
 // JS Date objects when read back from the DB (the neon driver parses
@@ -978,35 +959,77 @@ function ageDaysFrom(createdOn) {
   return Math.floor(ms / MS_PER_DAY);
 }
 
-// warmup_age_days/ramp_start come pre-computed from the accounts query (see
-// GET /api/accounts) via the same Amsterdam-morning-boundary SQL functions
-// follow-up due-times use — "day 0" is the calendar day the account was
-// added, ticking to "day 1" at the next 4am Amsterdam (or whatever the
-// follow-up due hour setting is), not at the exact clock-time it was created.
-function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount) {
+// Daily limits now come from whichever Timing sequence is assigned to the
+// account (see Settings → Timing sequences) instead of a fixed 40/60/80
+// age-tier formula — tierCapForAge lives on only as the "recommended max"
+// comparison behind the over-cap ⚠️ warning, it no longer drives the actual
+// limit or auto-upgrades anything.
+function tierCapForAge(ageDays) {
+  if (ageDays < 30) return 40;
+  if (ageDays < 180) return 60;
+  return 80;
+}
+
+// rampDays: that sequence's timing_sequence_ramp_days, sorted ascending by
+// dayNumber. The limit for any given day is whichever defined day is the
+// closest at-or-before it — rows only need to exist at the days where the
+// value actually changes, it holds steady in between and past the last row
+// (that's the whole "ramp then plateau" shape, no separate formula needed).
+function curveLimitForDay(rampDays, dayNumber) {
+  let limit = 0;
+  for (const rd of rampDays) {
+    if (rd.dayNumber <= dayNumber) limit = rd.dailyLimit;
+    else break;
+  }
+  return limit;
+}
+
+// firstNonzeroDay: where "warming up" (limit 0) gives way to real sending —
+// this is now what defines "how many days is the warmup", derived from the
+// curve rather than a stored warmup_days column. lastDay: the last day the
+// curve explicitly ramps through, beyond which it's just holding steady
+// ("ready").
+function curveBoundaries(rampDays) {
+  const nonzero = rampDays.find(rd => rd.dailyLimit > 0);
+  return {
+    firstNonzeroDay: nonzero ? nonzero.dayNumber : null,
+    lastDay: rampDays.length ? rampDays[rampDays.length - 1].dayNumber : null
+  };
+}
+
+// warmup_age_days/ramp_start-equivalents come pre-computed from the accounts
+// query (see GET /api/accounts) via the same Amsterdam-morning-boundary SQL
+// functions follow-up due-times use — "day 1" is the calendar day the
+// account's clock reference lands on, ticking over at the next 4am Amsterdam
+// (or whatever the follow-up due hour setting is), not at the exact
+// clock-time of that reference.
+function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount, rampDays) {
   const ageDays = ageDaysFrom(r.created_on);
   const tierCap = tierCapForAge(ageDays);
+  const { firstNonzeroDay, lastDay } = curveBoundaries(rampDays);
+  const zeroDayCount = firstNonzeroDay != null ? firstNonzeroDay - 1 : null;
+
   let phase = 'ready';
-  let warmupEndsAt = null;
   let warmupDay = null;
   let rampDay = null;
   if (!r.rampup_skipped_at) {
-    const rampStart = toDate(r.ramp_start);
-    if (!r.warmup_skipped_at && new Date() < rampStart) {
+    // Skipping warmup is a deliberate, instant user action — its day-count
+    // stays exact-elapsed-time-based rather than morning-aligned, since
+    // there's no "day it was added" boundary to align to (same reasoning as
+    // before this became curve-driven).
+    const dayNumber = r.warmup_skipped_at
+      ? Math.floor((Date.now() - toDate(r.warmup_skipped_at).getTime()) / MS_PER_DAY) + (firstNonzeroDay || 1)
+      : r.days_since_clock_start + 1;
+    const limit = curveLimitForDay(rampDays, dayNumber);
+    if (limit === 0) {
       phase = 'warming_up';
-      warmupEndsAt = rampStart;
       // 0-indexed ("day 0 of N" the day it's added, counting up to "day N-1
-      // of N" the day before ramp-up starts) — matches warmup_days directly
+      // of N" the day before ramp-up starts) — matches zeroDayCount directly
       // rather than needing a separate +1/-1 convention to keep straight.
-      warmupDay = Math.min(r.warmup_days - 1, Math.max(0, r.warmup_age_days));
-    } else if (r.daily_limit < tierCap) {
+      warmupDay = zeroDayCount != null ? Math.min(zeroDayCount - 1, Math.max(0, dayNumber - 1)) : Math.max(0, dayNumber - 1);
+    } else if (lastDay != null && dayNumber <= lastDay) {
       phase = 'ramping_up';
-      // Skipping warmup is a deliberate, instant user action — its ramp-day
-      // count stays exact-elapsed-time-based rather than morning-aligned,
-      // since there's no "day it was added" boundary to align to.
-      rampDay = r.warmup_skipped_at
-        ? Math.floor((Date.now() - rampStart.getTime()) / MS_PER_DAY) + 1
-        : Math.max(1, r.warmup_age_days - r.warmup_days + 1);
+      rampDay = Math.max(1, dayNumber - (zeroDayCount || 0));
     }
   }
   return {
@@ -1023,30 +1046,46 @@ function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount) {
     effectiveRemainingForNewSends: Math.max(0, r.daily_limit - (todaySentCount || 0) - (pendingPhase1FollowupCount || 0)),
     phase,
     warmupDay,
-    warmupDays: r.warmup_days,
-    warmupEndsAt,
-    rampDay
+    warmupDays: zeroDayCount,
+    plateauLimit: lastDay != null ? curveLimitForDay(rampDays, lastDay) : null,
+    rampDay,
+    timingSequenceId: r.timing_sequence_id
   };
+}
+
+// All ramp-day rows for every non-archived sequence in use, grouped by
+// sequence_id — cheap to fetch entirely (a handful of rows per sequence)
+// rather than a per-account correlated query, and sorted ascending so
+// curveLimitForDay/curveBoundaries can just walk each list in order.
+async function getRampDaysBySequence() {
+  const rows = await sql`SELECT sequence_id, day_number, daily_limit FROM timing_sequence_ramp_days ORDER BY sequence_id, day_number ASC`;
+  const bySequence = {};
+  rows.forEach(r => {
+    if (!bySequence[r.sequence_id]) bySequence[r.sequence_id] = [];
+    bySequence[r.sequence_id].push({ dayNumber: r.day_number, dailyLimit: r.daily_limit });
+  });
+  return bySequence;
 }
 
 app.get('/api/accounts', asyncRoute(async (req, res) => {
   const today = todayStr();
   const dueHour = await getFollowupDueHour();
-  // warmup_age_days/ramp_start are computed here (not in JS) so "a day of
-  // warmup" ticks over at the same Amsterdam morning boundary follow-ups use
-  // (amsterdam_day_index()/due_at_normalized()), not at the exact clock-time
-  // the account happened to be added — see mapAccountRow below. The clock
-  // starts from warmup_restarted_at when set (see POST .../restart-warmup) —
-  // an account can be sent back into warmup from any phase without touching
-  // created_at, which still means "when this row was added to the tool" for
-  // list ordering and everywhere else.
-  const accounts = await sql`
-    SELECT *,
-      (amsterdam_day_index(now(), ${dueHour}) - amsterdam_day_index(COALESCE(warmup_restarted_at, created_at), ${dueHour})) AS warmup_age_days,
-      CASE WHEN warmup_skipped_at IS NOT NULL THEN warmup_skipped_at
-           ELSE due_at_normalized(COALESCE(warmup_restarted_at, created_at), warmup_days, ${dueHour}) END AS ramp_start
-    FROM ig_accounts WHERE archived_at IS NULL ORDER BY created_at ASC
-  `;
+  // days_since_clock_start is computed here (not in JS) so "a day" ticks
+  // over at the same Amsterdam morning boundary follow-ups use
+  // (amsterdam_day_index()), not at the exact clock-time of the reference —
+  // see mapAccountRow below. The clock starts from warmup_restarted_at when
+  // set (see POST .../restart-warmup) — an account can be sent back into
+  // warmup from any phase without touching created_at, which still means
+  // "when this row was added to the tool" for list ordering and everywhere
+  // else.
+  const [accounts, rampDaysBySequence] = await Promise.all([
+    sql`
+      SELECT *,
+        (amsterdam_day_index(now(), ${dueHour}) - amsterdam_day_index(COALESCE(warmup_restarted_at, created_at), ${dueHour})) AS days_since_clock_start
+      FROM ig_accounts WHERE archived_at IS NULL ORDER BY created_at ASC
+    `,
+    getRampDaysBySequence()
+  ]);
   const sentRows = await sql`
     SELECT account_id, count(*) FROM outreaches
     WHERE status = 'sent' AND date = ${today} AND account_id IS NOT NULL
@@ -1081,60 +1120,52 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
   const pendingByAccount = {};
   pendingRows.forEach(r => { pendingByAccount[r.account_id] = Number(r.count); });
 
-  // Lazy warmup/ramp-up/tier-upgrade — this app has no background jobs, so
-  // all of this (like the follow-up due-query) runs at request time instead.
-  // Each transition a plain reminder announces (reusing the existing
-  // reminders/notification-bell pipeline rather than a parallel mechanism).
-  const upgraded = [];
+  // Lazy write-through — daily_limit stays a stored, kept-up-to-date column
+  // (not purely derived) because two other endpoints read it directly: the
+  // "sync to accounts max sends" daily-goal sum, and the follow-up-sent
+  // overage check. Recomputed here (like the follow-up due-query, this app
+  // has no background jobs) from the account's assigned Timing sequence
+  // instead of the old age-tier formula — a curve reaching its plateau no
+  // longer auto-upgrades with the account's age, the curve is authoritative.
+  const warmupJustEnded = [];
   for (const r of accounts) {
-    const ageDays = ageDaysFrom(r.created_on);
-    const tierCap = tierCapForAge(ageDays);
-
-    if (!r.rampup_skipped_at) {
-      const rampStart = toDate(r.ramp_start);
-      if (new Date() >= rampStart) {
-        const daysInRamp = r.warmup_skipped_at
-          ? Math.floor((Date.now() - rampStart.getTime()) / MS_PER_DAY) + 1
-          : Math.max(1, r.warmup_age_days - r.warmup_days + 1);
-        const rampLimit = Math.min(tierCap, daysInRamp * RAMP_STEP);
-        if (rampLimit !== r.daily_limit) {
-          // The stored value still reading 0 is what tells us this is the
-          // exact moment warmup ends — the natural (non-skipped) path, since
-          // skip-warmup already bumps this itself and announces separately.
-          if (r.daily_limit === 0) {
-            await sql`
-              INSERT INTO reminders (id, text, due_at, lead_id)
-              VALUES (${crypto.randomUUID()}, ${`🔥 @${r.username} finished its ${r.warmup_days}-day warmup and is ready to start ramping up`}, now(), NULL)
-            `;
-          }
-          await sql`UPDATE ig_accounts SET daily_limit = ${rampLimit} WHERE id = ${r.id}`;
-          r.daily_limit = rampLimit;
-        }
+    if (r.rampup_skipped_at) continue; // parked at its curve's plateau already, nothing to recompute
+    const rampDays = rampDaysBySequence[r.timing_sequence_id] || [];
+    const { firstNonzeroDay } = curveBoundaries(rampDays);
+    const dayNumber = r.warmup_skipped_at
+      ? Math.floor((Date.now() - toDate(r.warmup_skipped_at).getTime()) / MS_PER_DAY) + (firstNonzeroDay || 1)
+      : r.days_since_clock_start + 1;
+    const computedLimit = curveLimitForDay(rampDays, dayNumber);
+    if (computedLimit !== r.daily_limit) {
+      // The stored value still reading 0 is what tells us this is the exact
+      // moment warmup ends — the natural (non-skipped) path, since
+      // skip-warmup already bumps this itself and announces separately.
+      if (r.daily_limit === 0 && computedLimit > 0) {
+        const zeroDayCount = firstNonzeroDay != null ? firstNonzeroDay - 1 : 0;
+        await sql`
+          INSERT INTO reminders (id, text, due_at, lead_id)
+          VALUES (${crypto.randomUUID()}, ${`🔥 @${r.username} finished its ${zeroDayCount}-day warmup and is ready to start ramping up`}, now(), NULL)
+        `;
+        warmupJustEnded.push(r.id);
       }
-      // Still warming up or actively ramping — not eligible for the tier
-      // auto-upgrade below until it's actually reached its tier cap.
-      if (r.daily_limit < tierCap) continue;
-    }
-
-    const newCap = maybeAutoUpgrade(r.daily_limit, ageDays);
-    if (newCap !== null) {
-      await sql`UPDATE ig_accounts SET daily_limit = ${newCap} WHERE id = ${r.id}`;
-      r.daily_limit = newCap;
-      await sql`
-        INSERT INTO reminders (id, text, due_at, lead_id)
-        VALUES (${crypto.randomUUID()}, ${`🎉 @${r.username}'s daily limit was raised to ${newCap} — account turned ${ageDays >= 180 ? '6+ months' : '1+ month'} old`}, now(), NULL)
-      `;
-      upgraded.push(r.id);
+      await sql`UPDATE ig_accounts SET daily_limit = ${computedLimit} WHERE id = ${r.id}`;
+      r.daily_limit = computedLimit;
     }
   }
 
-  res.json({ accounts: accounts.map(r => mapAccountRow(r, sentByAccount[r.id], pendingByAccount[r.id])), upgraded });
+  res.json({
+    accounts: accounts.map(r => mapAccountRow(r, sentByAccount[r.id], pendingByAccount[r.id], rampDaysBySequence[r.timing_sequence_id] || [])),
+    upgraded: warmupJustEnded
+  });
 }));
 
 app.post('/api/accounts/:id/skip-warmup', asyncRoute(async (req, res) => {
-  const [account] = await sql`SELECT username FROM ig_accounts WHERE id = ${req.params.id} AND archived_at IS NULL`;
+  const [account] = await sql`SELECT username, timing_sequence_id FROM ig_accounts WHERE id = ${req.params.id} AND archived_at IS NULL`;
   if (!account) return res.status(404).json({ error: 'Account not found.' });
-  await sql`UPDATE ig_accounts SET warmup_skipped_at = now(), daily_limit = ${RAMP_STEP} WHERE id = ${req.params.id}`;
+  const rampDays = await sql`SELECT day_number, daily_limit FROM timing_sequence_ramp_days WHERE sequence_id = ${account.timing_sequence_id} ORDER BY day_number ASC`;
+  const { firstNonzeroDay } = curveBoundaries(rampDays.map(r => ({ dayNumber: r.day_number, dailyLimit: r.daily_limit })));
+  const startLimit = firstNonzeroDay != null ? rampDays.find(r => r.day_number === firstNonzeroDay).daily_limit : 0;
+  await sql`UPDATE ig_accounts SET warmup_skipped_at = now(), daily_limit = ${startLimit} WHERE id = ${req.params.id}`;
   await sql`
     INSERT INTO reminders (id, text, due_at, lead_id)
     VALUES (${crypto.randomUUID()}, ${`🔥 @${account.username}'s warmup was skipped and is ready to start ramping up`}, now(), NULL)
@@ -1143,10 +1174,10 @@ app.post('/api/accounts/:id/skip-warmup', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/accounts/:id/skip-rampup', asyncRoute(async (req, res) => {
-  const [account] = await sql`SELECT created_on FROM ig_accounts WHERE id = ${req.params.id} AND archived_at IS NULL`;
+  const [account] = await sql`SELECT timing_sequence_id FROM ig_accounts WHERE id = ${req.params.id} AND archived_at IS NULL`;
   if (!account) return res.status(404).json({ error: 'Account not found.' });
-  const tierCap = tierCapForAge(ageDaysFrom(account.created_on));
-  await sql`UPDATE ig_accounts SET rampup_skipped_at = now(), daily_limit = ${tierCap} WHERE id = ${req.params.id}`;
+  const [plateau] = await sql`SELECT daily_limit FROM timing_sequence_ramp_days WHERE sequence_id = ${account.timing_sequence_id} ORDER BY day_number DESC LIMIT 1`;
+  await sql`UPDATE ig_accounts SET rampup_skipped_at = now(), daily_limit = ${plateau ? plateau.daily_limit : 0} WHERE id = ${req.params.id}`;
   res.json({ ok: true });
 }));
 
@@ -1160,11 +1191,12 @@ app.post('/api/accounts/:id/skip-rampup', asyncRoute(async (req, res) => {
 // Clears both skip flags and zeroes the limit — a full do-over, matching a
 // brand-new account's starting state.
 app.post('/api/accounts/:id/restart-warmup', asyncRoute(async (req, res) => {
-  const [account] = await sql`SELECT username FROM ig_accounts WHERE id = ${req.params.id} AND archived_at IS NULL`;
+  const [account] = await sql`SELECT username, timing_sequence_id FROM ig_accounts WHERE id = ${req.params.id} AND archived_at IS NULL`;
   if (!account) return res.status(404).json({ error: 'Account not found.' });
+  const [day1] = await sql`SELECT daily_limit FROM timing_sequence_ramp_days WHERE sequence_id = ${account.timing_sequence_id} AND day_number = 1`;
   await sql`
     UPDATE ig_accounts
-    SET warmup_restarted_at = now(), warmup_skipped_at = NULL, rampup_skipped_at = NULL, daily_limit = 0
+    SET warmup_restarted_at = now(), warmup_skipped_at = NULL, rampup_skipped_at = NULL, daily_limit = ${day1 ? day1.daily_limit : 0}
     WHERE id = ${req.params.id}
   `;
   res.json({ ok: true });
@@ -1178,13 +1210,20 @@ app.post('/api/accounts/:id/restart-warmup', asyncRoute(async (req, res) => {
 // "warming up".
 async function getWarmingUpAccounts() {
   const dueHour = await getFollowupDueHour();
-  const accounts = await sql`
-    SELECT id, username, warmup_skipped_at,
-      CASE WHEN warmup_skipped_at IS NOT NULL THEN warmup_skipped_at
-           ELSE due_at_normalized(COALESCE(warmup_restarted_at, created_at), warmup_days, ${dueHour}) END AS ramp_start
-    FROM ig_accounts WHERE archived_at IS NULL
-  `;
-  return accounts.filter(r => !r.warmup_skipped_at && new Date() < new Date(r.ramp_start));
+  const [accounts, rampDaysBySequence] = await Promise.all([
+    sql`
+      SELECT id, username, warmup_skipped_at, rampup_skipped_at, timing_sequence_id,
+        (amsterdam_day_index(now(), ${dueHour}) - amsterdam_day_index(COALESCE(warmup_restarted_at, created_at), ${dueHour})) AS days_since_clock_start
+      FROM ig_accounts WHERE archived_at IS NULL
+    `,
+    getRampDaysBySequence()
+  ]);
+  return accounts.filter(r => {
+    if (r.warmup_skipped_at || r.rampup_skipped_at) return false;
+    const rampDays = rampDaysBySequence[r.timing_sequence_id] || [];
+    const dayNumber = r.days_since_clock_start + 1;
+    return curveLimitForDay(rampDays, dayNumber) === 0;
+  });
 }
 
 function mapWarmupTaskRow(r) {
@@ -1282,6 +1321,12 @@ app.post('/api/accounts/upload-image', asyncRoute(async (req, res) => {
   res.json({ url: blob.url });
 }));
 
+// Seeded by the timing-sequences migration — a brand-new account gets
+// auto-assigned whichever of these matches its real-world IG age, so it
+// behaves the same as before this system existed until you deliberately
+// reassign or edit a sequence.
+const DEFAULT_TIMING_SEQUENCE_NAMES = { 40: 'Default — New', 60: 'Default — 1-6 months', 80: 'Default — 6+ months' };
+
 app.post('/api/accounts', asyncRoute(async (req, res) => {
   const username = String(req.body.username || '').trim().replace('@', '');
   const createdOn = req.body.createdOn;
@@ -1292,11 +1337,15 @@ app.post('/api/accounts', asyncRoute(async (req, res) => {
   // Every newly-added account starts at 0 and warming up, regardless of how
   // old the real Instagram account already is — the warmup/ramp-up here is
   // about easing this *tool's* usage pattern in, not the account's own age
-  // (which still separately determines its eventual tier cap once ramped).
+  // (which still separately determines which default Timing sequence it
+  // starts on, editable/reassignable afterward from Settings → Timing
+  // sequences).
+  const tierCap = tierCapForAge(ageDaysFrom(createdOn));
+  const [defaultSeq] = await sql`SELECT id FROM timing_sequences WHERE name = ${DEFAULT_TIMING_SEQUENCE_NAMES[tierCap]} AND archived_at IS NULL`;
   const id = crypto.randomUUID();
   await sql`
-    INSERT INTO ig_accounts (id, username, created_on, profile_image_url, daily_limit)
-    VALUES (${id}, ${username}, ${createdOn}, ${req.body.profileImageUrl || null}, 0)
+    INSERT INTO ig_accounts (id, username, created_on, profile_image_url, daily_limit, timing_sequence_id)
+    VALUES (${id}, ${username}, ${createdOn}, ${req.body.profileImageUrl || null}, 0, ${defaultSeq ? defaultSeq.id : null})
   `;
   res.json({ ok: true, id });
 }));
@@ -1304,18 +1353,9 @@ app.post('/api/accounts', asyncRoute(async (req, res) => {
 app.patch('/api/accounts/:id', asyncRoute(async (req, res) => {
   const { id } = req.params;
   const sets = []; const params = []; let i = 1;
-  if (req.body.dailyLimit !== undefined) {
-    const clamped = Math.max(1, Math.round(Number(req.body.dailyLimit)) || 1);
-    sets.push(`daily_limit = $${i++}`); params.push(clamped);
-  }
   if (req.body.username !== undefined) { sets.push(`username = $${i++}`); params.push(String(req.body.username).trim().replace('@', '')); }
   if (req.body.profileImageUrl !== undefined) { sets.push(`profile_image_url = $${i++}`); params.push(req.body.profileImageUrl); }
-  if (req.body.warmupDays !== undefined) {
-    // 0 is a valid, deliberate "no warmup" choice (functionally the same as
-    // skipping immediately) — only negative/non-numeric input gets clamped.
-    const clamped = Math.max(0, Math.round(Number(req.body.warmupDays)) || 0);
-    sets.push(`warmup_days = $${i++}`); params.push(clamped);
-  }
+  if (req.body.timingSequenceId !== undefined) { sets.push(`timing_sequence_id = $${i++}`); params.push(req.body.timingSequenceId); }
   if (sets.length === 0) return res.json({ ok: true });
   params.push(id);
   await sql.query(`UPDATE ig_accounts SET ${sets.join(', ')} WHERE id = $${i}`, params);
@@ -1324,6 +1364,112 @@ app.patch('/api/accounts/:id', asyncRoute(async (req, res) => {
 
 app.delete('/api/accounts/:id', asyncRoute(async (req, res) => {
   await sql`UPDATE ig_accounts SET archived_at = now() WHERE id = ${req.params.id}`;
+  res.json({ ok: true });
+}));
+
+// ---------- TIMING SEQUENCES ----------
+// Named, reusable presets bundling a day-by-day daily-limit ramp curve
+// (timing_sequence_ramp_days) and a repeating in-session send/pause pattern
+// (timing_sequence_pacing_blocks), assignable per Instagram account
+// (ig_accounts.timing_sequence_id) — see Settings → Timing sequences.
+// Instagram-only, matching the rest of the account system.
+
+app.get('/api/timing-sequences', asyncRoute(async (req, res) => {
+  const [sequences, rampDayRows, pacingBlockRows, accountRows] = await Promise.all([
+    sql`SELECT * FROM timing_sequences WHERE archived_at IS NULL ORDER BY created_at ASC`,
+    sql`SELECT * FROM timing_sequence_ramp_days ORDER BY sequence_id, day_number ASC`,
+    sql`SELECT * FROM timing_sequence_pacing_blocks ORDER BY sequence_id, position ASC`,
+    sql`SELECT id, username, timing_sequence_id FROM ig_accounts WHERE archived_at IS NULL AND timing_sequence_id IS NOT NULL`
+  ]);
+  res.json({
+    sequences: sequences.map(s => ({
+      id: s.id,
+      name: s.name,
+      rampDays: rampDayRows.filter(r => r.sequence_id === s.id).map(r => ({ dayNumber: r.day_number, dailyLimit: r.daily_limit })),
+      pacingBlocks: pacingBlockRows.filter(b => b.sequence_id === s.id).map(b => ({
+        id: b.id, position: b.position, blockType: b.block_type, minValue: b.min_value, maxValue: b.max_value, label: b.label, message: b.message
+      })),
+      accountsUsing: accountRows.filter(a => a.timing_sequence_id === s.id).map(a => ({ id: a.id, username: a.username }))
+    }))
+  });
+}));
+
+app.post('/api/timing-sequences', asyncRoute(async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Name is required.' });
+  const id = crypto.randomUUID();
+  await sql`INSERT INTO timing_sequences (id, name) VALUES (${id}, ${name})`;
+  if (req.body.duplicateFrom) {
+    const [rampDays, pacingBlocks] = await Promise.all([
+      sql`SELECT day_number, daily_limit FROM timing_sequence_ramp_days WHERE sequence_id = ${req.body.duplicateFrom} ORDER BY day_number ASC`,
+      sql`SELECT position, block_type, min_value, max_value, label, message FROM timing_sequence_pacing_blocks WHERE sequence_id = ${req.body.duplicateFrom} ORDER BY position ASC`
+    ]);
+    for (const r of rampDays) {
+      await sql`INSERT INTO timing_sequence_ramp_days (id, sequence_id, day_number, daily_limit) VALUES (${crypto.randomUUID()}, ${id}, ${r.day_number}, ${r.daily_limit})`;
+    }
+    for (const b of pacingBlocks) {
+      await sql`
+        INSERT INTO timing_sequence_pacing_blocks (id, sequence_id, position, block_type, min_value, max_value, label, message)
+        VALUES (${crypto.randomUUID()}, ${id}, ${b.position}, ${b.block_type}, ${b.min_value}, ${b.max_value}, ${b.label}, ${b.message})
+      `;
+    }
+  }
+  res.json({ ok: true, id });
+}));
+
+app.patch('/api/timing-sequences/:id', asyncRoute(async (req, res) => {
+  if (req.body.name === undefined) return res.json({ ok: true });
+  const name = String(req.body.name).trim();
+  if (!name) return res.status(400).json({ error: 'Name is required.' });
+  await sql`UPDATE timing_sequences SET name = ${name} WHERE id = ${req.params.id}`;
+  res.json({ ok: true });
+}));
+
+app.delete('/api/timing-sequences/:id', asyncRoute(async (req, res) => {
+  const [inUse] = await sql`SELECT count(*)::int AS count FROM ig_accounts WHERE timing_sequence_id = ${req.params.id} AND archived_at IS NULL`;
+  if (inUse.count > 0) {
+    return res.status(400).json({ error: `${inUse.count} account${inUse.count === 1 ? ' is' : 's are'} still using this sequence — reassign them first.` });
+  }
+  await sql`UPDATE timing_sequences SET archived_at = now() WHERE id = ${req.params.id}`;
+  res.json({ ok: true });
+}));
+
+// Upsert — a ramp curve only needs rows at the days where the value actually
+// changes (see curveLimitForDay), so editing a day is just "set/overwrite
+// this day_number's limit", no separate create-vs-update distinction needed
+// client-side.
+app.put('/api/timing-sequences/:id/ramp-days/:dayNumber', asyncRoute(async (req, res) => {
+  const dayNumber = Math.max(1, Math.round(Number(req.params.dayNumber)) || 1);
+  const dailyLimit = Math.max(0, Math.round(Number(req.body.dailyLimit)) || 0);
+  await sql`
+    INSERT INTO timing_sequence_ramp_days (id, sequence_id, day_number, daily_limit)
+    VALUES (${crypto.randomUUID()}, ${req.params.id}, ${dayNumber}, ${dailyLimit})
+    ON CONFLICT (sequence_id, day_number) DO UPDATE SET daily_limit = ${dailyLimit}
+  `;
+  res.json({ ok: true });
+}));
+
+app.delete('/api/timing-sequences/:id/ramp-days/:dayNumber', asyncRoute(async (req, res) => {
+  await sql`DELETE FROM timing_sequence_ramp_days WHERE sequence_id = ${req.params.id} AND day_number = ${Number(req.params.dayNumber)}`;
+  res.json({ ok: true });
+}));
+
+// Bulk replace, not per-row CRUD like ramp days — a drag-and-drop reorder
+// touches every block's position at once, so the client just sends the
+// full ordered list back on every change.
+app.put('/api/timing-sequences/:id/pacing-blocks', asyncRoute(async (req, res) => {
+  const blocks = Array.isArray(req.body.blocks) ? req.body.blocks : [];
+  await sql`DELETE FROM timing_sequence_pacing_blocks WHERE sequence_id = ${req.params.id}`;
+  for (let i = 0; i < blocks.length; i++) {
+    const b = blocks[i];
+    const blockType = b.blockType === 'pause' ? 'pause' : 'send';
+    const minValue = Math.max(0, Math.round(Number(b.minValue)) || 0);
+    const maxValue = Math.max(minValue, Math.round(Number(b.maxValue)) || minValue);
+    await sql`
+      INSERT INTO timing_sequence_pacing_blocks (id, sequence_id, position, block_type, min_value, max_value, label, message)
+      VALUES (${crypto.randomUUID()}, ${req.params.id}, ${i}, ${blockType}, ${minValue}, ${maxValue}, ${b.label || null}, ${b.message || null})
+    `;
+  }
   res.json({ ok: true });
 }));
 
