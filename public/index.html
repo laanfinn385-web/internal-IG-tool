@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=9">
+<link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -977,7 +977,7 @@
 
       <div class="card hidden" id="timing-seq-editor">
         <h3>Daily limit ramp curve</h3>
-        <p class="muted" style="margin-top:-8px;">One row per day the limit changes — it holds steady until the next row, and forever after the last one. Day 1 at 0 is what "warmup" is.</p>
+        <p class="muted" style="margin-top:-8px;">One row per day the limit changes, each timed as "+N days after the previous row" — it holds steady until then, and forever after the last row. Day 1 at 0 is what "warmup" is.</p>
         <div id="timing-ramp-days-list" class="timing-ramp-days-list"></div>
         <button type="button" id="timing-ramp-day-add-btn" class="btn-secondary">+ Add day</button>
 
@@ -1002,9 +1002,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=9"></script>
-<script src="app.js?v=9"></script>
-<script src="leads.js?v=9"></script>
-<script src="followups.js?v=9"></script>
+<script src="templates.js?v=10"></script>
+<script src="app.js?v=10"></script>
+<script src="leads.js?v=10"></script>
+<script src="followups.js?v=10"></script>
 </body>
 </html>

@@ -1434,23 +1434,18 @@ app.delete('/api/timing-sequences/:id', asyncRoute(async (req, res) => {
   res.json({ ok: true });
 }));
 
-// Upsert — a ramp curve only needs rows at the days where the value actually
-// changes (see curveLimitForDay), so editing a day is just "set/overwrite
-// this day_number's limit", no separate create-vs-update distinction needed
-// client-side.
-app.put('/api/timing-sequences/:id/ramp-days/:dayNumber', asyncRoute(async (req, res) => {
-  const dayNumber = Math.max(1, Math.round(Number(req.params.dayNumber)) || 1);
-  const dailyLimit = Math.max(0, Math.round(Number(req.body.dailyLimit)) || 0);
-  await sql`
-    INSERT INTO timing_sequence_ramp_days (id, sequence_id, day_number, daily_limit)
-    VALUES (${crypto.randomUUID()}, ${req.params.id}, ${dayNumber}, ${dailyLimit})
-    ON CONFLICT (sequence_id, day_number) DO UPDATE SET daily_limit = ${dailyLimit}
-  `;
-  res.json({ ok: true });
-}));
-
-app.delete('/api/timing-sequences/:id/ramp-days/:dayNumber', asyncRoute(async (req, res) => {
-  await sql`DELETE FROM timing_sequence_ramp_days WHERE sequence_id = ${req.params.id} AND day_number = ${Number(req.params.dayNumber)}`;
+// Bulk replace — the client edits each day as "+N days after the previous
+// one" (see the Timing sequences page), so changing one offset cascades to
+// every day after it; simplest to just send the whole recomputed list back
+// rather than track that cascade as individual per-row updates.
+app.put('/api/timing-sequences/:id/ramp-days', asyncRoute(async (req, res) => {
+  const days = Array.isArray(req.body.days) ? req.body.days : [];
+  await sql`DELETE FROM timing_sequence_ramp_days WHERE sequence_id = ${req.params.id}`;
+  for (const d of days) {
+    const dayNumber = Math.max(1, Math.round(Number(d.dayNumber)) || 1);
+    const dailyLimit = Math.max(0, Math.round(Number(d.dailyLimit)) || 0);
+    await sql`INSERT INTO timing_sequence_ramp_days (id, sequence_id, day_number, daily_limit) VALUES (${crypto.randomUUID()}, ${req.params.id}, ${dayNumber}, ${dailyLimit})`;
+  }
   res.json({ ok: true });
 }));
 

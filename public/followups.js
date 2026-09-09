@@ -1108,39 +1108,58 @@ function renderTimingSeqEditor() {
   renderPacingBlocks(seq);
 }
 
+// Edited as "+N days after the previous row" rather than a raw absolute day
+// number — day 1 is always the start (nothing to offset from), every row
+// after it shows how many days later it kicks in. Editing an offset shifts
+// that row and everything after it by the same delta, preserving their
+// mutual spacing, then the whole recomputed list is bulk-saved (see
+// PUT .../ramp-days) since one offset change cascades to every later day.
 function renderRampDays(seq) {
   const rows = [...seq.rampDays].sort((a, b) => a.dayNumber - b.dayNumber);
-  $('#timing-ramp-days-list').innerHTML = rows.map(r => `
+  $('#timing-ramp-days-list').innerHTML = rows.map((r, i) => `
     <div class="timing-ramp-day-row">
-      <span class="timing-ramp-day-label">Day ${r.dayNumber}</span>
+      <span class="timing-ramp-day-label">${i === 0 ? 'Day 1' : `Day ${r.dayNumber}`}</span>
+      ${i > 0 ? `<label>+ days after previous
+        <input type="number" min="1" class="timing-ramp-day-offset-input" data-index="${i}" value="${r.dayNumber - rows[i - 1].dayNumber}">
+      </label>` : ''}
       <label>Daily limit
-        <input type="number" min="0" class="timing-ramp-day-input" data-day="${r.dayNumber}" value="${r.dailyLimit}">
+        <input type="number" min="0" class="timing-ramp-day-input" data-index="${i}" value="${r.dailyLimit}">
       </label>
-      <button type="button" class="timing-ramp-day-delete-btn" data-day="${r.dayNumber}" title="Remove this day">🗑</button>
+      <button type="button" class="timing-ramp-day-delete-btn" data-index="${i}" title="Remove this day">🗑</button>
     </div>`).join('');
 }
 
-$('#timing-ramp-days-list').addEventListener('change', async (e) => {
-  const input = e.target.closest('.timing-ramp-day-input');
-  if (!input) return;
-  const seq = activeTimingSeq();
-  if (!seq) return;
-  const dayNumber = Number(input.dataset.day);
-  const value = Math.max(0, Math.round(Number(input.value)) || 0);
-  input.disabled = true;
+async function saveRampDays(seq) {
   try {
-    await fetchJson(`/api/timing-sequences/${seq.id}/ramp-days/${dayNumber}`, {
+    await fetchJson(`/api/timing-sequences/${seq.id}/ramp-days`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dailyLimit: value })
+      body: JSON.stringify({ days: seq.rampDays })
     });
-    const row = seq.rampDays.find(r => r.dayNumber === dayNumber);
-    if (row) row.dailyLimit = value;
   } catch (err) {
-    alert(`Could not save: ${err.message}`);
-  } finally {
-    input.disabled = false;
+    alert(`Could not save ramp curve: ${err.message}`);
   }
+}
+
+$('#timing-ramp-days-list').addEventListener('change', async (e) => {
+  const seq = activeTimingSeq();
+  if (!seq) return;
+  const offsetInput = e.target.closest('.timing-ramp-day-offset-input');
+  const limitInput = e.target.closest('.timing-ramp-day-input');
+  if (!offsetInput && !limitInput) return;
+  const rows = [...seq.rampDays].sort((a, b) => a.dayNumber - b.dayNumber);
+  if (offsetInput) {
+    const i = Number(offsetInput.dataset.index);
+    const newOffset = Math.max(1, Math.round(Number(offsetInput.value)) || 1);
+    const delta = (rows[i - 1].dayNumber + newOffset) - rows[i].dayNumber;
+    for (let j = i; j < rows.length; j++) rows[j].dayNumber += delta;
+  }
+  if (limitInput) {
+    rows[Number(limitInput.dataset.index)].dailyLimit = Math.max(0, Math.round(Number(limitInput.value)) || 0);
+  }
+  seq.rampDays = rows;
+  await saveRampDays(seq);
+  renderRampDays(seq);
 });
 
 $('#timing-ramp-days-list').addEventListener('click', async (e) => {
@@ -1148,42 +1167,35 @@ $('#timing-ramp-days-list').addEventListener('click', async (e) => {
   if (!btn) return;
   const seq = activeTimingSeq();
   if (!seq) return;
-  const dayNumber = Number(btn.dataset.day);
-  if (!confirm(`Remove day ${dayNumber} from this curve?`)) return;
-  btn.disabled = true;
-  try {
-    await fetchJson(`/api/timing-sequences/${seq.id}/ramp-days/${dayNumber}`, { method: 'DELETE' });
-    seq.rampDays = seq.rampDays.filter(r => r.dayNumber !== dayNumber);
-    renderRampDays(seq);
-  } catch (err) {
-    alert(`Could not remove: ${err.message}`);
-    btn.disabled = false;
-  }
+  const rows = [...seq.rampDays].sort((a, b) => a.dayNumber - b.dayNumber);
+  const i = Number(btn.dataset.index);
+  if (!confirm(`Remove day ${rows[i].dayNumber} from this curve?`)) return;
+  rows.splice(i, 1);
+  seq.rampDays = rows;
+  await saveRampDays(seq);
+  renderRampDays(seq);
 });
 
 $('#timing-ramp-day-add-btn').addEventListener('click', async () => {
   const seq = activeTimingSeq();
   if (!seq) return;
-  const nextDay = seq.rampDays.length ? Math.max(...seq.rampDays.map(r => r.dayNumber)) + 1 : 1;
-  const dayInput = prompt('Day number:', nextDay);
-  if (dayInput === null) return;
-  const dayNumber = Math.max(1, Math.round(Number(dayInput)) || 1);
-  const limitInput = prompt(`Daily limit for day ${dayNumber}:`, '0');
+  const rows = [...seq.rampDays].sort((a, b) => a.dayNumber - b.dayNumber);
+  let dayNumber;
+  if (rows.length === 0) {
+    dayNumber = 1; // the first row is always day 1 — nothing to offset from yet
+  } else {
+    const lastDay = rows[rows.length - 1].dayNumber;
+    const offsetInput = prompt(`How many days after day ${lastDay}?`, '1');
+    if (offsetInput === null) return;
+    const offset = Math.max(1, Math.round(Number(offsetInput)) || 1);
+    dayNumber = lastDay + offset;
+  }
+  const limitInput = prompt(`Daily limit starting day ${dayNumber}:`, '0');
   if (limitInput === null) return;
   const dailyLimit = Math.max(0, Math.round(Number(limitInput)) || 0);
-  try {
-    await fetchJson(`/api/timing-sequences/${seq.id}/ramp-days/${dayNumber}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dailyLimit })
-    });
-    const existing = seq.rampDays.find(r => r.dayNumber === dayNumber);
-    if (existing) existing.dailyLimit = dailyLimit;
-    else seq.rampDays.push({ dayNumber, dailyLimit });
-    renderRampDays(seq);
-  } catch (err) {
-    alert(`Could not add day: ${err.message}`);
-  }
+  seq.rampDays = [...rows, { dayNumber, dailyLimit }];
+  await saveRampDays(seq);
+  renderRampDays(seq);
 });
 
 function renderPacingBlocks(seq) {
