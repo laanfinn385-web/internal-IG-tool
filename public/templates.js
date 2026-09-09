@@ -14,6 +14,28 @@ function renderTemplateString(str, placeholders) {
     .replace(/\{months\}/g, placeholders.months ?? '');
 }
 
+// Spintax: {option1|option2|option3} picks one option at random. Requires a
+// '|' inside the braces so {naam}/{views}/{months} (no pipe) are never
+// mistaken for a one-option spintax group. Resolves innermost groups first
+// (a group's own contents can't contain a brace, by construction of the
+// regex), so repeating the replace naturally handles nesting like
+// "{Hey|Hi} {naam}, {have you seen|did you catch} my video?" from the
+// inside out. Capped at 100 passes so a malformed/pathological input (an
+// unmatched brace, say) can never hang the render loop.
+function resolveSpintax(str) {
+  let result = String(str || '');
+  const groupPattern = /\{([^{}]*\|[^{}]*)\}/;
+  let match;
+  let guard = 0;
+  while ((match = groupPattern.exec(result)) && guard < 100) {
+    const options = match[1].split('|');
+    const choice = options[Math.floor(Math.random() * options.length)];
+    result = result.slice(0, match.index) + choice + result.slice(match.index + match[0].length);
+    guard++;
+  }
+  return result;
+}
+
 const MESSAGE_SLOTS = ['opener', 'hook', 'value', 'cta'];
 
 async function loadTemplatesFromServer(platform = 'linkedin') {

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=12">
+<link rel="stylesheet" href="style.css?v=13">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -1033,6 +1033,11 @@
       <div class="card hidden" id="message-seq-editor">
         <h3>First message</h3>
         <p class="muted" style="margin-top:-8px;"><code>{naam}</code> becomes the lead's first name. Up to 4 opening-line variants — a fresh lead randomly gets one, and which one it got is tracked, so Analytics' "Opener A/B test" tab can show which wording actually performs best.</p>
+        <p class="muted spintax-help" style="margin-top:-4px;">
+          Each variant also supports <strong>spintax</strong> for extra wording variety within itself (on top of the A/B variants) — write <code>{option one|option two|option three}</code> and one option is picked at random every time. Example:<br>
+          <code>{Hey|Hi} {naam}, {have you seen|did you catch} my video yet? 👀</code><br>
+          Combine as many as you like in one message, and they can nest too, e.g. <code>{Hey{,| there,}|Hi}</code>. Don't use this for <code>{naam}</code>/<code>{views}</code>/<code>{months}</code> — those stay as plain placeholders, not spintax (no <code>|</code> inside them).
+        </p>
         <div id="message-seq-openers-list" class="timing-ramp-days-list"></div>
         <button type="button" id="message-seq-opener-add-btn" class="btn-secondary">+ Add variant</button>
         <label class="radio-label" style="margin-top:12px;">
@@ -1064,9 +1069,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=12"></script>
-<script src="app.js?v=12"></script>
-<script src="leads.js?v=12"></script>
-<script src="followups.js?v=12"></script>
+<script src="templates.js?v=13"></script>
+<script src="app.js?v=13"></script>
+<script src="leads.js?v=13"></script>
+<script src="followups.js?v=13"></script>
 </body>
 </html>

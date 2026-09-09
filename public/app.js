@@ -1099,11 +1099,22 @@ function updateMessage() {
   const openers = seq && seq.openers && seq.openers.length ? seq.openers : null;
   if (openers && (!p.openerId || !openers.some(o => o.id === p.openerId))) {
     p.openerId = openers[randomInt(0, openers.length - 1)].id;
+    p.resolvedOpenerTemplate = null; // a new opener was just picked — needs a fresh spintax roll
   } else if (!openers) {
     p.openerId = null;
+    p.resolvedOpenerTemplate = null;
   }
   const opener = openers && p.openerId ? openers.find(o => o.id === p.openerId) : null;
-  const text = opener ? renderTemplateString(opener.text, buildPlaceholders(p)) : '';
+  // Spintax ({option1|option2|...} — see Messaging sequences' opener editor)
+  // resolves once per opener pick, not on every render, so the specific
+  // wording a lead ends up with stays fixed while paging back and forth —
+  // same reasoning p.openerId itself is cached for. {naam}/{views}/{months}
+  // placeholders resolve fresh every render on top of that (so editing the
+  // name field still live-updates the message), via renderTemplateString.
+  if (opener && p.resolvedOpenerTemplate == null) {
+    p.resolvedOpenerTemplate = resolveSpintax(opener.text);
+  }
+  const text = opener ? renderTemplateString(p.resolvedOpenerTemplate, buildPlaceholders(p)) : '';
   p.message = text;
   $('#f-message').value = text;
   $('#dm-link').href = leadDmUrl(p);
