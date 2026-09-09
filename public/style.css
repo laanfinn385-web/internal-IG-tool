@@ -1660,6 +1660,9 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 .message-seq-step-type-input { width: 90px; margin-bottom: 0; flex-shrink: 0; }
 .message-seq-step-message-input { flex: 1; min-width: 160px; margin-bottom: 0; }
 .message-seq-step-media-input { flex: 1; min-width: 140px; margin-bottom: 0; }
+.message-seq-opener-row { align-items: flex-start; }
+.message-seq-opener-label { font-weight: 700; font-size: 0.88rem; width: 76px; flex-shrink: 0; padding-top: 8px; }
+.message-seq-opener-text { flex: 1; min-width: 160px; margin-bottom: 0; resize: vertical; }
 
 .timing-pacing-block-row {
   display: flex;
@@ -1825,6 +1828,12 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 .settings-followup-day { width: 90px; margin-bottom: 0; }
 .settings-followup-type { width: 130px; margin-bottom: 0; }
 .settings-phase-tabs { display: flex; gap: 8px; margin: 14px 0; }
+
+.analytics-openers-table-wrap { overflow-x: auto; }
+.analytics-openers-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; }
+.analytics-openers-table th, .analytics-openers-table td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.analytics-openers-table th { color: var(--muted); font-weight: 700; font-size: 0.76rem; text-transform: uppercase; letter-spacing: 0.02em; }
+.analytics-openers-table td.analytics-openers-text { white-space: normal; min-width: 220px; max-width: 360px; }
 
 @media (max-width: 700px) {
   .funnel-grid { grid-template-columns: repeat(2, 1fr); }

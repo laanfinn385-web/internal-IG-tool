@@ -1088,11 +1088,22 @@ function updateMessage() {
   }
 
   // Instagram — the first message comes from the active account's assigned
-  // Messaging sequence (Settings → Messaging sequences), not a
-  // stats-suggested category anymore. Deterministic (no rotation/reshuffle
-  // to preserve across renders) since there's only one wording per sequence.
+  // Messaging sequence (Settings → Messaging sequences): a uniform-random
+  // pick among up to 4 opening-line variants, for A/B testing. Picked once
+  // per profile and cached (p.openerId) so revisiting the same lead mid-
+  // session doesn't re-roll the wording out from under you — the exact
+  // caching approach p.template/p.partIds used before this system replaced
+  // the old category logic. decide() sends p.openerId along with the
+  // phase1-entry PATCH so which variant this lead got is a permanent record.
   const seq = messageSequenceForAccount(findIgAccount(state.igAccountId));
-  const text = seq ? renderTemplateString(seq.firstMessageText, buildPlaceholders(p)) : '';
+  const openers = seq && seq.openers && seq.openers.length ? seq.openers : null;
+  if (openers && (!p.openerId || !openers.some(o => o.id === p.openerId))) {
+    p.openerId = openers[randomInt(0, openers.length - 1)].id;
+  } else if (!openers) {
+    p.openerId = null;
+  }
+  const opener = openers && p.openerId ? openers.find(o => o.id === p.openerId) : null;
+  const text = opener ? renderTemplateString(opener.text, buildPlaceholders(p)) : '';
   p.message = text;
   $('#f-message').value = text;
   $('#dm-link').href = leadDmUrl(p);
@@ -1644,7 +1655,8 @@ async function decide(status) {
           bio: p.bio,
           followers: p.followers,
           stage: 'phase1',
-          accountId: p.platform === 'instagram' ? state.igAccountId : undefined
+          accountId: p.platform === 'instagram' ? state.igAccountId : undefined,
+          openerId: p.platform === 'instagram' ? p.openerId : undefined
         })
       }).then(() => loadNotifications()).catch(e => console.error('Could not update lead stage', e));
     } else if (status === 'cant_message') {
@@ -2819,6 +2831,12 @@ function resumeSavedSession(session) {
 // ---------- ANALYTICS ----------
 let currentRange = 'today';
 
+// Matches followups.js's own OPENER_LABELS (used on the Messaging sequences
+// editor) — duplicated with a distinct name rather than shared across files,
+// since plain <script> tags share one global scope and two `const`s with the
+// same name across files would be a SyntaxError, not a silent overwrite.
+const ANALYTICS_OPENER_LABELS = ['Variant A', 'Variant B', 'Variant C', 'Variant D'];
+
 // Scoped to #range-tabs specifically (not a blanket $all('.range-tab')) —
 // that class is now reused by every platform/type toggle across the app
 // (Leads, Home, Saved Sessions, Settings' phase tabs), and a page-wide
@@ -2851,6 +2869,45 @@ $('#analytics-platform-tabs').addEventListener('click', (e) => {
   analyticsPlatformFilter = btn.dataset.platform;
   loadAnalytics(currentRange);
 });
+
+// "Overview" (the existing date-ranged funnel/chart) vs "Opener A/B test" —
+// the latter is deliberately its own tab bar, independent of the
+// range/platform tabs above, since opener performance is a cumulative
+// all-time comparison, not something scoped to a period (see
+// GET /api/analytics/openers).
+$('#analytics-mode-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.range-tab');
+  if (!btn) return;
+  $all('#analytics-mode-tabs .range-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  const mode = btn.dataset.mode;
+  $('#analytics-overview-section').classList.toggle('hidden', mode !== 'overview');
+  $('#analytics-openers-section').classList.toggle('hidden', mode !== 'openers');
+  if (mode === 'openers') loadAnalyticsOpeners();
+});
+
+async function loadAnalyticsOpeners() {
+  try {
+    const data = await fetchJson('/api/analytics/openers');
+    const openers = (data.openers || []).slice().sort((a, b) => (b.prr ?? -1) - (a.prr ?? -1));
+    $('#analytics-openers-empty').classList.toggle('hidden', openers.length > 0);
+    $('#analytics-openers-tbody').innerHTML = openers.map(o => `
+      <tr>
+        <td>${escapeHtml(o.sequenceName)}</td>
+        <td>${ANALYTICS_OPENER_LABELS[o.position] || `Variant ${o.position + 1}`}</td>
+        <td class="analytics-openers-text">${escapeHtml(o.text || '(empty)')}</td>
+        <td>${o.sends}</td>
+        <td>${o.replies}</td>
+        <td>${o.replyRate != null ? o.replyRate + '%' : '–'}</td>
+        <td>${o.positiveReplies}</td>
+        <td>${o.prr != null ? o.prr + '%' : '–'}</td>
+        <td>${o.appointmentsSet}</td>
+        <td>${o.asr != null ? o.asr + '%' : '–'}</td>
+      </tr>`).join('');
+  } catch (e) {
+    alert(`Could not load opener performance: ${e.message}`);
+  }
+}
 
 async function loadAnalytics(range) {
   try {

@@ -509,6 +509,51 @@ app.get('/api/analytics', asyncRoute(async (req, res) => {
   res.json({ range, total, prevTotal, pctChange, series, funnel });
 }));
 
+// Opening-line A/B test performance — deliberately separate from the
+// date-ranged /api/analytics above: an opener's performance is a cumulative
+// comparison across however long it's been running, not a period-over-period
+// one, so this ignores the range/platform tabs entirely. Joins straight to
+// message_sequences (not filtered by archived_at) so a variant from an
+// archived/deleted sequence still shows its historical performance rather
+// than silently disappearing.
+app.get('/api/analytics/openers', asyncRoute(async (req, res) => {
+  const rows = await sql`
+    SELECT o.id, o.position, o.text, ms.name AS sequence_name,
+      count(l.id) AS sends,
+      count(l.id) FILTER (WHERE l.ever_positive_reply) AS positive_replies,
+      count(l.id) FILTER (WHERE l.ever_call_booked) AS appointments_set,
+      count(l.id) FILTER (WHERE EXISTS (SELECT 1 FROM lead_events e WHERE e.lead_id = l.id AND e.event = 'dead')) AS dead_count
+    FROM message_sequence_openers o
+    JOIN message_sequences ms ON ms.id = o.sequence_id
+    LEFT JOIN leads l ON l.opener_id = o.id AND l.deleted_at IS NULL
+    GROUP BY o.id, o.position, o.text, ms.name
+    ORDER BY ms.name, o.position
+  `;
+  const rate = (num, denom) => (denom > 0 ? Math.round((num / denom) * 1000) / 10 : null);
+  const openers = rows.map(r => {
+    const sends = Number(r.sends);
+    const positiveReplies = Number(r.positive_replies);
+    const appointmentsSet = Number(r.appointments_set);
+    // Replies = Positive Replies + Dead (a "no" is still a reply) — same
+    // definition GET /api/analytics uses.
+    const replies = positiveReplies + Number(r.dead_count);
+    return {
+      id: r.id,
+      position: r.position,
+      text: r.text,
+      sequenceName: r.sequence_name,
+      sends,
+      replies,
+      replyRate: rate(replies, sends),
+      positiveReplies,
+      prr: rate(positiveReplies, sends),
+      appointmentsSet,
+      asr: rate(appointmentsSet, sends)
+    };
+  });
+  res.json({ openers });
+}));
+
 // ---------- LEADS ----------
 
 // Wraps an async route handler so a thrown/rejected error becomes a JSON
@@ -670,7 +715,8 @@ const LEAD_PATCH_FIELDS = {
   followers: 'followers',
   stage: 'stage',
   notes: 'notes',
-  accountId: 'account_id'
+  accountId: 'account_id',
+  openerId: 'opener_id'
 };
 
 const FOLLOWUP_STAGES = ['phase1', 'phase2', 'phase3'];
@@ -1488,8 +1534,9 @@ app.put('/api/timing-sequences/:id/pacing-blocks', asyncRoute(async (req, res) =
 // completely separate single-template + global follow-up system untouched.
 
 app.get('/api/message-sequences', asyncRoute(async (req, res) => {
-  const [sequences, followupRows, accountRows] = await Promise.all([
+  const [sequences, openerRows, followupRows, accountRows] = await Promise.all([
     sql`SELECT * FROM message_sequences WHERE archived_at IS NULL ORDER BY created_at ASC`,
+    sql`SELECT * FROM message_sequence_openers ORDER BY sequence_id, position ASC`,
     sql`SELECT * FROM message_sequence_followups ORDER BY sequence_id, phase, step ASC`,
     sql`SELECT id, username, message_sequence_id FROM ig_accounts WHERE archived_at IS NULL AND message_sequence_id IS NOT NULL`
   ]);
@@ -1497,8 +1544,11 @@ app.get('/api/message-sequences', asyncRoute(async (req, res) => {
     sequences: sequences.map(s => ({
       id: s.id,
       name: s.name,
-      firstMessageText: s.first_message_text,
       firstMessageHasVideo: s.first_message_has_video,
+      // Up to 4 opening-line variants, randomly assigned per lead (see
+      // app.js updateMessage()) for A/B testing — replaces the single fixed
+      // first-message text this used to be.
+      openers: openerRows.filter(r => r.sequence_id === s.id).map(r => ({ id: r.id, position: r.position, text: r.text })),
       followups: followupRows.filter(r => r.sequence_id === s.id).map(r => ({
         phase: r.phase, step: r.step, dayOffset: r.day_offset, type: r.type, message: r.message, mediaNote: r.media_note
       })),
@@ -1512,11 +1562,15 @@ app.post('/api/message-sequences', asyncRoute(async (req, res) => {
   if (!name) return res.status(400).json({ error: 'Name is required.' });
   const id = crypto.randomUUID();
   if (req.body.duplicateFrom) {
-    const [source] = await sql`SELECT first_message_text, first_message_has_video FROM message_sequences WHERE id = ${req.body.duplicateFrom}`;
+    const [source] = await sql`SELECT first_message_has_video FROM message_sequences WHERE id = ${req.body.duplicateFrom}`;
     await sql`
-      INSERT INTO message_sequences (id, name, first_message_text, first_message_has_video)
-      VALUES (${id}, ${name}, ${source ? source.first_message_text : ''}, ${source ? source.first_message_has_video : false})
+      INSERT INTO message_sequences (id, name, first_message_has_video)
+      VALUES (${id}, ${name}, ${source ? source.first_message_has_video : false})
     `;
+    const openers = await sql`SELECT position, text FROM message_sequence_openers WHERE sequence_id = ${req.body.duplicateFrom} ORDER BY position`;
+    for (const o of openers) {
+      await sql`INSERT INTO message_sequence_openers (id, sequence_id, position, text) VALUES (${crypto.randomUUID()}, ${id}, ${o.position}, ${o.text})`;
+    }
     const followups = await sql`SELECT phase, step, day_offset, type, message, media_note FROM message_sequence_followups WHERE sequence_id = ${req.body.duplicateFrom} ORDER BY phase, step`;
     for (const f of followups) {
       await sql`
@@ -1526,6 +1580,7 @@ app.post('/api/message-sequences', asyncRoute(async (req, res) => {
     }
   } else {
     await sql`INSERT INTO message_sequences (id, name) VALUES (${id}, ${name})`;
+    await sql`INSERT INTO message_sequence_openers (id, sequence_id, position, text) VALUES (${crypto.randomUUID()}, ${id}, 0, '')`;
   }
   res.json({ ok: true, id });
 }));
@@ -1537,11 +1592,23 @@ app.patch('/api/message-sequences/:id', asyncRoute(async (req, res) => {
     if (!name) return res.status(400).json({ error: 'Name is required.' });
     sets.push(`name = $${i++}`); params.push(name);
   }
-  if (req.body.firstMessageText !== undefined) { sets.push(`first_message_text = $${i++}`); params.push(String(req.body.firstMessageText)); }
   if (req.body.firstMessageHasVideo !== undefined) { sets.push(`first_message_has_video = $${i++}`); params.push(!!req.body.firstMessageHasVideo); }
   if (sets.length === 0) return res.json({ ok: true });
   params.push(req.params.id);
   await sql.query(`UPDATE message_sequences SET ${sets.join(', ')} WHERE id = $${i}`, params);
+  res.json({ ok: true });
+}));
+
+// Bulk replace — up to 4 opening-line variants, edited/saved as one unit
+// (add/remove/edit all go through this single endpoint, same reasoning as
+// ramp-days/followup-steps/pacing-blocks elsewhere in this app).
+app.put('/api/message-sequences/:id/openers', asyncRoute(async (req, res) => {
+  const openers = Array.isArray(req.body.openers) ? req.body.openers.slice(0, 4) : [];
+  if (openers.length === 0) return res.status(400).json({ error: 'At least one opener variant is required.' });
+  await sql`DELETE FROM message_sequence_openers WHERE sequence_id = ${req.params.id}`;
+  for (let i = 0; i < openers.length; i++) {
+    await sql`INSERT INTO message_sequence_openers (id, sequence_id, position, text) VALUES (${crypto.randomUUID()}, ${req.params.id}, ${i}, ${String(openers[i].text || '')})`;
+  }
   res.json({ ok: true });
 }));
 

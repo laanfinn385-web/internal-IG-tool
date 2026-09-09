@@ -1382,14 +1382,76 @@ $('#message-seq-select').addEventListener('change', () => {
   renderMessageSeqEditor();
 });
 
+const OPENER_LABELS = ['Variant A', 'Variant B', 'Variant C', 'Variant D'];
+
 function renderMessageSeqEditor() {
   const seq = activeMessageSeq();
   $('#message-seq-editor').classList.toggle('hidden', !seq);
   if (!seq) return;
-  $('#message-seq-first-text').value = seq.firstMessageText || '';
   $('#message-seq-first-video').checked = !!seq.firstMessageHasVideo;
+  renderMessageSeqOpeners(seq);
   renderMessageSeqSteps(seq);
 }
+
+function renderMessageSeqOpeners(seq) {
+  const openers = [...seq.openers].sort((a, b) => a.position - b.position);
+  $('#message-seq-openers-list').innerHTML = openers.map((o, i) => `
+    <div class="timing-ramp-day-row message-seq-opener-row">
+      <span class="message-seq-opener-label">${OPENER_LABELS[i]}</span>
+      <textarea class="message-seq-opener-text" rows="2" data-index="${i}" placeholder="Opening line for this variant">${escapeHtml(o.text || '')}</textarea>
+      <button type="button" class="timing-ramp-day-delete-btn" data-index="${i}" title="Remove this variant"${openers.length <= 1 ? ' disabled' : ''}>🗑</button>
+    </div>`).join('');
+  $('#message-seq-opener-add-btn').classList.toggle('hidden', openers.length >= 4);
+}
+
+async function saveMessageSeqOpeners(seq) {
+  const openers = [...seq.openers].sort((a, b) => a.position - b.position);
+  try {
+    await fetchJson(`/api/message-sequences/${seq.id}/openers`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ openers: openers.map(o => ({ text: o.text })) })
+    });
+  } catch (err) {
+    alert(`Could not save opener variants: ${err.message}`);
+  }
+}
+
+$('#message-seq-openers-list').addEventListener('change', async (e) => {
+  const textarea = e.target.closest('.message-seq-opener-text');
+  if (!textarea) return;
+  const seq = activeMessageSeq();
+  if (!seq) return;
+  const openers = [...seq.openers].sort((a, b) => a.position - b.position);
+  openers[Number(textarea.dataset.index)].text = textarea.value;
+  seq.openers = openers;
+  await saveMessageSeqOpeners(seq);
+});
+
+$('#message-seq-openers-list').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.timing-ramp-day-delete-btn');
+  if (!btn || btn.disabled) return;
+  const seq = activeMessageSeq();
+  if (!seq) return;
+  const openers = [...seq.openers].sort((a, b) => a.position - b.position);
+  if (openers.length <= 1) return; // at least one variant is required
+  if (!confirm('Remove this opener variant?')) return;
+  openers.splice(Number(btn.dataset.index), 1);
+  seq.openers = openers;
+  await saveMessageSeqOpeners(seq);
+  renderMessageSeqOpeners(seq);
+});
+
+$('#message-seq-opener-add-btn').addEventListener('click', async () => {
+  const seq = activeMessageSeq();
+  if (!seq) return;
+  const openers = [...seq.openers].sort((a, b) => a.position - b.position);
+  if (openers.length >= 4) return;
+  openers.push({ position: openers.length, text: '' });
+  seq.openers = openers;
+  await saveMessageSeqOpeners(seq);
+  renderMessageSeqOpeners(seq);
+});
 
 $('#message-seq-first-save-btn').addEventListener('click', async () => {
   const seq = activeMessageSeq();
@@ -1400,15 +1462,11 @@ $('#message-seq-first-save-btn').addEventListener('click', async () => {
     await fetchJson(`/api/message-sequences/${seq.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        firstMessageText: $('#message-seq-first-text').value,
-        firstMessageHasVideo: $('#message-seq-first-video').checked
-      })
+      body: JSON.stringify({ firstMessageHasVideo: $('#message-seq-first-video').checked })
     });
-    seq.firstMessageText = $('#message-seq-first-text').value;
     seq.firstMessageHasVideo = $('#message-seq-first-video').checked;
   } catch (err) {
-    alert(`Could not save first message: ${err.message}`);
+    alert(`Could not save video setting: ${err.message}`);
   } finally {
     btn.disabled = false;
   }

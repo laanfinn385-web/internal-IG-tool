@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=11">
+<link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -741,51 +741,80 @@
     <section id="view-analytics" class="view hidden">
       <div class="row-between leads-header">
         <h1 class="page-title">Analytics</h1>
-        <div class="range-tabs" id="analytics-platform-tabs">
-          <button type="button" class="range-tab" data-platform="instagram">Instagram</button>
-          <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
-          <button type="button" class="range-tab active" data-platform="all">All</button>
-        </div>
-      </div>
-      <div class="range-tabs" id="range-tabs">
-        <button data-range="today" class="range-tab active">Today</button>
-        <button data-range="week" class="range-tab">This week</button>
-        <button data-range="month" class="range-tab">This month</button>
-        <button data-range="3months" class="range-tab">3 months</button>
-        <button data-range="year" class="range-tab">This year</button>
-        <button data-range="all" class="range-tab">All</button>
-      </div>
-
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="stat-value" id="an-total">–</div>
-          <div class="stat-label">reach-outs</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="an-change">–</div>
-          <div class="stat-label" id="an-change-label">vs previous period</div>
+        <div class="range-tabs" id="analytics-mode-tabs">
+          <button type="button" class="range-tab active" data-mode="overview">Overview</button>
+          <button type="button" class="range-tab" data-mode="openers">Opener A/B test</button>
         </div>
       </div>
 
-      <div class="card chart-card">
-        <svg id="an-chart" viewBox="0 0 800 300" preserveAspectRatio="none"></svg>
-        <div id="an-tooltip" class="chart-tooltip hidden"></div>
+      <div id="analytics-overview-section">
+        <div class="row-between leads-header">
+          <div></div>
+          <div class="range-tabs" id="analytics-platform-tabs">
+            <button type="button" class="range-tab" data-platform="instagram">Instagram</button>
+            <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
+            <button type="button" class="range-tab active" data-platform="all">All</button>
+          </div>
+        </div>
+        <div class="range-tabs" id="range-tabs">
+          <button data-range="today" class="range-tab active">Today</button>
+          <button data-range="week" class="range-tab">This week</button>
+          <button data-range="month" class="range-tab">This month</button>
+          <button data-range="3months" class="range-tab">3 months</button>
+          <button data-range="year" class="range-tab">This year</button>
+          <button data-range="all" class="range-tab">All</button>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat-card">
+            <div class="stat-value" id="an-total">–</div>
+            <div class="stat-label">reach-outs</div>
+          </div>
+          <div class="stat-card">
+            <div class="stat-value" id="an-change">–</div>
+            <div class="stat-label" id="an-change-label">vs previous period</div>
+          </div>
+        </div>
+
+        <div class="card chart-card">
+          <svg id="an-chart" viewBox="0 0 800 300" preserveAspectRatio="none"></svg>
+          <div id="an-tooltip" class="chart-tooltip hidden"></div>
+        </div>
+
+        <div class="card">
+          <h3>Funnel</h3>
+          <div class="funnel-grid" id="funnel-grid">
+            <div class="funnel-tile"><div class="funnel-value" id="fn-sends">–</div><div class="funnel-label">Total Sends</div></div>
+            <div class="funnel-tile"><div class="funnel-value" id="fn-followups">–</div><div class="funnel-label">Follow ups</div></div>
+            <div class="funnel-tile"><div class="funnel-value" id="fn-replies">–</div><div class="funnel-label">Replies</div></div>
+            <div class="funnel-tile"><div class="funnel-value" id="fn-rr">–</div><div class="funnel-label">Reply Rate %</div></div>
+            <div class="funnel-tile"><div class="funnel-value" id="fn-positive">–</div><div class="funnel-label">Positive Replies</div></div>
+            <div class="funnel-tile"><div class="funnel-value" id="fn-prr">–</div><div class="funnel-label">PRR %</div></div>
+            <div class="funnel-tile"><div class="funnel-value" id="fn-appts">–</div><div class="funnel-label">Appointments Set</div></div>
+            <div class="funnel-tile"><div class="funnel-value" id="fn-asr">–</div><div class="funnel-label">ASR %</div></div>
+            <div class="funnel-tile"><div class="funnel-value" id="fn-conn-sent">–</div><div class="funnel-label">Connections Sent</div></div>
+            <div class="funnel-tile"><div class="funnel-value" id="fn-conn-accepted">–</div><div class="funnel-label">Connections Accepted</div></div>
+            <div class="funnel-tile"><div class="funnel-value" id="fn-car">–</div><div class="funnel-label">CAR %</div></div>
+          </div>
+        </div>
       </div>
 
-      <div class="card">
-        <h3>Funnel</h3>
-        <div class="funnel-grid" id="funnel-grid">
-          <div class="funnel-tile"><div class="funnel-value" id="fn-sends">–</div><div class="funnel-label">Total Sends</div></div>
-          <div class="funnel-tile"><div class="funnel-value" id="fn-followups">–</div><div class="funnel-label">Follow ups</div></div>
-          <div class="funnel-tile"><div class="funnel-value" id="fn-replies">–</div><div class="funnel-label">Replies</div></div>
-          <div class="funnel-tile"><div class="funnel-value" id="fn-rr">–</div><div class="funnel-label">Reply Rate %</div></div>
-          <div class="funnel-tile"><div class="funnel-value" id="fn-positive">–</div><div class="funnel-label">Positive Replies</div></div>
-          <div class="funnel-tile"><div class="funnel-value" id="fn-prr">–</div><div class="funnel-label">PRR %</div></div>
-          <div class="funnel-tile"><div class="funnel-value" id="fn-appts">–</div><div class="funnel-label">Appointments Set</div></div>
-          <div class="funnel-tile"><div class="funnel-value" id="fn-asr">–</div><div class="funnel-label">ASR %</div></div>
-          <div class="funnel-tile"><div class="funnel-value" id="fn-conn-sent">–</div><div class="funnel-label">Connections Sent</div></div>
-          <div class="funnel-tile"><div class="funnel-value" id="fn-conn-accepted">–</div><div class="funnel-label">Connections Accepted</div></div>
-          <div class="funnel-tile"><div class="funnel-value" id="fn-car">–</div><div class="funnel-label">CAR %</div></div>
+      <div id="analytics-openers-section" class="hidden">
+        <p class="muted">Instagram only. Cumulative across each opener's whole lifetime (not scoped to a date range) — a fresh lead randomly gets one of a sequence's variants, and this shows which wording is actually winning. Sorted by Positive Reply Rate.</p>
+        <div class="card">
+          <div class="analytics-openers-table-wrap">
+            <table class="analytics-openers-table">
+              <thead>
+                <tr>
+                  <th>Sequence</th><th>Variant</th><th>Opening line</th>
+                  <th>Sends</th><th>Replies</th><th>Reply Rate</th>
+                  <th>Positive</th><th>PRR</th><th>Appts</th><th>ASR</th>
+                </tr>
+              </thead>
+              <tbody id="analytics-openers-tbody"></tbody>
+            </table>
+          </div>
+          <p class="muted hidden" id="analytics-openers-empty">No opener variants yet — add some from Settings → Messaging sequences.</p>
         </div>
       </div>
     </section>
@@ -1003,15 +1032,14 @@
 
       <div class="card hidden" id="message-seq-editor">
         <h3>First message</h3>
-        <p class="muted" style="margin-top:-8px;"><code>{naam}</code> becomes the lead's first name. This is what a fresh cold-outreach session opens with for any account using this sequence.</p>
-        <label>Message
-          <textarea id="message-seq-first-text" rows="5"></textarea>
-        </label>
-        <label class="radio-label">
+        <p class="muted" style="margin-top:-8px;"><code>{naam}</code> becomes the lead's first name. Up to 4 opening-line variants — a fresh lead randomly gets one, and which one it got is tracked, so Analytics' "Opener A/B test" tab can show which wording actually performs best.</p>
+        <div id="message-seq-openers-list" class="timing-ramp-days-list"></div>
+        <button type="button" id="message-seq-opener-add-btn" class="btn-secondary">+ Add variant</button>
+        <label class="radio-label" style="margin-top:12px;">
           <input type="checkbox" id="message-seq-first-video">
           Send with a personalized video
         </label>
-        <button type="button" id="message-seq-first-save-btn" class="btn-secondary">Save first message</button>
+        <button type="button" id="message-seq-first-save-btn" class="btn-secondary">Save video setting</button>
 
         <h3 style="margin-top:24px;">Follow-up steps</h3>
         <p class="muted" style="margin-top:-8px;">Each step timed as "+N days after the previous step in this phase" — same idea as the Timing sequence ramp curve.</p>
@@ -1036,9 +1064,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=11"></script>
-<script src="app.js?v=11"></script>
-<script src="leads.js?v=11"></script>
-<script src="followups.js?v=11"></script>
+<script src="templates.js?v=12"></script>
+<script src="app.js?v=12"></script>
+<script src="leads.js?v=12"></script>
+<script src="followups.js?v=12"></script>
 </body>
 </html>
