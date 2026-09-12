@@ -1697,9 +1697,33 @@ function firstName(fullName, username) {
   return base.split(' ')[0] || username;
 }
 
+// Server-side twin of public/templates.js's resolveSpintax — same regex,
+// same reasoning (a group needs a '|' so {naam}/{link} placeholders, which
+// have none, are never mistaken for a one-option group; repeating the
+// replace resolves nesting from the inside out; capped so a malformed input
+// can't hang the request). Follow-up messages are composed here on the
+// server (not client-side like the opener), so this can't just reuse the
+// browser-loaded function — it needs its own copy.
+function resolveSpintax(str) {
+  let result = String(str || '');
+  const groupPattern = /\{([^{}]*\|[^{}]*)\}/;
+  let match;
+  let guard = 0;
+  while ((match = groupPattern.exec(result)) && guard < 100) {
+    const options = match[1].split('|');
+    const choice = options[Math.floor(Math.random() * options.length)];
+    result = result.slice(0, match.index) + choice + result.slice(match.index + match[0].length);
+    guard++;
+  }
+  return result;
+}
+
 function renderFollowupMessage(message, lead, calendarLink) {
   if (!message) return null;
-  return message
+  // Spintax resolves fresh on every call (same as the parts-recombination
+  // wording variation below already does) — no per-lead locking needed here
+  // the way the opener variant is, since follow-ups aren't A/B-tracked.
+  return resolveSpintax(message)
     .replace(/\{naam\}/g, firstName(lead.full_name, lead.username))
     .replace(/\{link\}/g, calendarLink || '');
 }

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=13">
+<link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -963,6 +963,7 @@
       <div class="card">
         <h3>Follow-up sequence (LinkedIn)</h3>
         <p class="muted">Timing is days since the phase started. <code>{naam}</code> becomes the lead's first name, <code>{link}</code> your calendar link. Each step's wording is composed from several phrasings, so leads due for the same step at the same time don't all get the identical nudge. Instagram's follow-up sequence now lives per Messaging sequence above.</p>
+        <p class="muted spintax-help">Also supports <strong>spintax</strong> — write <code>{option one|option two}</code> in a message and one option is picked at random each time it's sent. Example: <code>{Hey|Hi} {naam}, {just checking in|following up}</code>. Nesting works too.</p>
         <div class="settings-phase-tabs" id="settings-phase-tabs">
           <button type="button" class="range-tab active" data-phase="1">Phase 1</button>
           <button type="button" class="range-tab" data-phase="2">Phase 2</button>
@@ -1048,6 +1049,7 @@
 
         <h3 style="margin-top:24px;">Follow-up steps</h3>
         <p class="muted" style="margin-top:-8px;">Each step timed as "+N days after the previous step in this phase" — same idea as the Timing sequence ramp curve.</p>
+        <p class="muted spintax-help">Also supports <strong>spintax</strong> — write <code>{option one|option two}</code> and one option is picked at random each time it's sent (a fresh roll every send, not locked per lead like the opener variants above). Example: <code>{Hey|Hi} {naam}, {just checking in|following up} — {have you seen it yet?|any thoughts?}</code></p>
         <div class="settings-phase-tabs" id="message-seq-phase-tabs">
           <button type="button" class="range-tab active" data-phase="1">Phase 1</button>
           <button type="button" class="range-tab" data-phase="2">Phase 2</button>
@@ -1069,9 +1071,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=13"></script>
-<script src="app.js?v=13"></script>
-<script src="leads.js?v=13"></script>
-<script src="followups.js?v=13"></script>
+<script src="templates.js?v=14"></script>
+<script src="app.js?v=14"></script>
+<script src="leads.js?v=14"></script>
+<script src="followups.js?v=14"></script>
 </body>
 </html>
