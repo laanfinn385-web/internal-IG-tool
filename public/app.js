@@ -49,7 +49,15 @@ const state = {
   // Which pause block is currently showing (its label/message/range) — a
   // separate index from pacingBlockIndex, which is already pointing at
   // wherever sending resumes *after* this pause completes.
-  activePauseBlockIndex: null
+  activePauseBlockIndex: null,
+  // "Always include at least one scroll break" (a Timing sequence setting)
+  // — hadPacingBreakThisSession tracks whether any pause (natural or
+  // forced) has happened yet, so shouldForceEndOfSessionBreak() only forces
+  // one if the session is about to end without ever having had one.
+  // pacingBreakIsFinal marks a forced end-of-session pause specifically, so
+  // its own "Continue" ends the session instead of resuming the next lead.
+  hadPacingBreakThisSession: false,
+  pacingBreakIsFinal: false
 };
 
 const SESSION_KEY = 'outreach_session_v1';
@@ -79,7 +87,9 @@ function saveSession() {
       sendsInCurrentBlock: state.sendsInCurrentBlock,
       currentBlockThreshold: state.currentBlockThreshold,
       pacingBreakUntil: state.pacingBreakUntil,
-      activePauseBlockIndex: state.activePauseBlockIndex
+      activePauseBlockIndex: state.activePauseBlockIndex,
+      hadPacingBreakThisSession: state.hadPacingBreakThisSession,
+      pacingBreakIsFinal: state.pacingBreakIsFinal
     }));
   } catch (e) { /* storage full or unavailable — non-fatal */ }
 }
@@ -922,6 +932,13 @@ function pacingBlocksForAccount(account) {
   return seq ? seq.pacingBlocks : [];
 }
 
+// Whole sequence (not just its blocks) — needed for guaranteeMinOnePause,
+// see shouldForceEndOfSessionBreak().
+function timingSequenceForAccount(account) {
+  if (!account || !account.timingSequenceId || !timingSequencesCache) return null;
+  return timingSequencesCache.find(s => s.id === account.timingSequenceId) || null;
+}
+
 // Same pattern as timingSequencesCache — the active account's assigned
 // Messaging sequence (first message text/video flag + follow-up steps),
 // used by updateMessage() to render an Instagram lead's first message.
@@ -971,6 +988,8 @@ function beginSessionWithLeads(leads, opts = {}) {
   state.currentBlockThreshold = null;
   state.pacingBreakUntil = null;
   state.activePauseBlockIndex = null;
+  state.hadPacingBreakThisSession = false;
+  state.pacingBreakIsFinal = false;
   if (opts.accountId && state.sessionKind === 'ig_message') {
     const account = findIgAccount(opts.accountId);
     state.igAccountId = opts.accountId;
@@ -1744,7 +1763,25 @@ async function decide(status) {
   if (!goalReached && hasNext) {
     state.index++;
     renderProfile();
-  } else if (state.combi && state.sessionKind === 'ig_message') {
+  } else if (shouldForceEndOfSessionBreak()) {
+    // The session's about to end without ever having naturally hit the
+    // pacing pattern's send-block threshold — force one pause in before it
+    // actually ends, so a low-volume session (warming up, a small daily
+    // goal) still gets at least one "go be a real person" gap.
+    state.pacingBreakIsFinal = true;
+    showSendPacingBreak();
+  } else {
+    finishInstagramPortion();
+  }
+}
+
+// What decide() does once the Instagram portion of a session is truly done
+// (goal reached, ran out of leads, and — if guaranteeMinOnePause applies —
+// the forced final break already happened). Also what a forced final
+// break's own "Continue" click falls through to, instead of resuming the
+// next lead like a mid-session break does.
+function finishInstagramPortion() {
+  if (state.combi && state.sessionKind === 'ig_message') {
     // Instagram portion of a combi session just ended (goal reached, or ran
     // out of Instagram leads) — the LinkedIn batch is already fetched and
     // waiting in state.combi.liLeads (see startCombiSession).
@@ -1752,6 +1789,22 @@ async function decide(status) {
   } else {
     showEndScreen();
   }
+}
+
+// "Always include at least one scroll break" (a Timing sequence setting) —
+// only forces one if this specific session had real sends to begin with
+// (nothing to "act human" around otherwise), the active account's sequence
+// actually has the setting on, no pause (natural or forced) has already
+// happened this session, and there's actually a pause block in the pattern
+// to use.
+function shouldForceEndOfSessionBreak() {
+  if (state.sessionKind !== 'ig_message' || state.hadPacingBreakThisSession || state.sentCount === 0) return false;
+  const seq = timingSequenceForAccount(findIgAccount(state.igAccountId));
+  if (!seq || !seq.guaranteeMinOnePause) return false;
+  const pauseIdx = findNextBlockOfType(seq.pacingBlocks, 0, 'pause');
+  if (pauseIdx === -1) return false;
+  state.activePauseBlockIndex = pauseIdx;
+  return true;
 }
 
 $('#accept-btn').addEventListener('click', () => decide('sent'));
@@ -2092,6 +2145,7 @@ function activePauseBlock() {
 }
 
 function showSendPacingBreak() {
+  state.hadPacingBreakThisSession = true;
   const block = activePauseBlock();
   const minutes = block ? randomInt(block.minValue, block.maxValue) : randomInt(8, 12);
   state.pacingBreakUntil = Date.now() + minutes * 60 * 1000;
@@ -2127,9 +2181,19 @@ function startPacingBreakCountdown() {
 $('#pacing-break-continue-btn').addEventListener('click', () => {
   clearInterval(pacingBreakCountdownInterval);
   state.pacingBreakUntil = null;
+  const wasFinal = state.pacingBreakIsFinal;
+  state.pacingBreakIsFinal = false;
   saveSession();
-  showView('dashboard');
-  renderProfile();
+  if (wasFinal) {
+    // This was the forced "guarantee at least one break" pause at the very
+    // end of the session (see shouldForceEndOfSessionBreak) — there's no
+    // next lead to resume to, finish the session the same way decide()
+    // would have if the break hadn't been needed.
+    finishInstagramPortion();
+  } else {
+    showView('dashboard');
+    renderProfile();
+  }
 });
 
 $('#pacing-break-home-btn').addEventListener('click', async () => {
@@ -2297,6 +2361,8 @@ function resetSessionState() {
   state.currentBlockThreshold = null;
   state.pacingBreakUntil = null;
   state.activePauseBlockIndex = null;
+  state.hadPacingBreakThisSession = false;
+  state.pacingBreakIsFinal = false;
 }
 
 $('#back-home-btn').addEventListener('click', () => {
@@ -2786,6 +2852,8 @@ async function enterResumedSession(profiles, sessionKind, sessionMode, sessionTa
   state.currentBlockThreshold = null;
   state.pacingBreakUntil = null;
   state.activePauseBlockIndex = null;
+  state.hadPacingBreakThisSession = false;
+  state.pacingBreakIsFinal = false;
   if (accountId && sessionKind === 'ig_message') {
     const accounts = await loadIgAccounts();
     const account = accounts.find(a => a.id === accountId);
@@ -3078,6 +3146,8 @@ async function loadViewsThreshold() {
     state.currentBlockThreshold = saved.currentBlockThreshold ?? null;
     state.pacingBreakUntil = saved.pacingBreakUntil || null;
     state.activePauseBlockIndex = saved.activePauseBlockIndex ?? null;
+    state.hadPacingBreakThisSession = saved.hadPacingBreakThisSession || false;
+    state.pacingBreakIsFinal = saved.pacingBreakIsFinal || false;
     if (state.igCooldownUntil) {
       // A reload landed mid-cooldown, before "Go back to home" was ever
       // clicked (that's the only thing that actually persists it server-side)

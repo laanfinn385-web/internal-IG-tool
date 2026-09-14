@@ -1068,7 +1068,28 @@ function renderTimingSeqEditor() {
   if (!seq) return;
   renderRampDays(seq);
   renderPacingBlocks(seq);
+  $('#timing-guarantee-pause-checkbox').checked = !!seq.guaranteeMinOnePause;
 }
+
+$('#timing-guarantee-pause-checkbox').addEventListener('change', async (e) => {
+  const seq = activeTimingSeq();
+  if (!seq) return;
+  const checked = e.target.checked;
+  e.target.disabled = true;
+  try {
+    await fetchJson(`/api/timing-sequences/${seq.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ guaranteeMinOnePause: checked })
+    });
+    seq.guaranteeMinOnePause = checked;
+  } catch (err) {
+    e.target.checked = !checked;
+    alert(`Could not save: ${err.message}`);
+  } finally {
+    e.target.disabled = false;
+  }
+});
 
 // Edited as "+N days after the previous row" rather than a raw absolute day
 // number — day 1 is always the start (nothing to offset from), every row

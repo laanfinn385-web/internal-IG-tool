@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=14">
+<link rel="stylesheet" href="style.css?v=15">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -1007,6 +1007,11 @@
           <button type="button" id="timing-pacing-add-send-btn" class="btn-secondary">+ Add send block</button>
           <button type="button" id="timing-pacing-add-pause-btn" class="btn-secondary">+ Add pause block</button>
         </div>
+        <label class="radio-label" style="margin-top:14px;">
+          <input type="checkbox" id="timing-guarantee-pause-checkbox">
+          Always include at least one scroll break
+        </label>
+        <p class="muted" style="margin-top:-4px;">For a session whose volume is too low to ever naturally hit the send-block threshold above (e.g. warming up, or a small daily goal) — forces one pause in right before the session ends, so you're never just opening Instagram to send and immediately closing it again. Only applies to a session where at least one message was actually sent.</p>
       </div>
     </section>
 
@@ -1071,9 +1076,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=14"></script>
-<script src="app.js?v=14"></script>
-<script src="leads.js?v=14"></script>
-<script src="followups.js?v=14"></script>
+<script src="templates.js?v=15"></script>
+<script src="app.js?v=15"></script>
+<script src="leads.js?v=15"></script>
+<script src="followups.js?v=15"></script>
 </body>
 </html>

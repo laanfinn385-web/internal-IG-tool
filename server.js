@@ -1446,6 +1446,12 @@ app.get('/api/timing-sequences', asyncRoute(async (req, res) => {
       pacingBlocks: pacingBlockRows.filter(b => b.sequence_id === s.id).map(b => ({
         id: b.id, position: b.position, blockType: b.block_type, minValue: b.min_value, maxValue: b.max_value, label: b.label, message: b.message
       })),
+      // "Always include at least one scroll break" — for a session whose
+      // volume is too low to naturally trip the pacing pattern's send-block
+      // threshold, one gets forced in right before the session would
+      // otherwise end (see app.js shouldForceEndOfSessionBreak), so a
+      // session with real sends never finishes without at least one.
+      guaranteeMinOnePause: s.guarantee_min_one_pause,
       accountsUsing: accountRows.filter(a => a.timing_sequence_id === s.id).map(a => ({ id: a.id, username: a.username }))
     }))
   });
@@ -1455,8 +1461,9 @@ app.post('/api/timing-sequences', asyncRoute(async (req, res) => {
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Name is required.' });
   const id = crypto.randomUUID();
-  await sql`INSERT INTO timing_sequences (id, name) VALUES (${id}, ${name})`;
   if (req.body.duplicateFrom) {
+    const [source] = await sql`SELECT guarantee_min_one_pause FROM timing_sequences WHERE id = ${req.body.duplicateFrom}`;
+    await sql`INSERT INTO timing_sequences (id, name, guarantee_min_one_pause) VALUES (${id}, ${name}, ${source ? source.guarantee_min_one_pause : false})`;
     const [rampDays, pacingBlocks] = await Promise.all([
       sql`SELECT day_number, daily_limit FROM timing_sequence_ramp_days WHERE sequence_id = ${req.body.duplicateFrom} ORDER BY day_number ASC`,
       sql`SELECT position, block_type, min_value, max_value, label, message FROM timing_sequence_pacing_blocks WHERE sequence_id = ${req.body.duplicateFrom} ORDER BY position ASC`
@@ -1470,15 +1477,23 @@ app.post('/api/timing-sequences', asyncRoute(async (req, res) => {
         VALUES (${crypto.randomUUID()}, ${id}, ${b.position}, ${b.block_type}, ${b.min_value}, ${b.max_value}, ${b.label}, ${b.message})
       `;
     }
+  } else {
+    await sql`INSERT INTO timing_sequences (id, name) VALUES (${id}, ${name})`;
   }
   res.json({ ok: true, id });
 }));
 
 app.patch('/api/timing-sequences/:id', asyncRoute(async (req, res) => {
-  if (req.body.name === undefined) return res.json({ ok: true });
-  const name = String(req.body.name).trim();
-  if (!name) return res.status(400).json({ error: 'Name is required.' });
-  await sql`UPDATE timing_sequences SET name = ${name} WHERE id = ${req.params.id}`;
+  const sets = []; const params = []; let i = 1;
+  if (req.body.name !== undefined) {
+    const name = String(req.body.name).trim();
+    if (!name) return res.status(400).json({ error: 'Name is required.' });
+    sets.push(`name = $${i++}`); params.push(name);
+  }
+  if (req.body.guaranteeMinOnePause !== undefined) { sets.push(`guarantee_min_one_pause = $${i++}`); params.push(!!req.body.guaranteeMinOnePause); }
+  if (sets.length === 0) return res.json({ ok: true });
+  params.push(req.params.id);
+  await sql.query(`UPDATE timing_sequences SET ${sets.join(', ')} WHERE id = $${i}`, params);
   res.json({ ok: true });
 }));
 
