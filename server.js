@@ -1562,8 +1562,12 @@ app.get('/api/message-sequences', asyncRoute(async (req, res) => {
       firstMessageHasVideo: s.first_message_has_video,
       // Up to 4 opening-line variants, randomly assigned per lead (see
       // app.js updateMessage()) for A/B testing — replaces the single fixed
-      // first-message text this used to be.
-      openers: openerRows.filter(r => r.sequence_id === s.id).map(r => ({ id: r.id, position: r.position, text: r.text })),
+      // first-message text this used to be. removed_at-filtered: a variant a
+      // lead already received stays in the table forever (leads.opener_id is
+      // a permanent record — see GET /api/analytics/openers) but shouldn't
+      // keep showing up in the editor or get picked for new leads once
+      // removed.
+      openers: openerRows.filter(r => r.sequence_id === s.id && r.removed_at === null).map(r => ({ id: r.id, position: r.position, text: r.text })),
       followups: followupRows.filter(r => r.sequence_id === s.id).map(r => ({
         phase: r.phase, step: r.step, dayOffset: r.day_offset, type: r.type, message: r.message, mediaNote: r.media_note
       })),
@@ -1582,7 +1586,7 @@ app.post('/api/message-sequences', asyncRoute(async (req, res) => {
       INSERT INTO message_sequences (id, name, first_message_has_video)
       VALUES (${id}, ${name}, ${source ? source.first_message_has_video : false})
     `;
-    const openers = await sql`SELECT position, text FROM message_sequence_openers WHERE sequence_id = ${req.body.duplicateFrom} ORDER BY position`;
+    const openers = await sql`SELECT position, text FROM message_sequence_openers WHERE sequence_id = ${req.body.duplicateFrom} AND removed_at IS NULL ORDER BY position`;
     for (const o of openers) {
       await sql`INSERT INTO message_sequence_openers (id, sequence_id, position, text) VALUES (${crypto.randomUUID()}, ${id}, ${o.position}, ${o.text})`;
     }
@@ -1616,15 +1620,45 @@ app.patch('/api/message-sequences/:id', asyncRoute(async (req, res) => {
 
 // Bulk replace — up to 4 opening-line variants, edited/saved as one unit
 // (add/remove/edit all go through this single endpoint, same reasoning as
-// ramp-days/followup-steps/pacing-blocks elsewhere in this app).
+// ramp-days/followup-steps/pacing-blocks elsewhere in this app). Matched by
+// id (not array position) so an edit never misattributes one variant's
+// wording onto another variant's id when a variant in the middle is removed.
+// A kept variant is UPDATEd in place (same id — any lead already assigned it
+// stays correctly attributed); a variant dropped from the list is hard-
+// deleted if no lead was ever assigned it, or soft-removed (removed_at) if
+// one was — a straight DELETE there would violate leads_opener_id_fkey.
 app.put('/api/message-sequences/:id/openers', asyncRoute(async (req, res) => {
-  const openers = Array.isArray(req.body.openers) ? req.body.openers.slice(0, 4) : [];
-  if (openers.length === 0) return res.status(400).json({ error: 'At least one opener variant is required.' });
-  await sql`DELETE FROM message_sequence_openers WHERE sequence_id = ${req.params.id}`;
-  for (let i = 0; i < openers.length; i++) {
-    await sql`INSERT INTO message_sequence_openers (id, sequence_id, position, text) VALUES (${crypto.randomUUID()}, ${req.params.id}, ${i}, ${String(openers[i].text || '')})`;
+  const incoming = Array.isArray(req.body.openers) ? req.body.openers.slice(0, 4) : [];
+  if (incoming.length === 0) return res.status(400).json({ error: 'At least one opener variant is required.' });
+  const existing = await sql`SELECT id FROM message_sequence_openers WHERE sequence_id = ${req.params.id} AND removed_at IS NULL`;
+  const existingIds = new Set(existing.map(r => r.id));
+  const keptIds = new Set(incoming.map(o => o.id).filter(id => id && existingIds.has(id)));
+  // Removed first, before any position is reassigned below — a kept row
+  // moving into a removed row's old slot would otherwise collide with the
+  // (sequence_id, position) unique constraint while the removed row still
+  // physically holds it.
+  for (const id of existingIds) {
+    if (keptIds.has(id)) continue;
+    const [inUse] = await sql`SELECT count(*)::int AS count FROM leads WHERE opener_id = ${id}`;
+    if (inUse.count > 0) {
+      await sql`UPDATE message_sequence_openers SET removed_at = now() WHERE id = ${id}`;
+    } else {
+      await sql`DELETE FROM message_sequence_openers WHERE id = ${id}`;
+    }
   }
-  res.json({ ok: true });
+  for (let i = 0; i < incoming.length; i++) {
+    const text = String(incoming[i].text || '');
+    if (incoming[i].id && keptIds.has(incoming[i].id)) {
+      await sql`UPDATE message_sequence_openers SET position = ${i}, text = ${text} WHERE id = ${incoming[i].id}`;
+    } else {
+      await sql`INSERT INTO message_sequence_openers (id, sequence_id, position, text) VALUES (${crypto.randomUUID()}, ${req.params.id}, ${i}, ${text})`;
+    }
+  }
+  // Returned so the client can resync seq.openers with the real ids newly-
+  // inserted variants got — without this, a variant added in one save has no
+  // id to match on next save and would get inserted again as a duplicate.
+  const result = await sql`SELECT id, position, text FROM message_sequence_openers WHERE sequence_id = ${req.params.id} AND removed_at IS NULL ORDER BY position ASC`;
+  res.json({ ok: true, openers: result.map(r => ({ id: r.id, position: r.position, text: r.text })) });
 }));
 
 app.delete('/api/message-sequences/:id', asyncRoute(async (req, res) => {

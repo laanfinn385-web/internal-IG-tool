@@ -788,7 +788,7 @@ async function startSinglePlatformSession(platform, explicitCount, isDailyGoal, 
   // decideSimple() keeps topping this session up with fresh leads on every
   // disqualify until sentCount hits `count`, or the available-leads pool
   // runs dry.
-  beginSessionWithLeads(leads, { mode: 'goal', target: count, kind: platform === 'linkedin' ? 'li_engagement' : 'ig_message', isDailyGoal, accountId });
+  await beginSessionWithLeads(leads, { mode: 'goal', target: count, kind: platform === 'linkedin' ? 'li_engagement' : 'ig_message', isDailyGoal, accountId });
 }
 
 // Fetches both batches up front (rather than pulling LinkedIn leads only once
@@ -821,7 +821,7 @@ async function startCombiSession(explicitIgCount, explicitLiCount, isDailyGoal, 
   // from a saved session) — untouched until the Instagram portion ends (see
   // the goalReached/hasNext branch in decide()).
   state.combi = { liLeads: liLeads.map(leadToProfile) };
-  beginSessionWithLeads(igLeads, { mode: 'goal', target: igCount, kind: 'ig_message', isDailyGoal, accountId });
+  await beginSessionWithLeads(igLeads, { mode: 'goal', target: igCount, kind: 'ig_message', isDailyGoal, accountId });
 }
 
 $('#start-session-btn').addEventListener('click', async () => {
@@ -971,11 +971,20 @@ function findNextBlockOfType(blocks, fromIndex, type) {
   return -1;
 }
 
-function beginSessionWithLeads(leads, opts = {}) {
+async function beginSessionWithLeads(leads, opts = {}) {
   state.profiles = opts.alreadyProfiles ? leads : leads.map(leadToProfile);
   state.index = 0;
   state.results = [];
   state.sessionKind = opts.kind || 'ig_message';
+  // Force-refresh accounts + Timing/Messaging sequences right as a real
+  // session begins — igAccountsCache/timingSequencesCache/messageSequencesCache
+  // are otherwise only reloaded on a full page load or an account-limit
+  // event, so an opener/pacing edit made in Settings earlier in the same
+  // tab would silently keep being ignored (always using whatever was
+  // cached at page-load) without this.
+  if (state.sessionKind === 'ig_message') {
+    await loadIgAccounts(true);
+  }
   state.sessionMode = opts.mode || 'fixed';
   state.sessionTarget = opts.target || null;
   state.sentCount = 0;
@@ -2855,7 +2864,10 @@ async function enterResumedSession(profiles, sessionKind, sessionMode, sessionTa
   state.hadPacingBreakThisSession = false;
   state.pacingBreakIsFinal = false;
   if (accountId && sessionKind === 'ig_message') {
-    const accounts = await loadIgAccounts();
+    // force:true — see beginSessionWithLeads for why a resumed session can't
+    // just trust whatever Timing/Messaging sequence data happened to be
+    // cached since the last full page load.
+    const accounts = await loadIgAccounts(true);
     const account = accounts.find(a => a.id === accountId);
     state.igAccountId = accountId;
     state.igAccountUsername = account ? account.username : null;

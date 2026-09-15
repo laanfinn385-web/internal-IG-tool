@@ -809,7 +809,7 @@ $('#leads-selection-start').addEventListener('click', async () => {
 
   leadsState.selected.clear();
   updateSelectionBar();
-  beginSessionWithLeads(selectedLeads, { kind });
+  await beginSessionWithLeads(selectedLeads, { kind });
 });
 
 let pendingLeadsSessionSelection = null;
@@ -823,7 +823,7 @@ $('#leads-session-account-cancel-btn').addEventListener('click', () => {
   pendingLeadsSessionSelection = null;
 });
 
-$('#leads-session-account-confirm-btn').addEventListener('click', () => {
+$('#leads-session-account-confirm-btn').addEventListener('click', async () => {
   const accountId = $('#leads-session-account-select').value;
   if (!accountId || !pendingLeadsSessionSelection) return;
   const selectedLeads = pendingLeadsSessionSelection;
@@ -831,7 +831,7 @@ $('#leads-session-account-confirm-btn').addEventListener('click', () => {
   $('#leads-session-account-modal').classList.add('hidden');
   leadsState.selected.clear();
   updateSelectionBar();
-  beginSessionWithLeads(selectedLeads, { kind: 'ig_message', accountId });
+  await beginSessionWithLeads(selectedLeads, { kind: 'ig_message', accountId });
 });
 
 // ---------- Delete + undo ----------

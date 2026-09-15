@@ -1428,11 +1428,17 @@ function renderMessageSeqOpeners(seq) {
 async function saveMessageSeqOpeners(seq) {
   const openers = [...seq.openers].sort((a, b) => a.position - b.position);
   try {
-    await fetchJson(`/api/message-sequences/${seq.id}/openers`, {
+    // id included (when one exists) so the server matches by identity, not
+    // array position — otherwise removing a variant from the middle of the
+    // list would silently overwrite a kept variant's text with the wrong
+    // wording. The response's ids are written back onto seq.openers so a
+    // variant just added on this save has a real id before the next one.
+    const data = await fetchJson(`/api/message-sequences/${seq.id}/openers`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ openers: openers.map(o => ({ text: o.text })) })
+      body: JSON.stringify({ openers: openers.map(o => ({ id: o.id, text: o.text })) })
     });
+    seq.openers = data.openers;
   } catch (err) {
     alert(`Could not save opener variants: ${err.message}`);
   }
