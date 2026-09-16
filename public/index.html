@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=17">
+<link rel="stylesheet" href="style.css?v=18">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -226,6 +226,28 @@
       <div class="decision-row">
         <button id="combi-save-li-btn" class="btn-secondary">💾 Save LinkedIn leads for later</button>
         <button id="combi-continue-li-btn" class="btn-primary">Move on to LinkedIn leads →</button>
+      </div>
+    </section>
+
+    <!-- DAILY GOAL — CHOOSE INSTAGRAM ACCOUNT. Shown before a daily-goal
+         Instagram (or combi) session starts, whenever there's a genuine
+         choice of accounts (2+ ready), and again every time one account's
+         own leg finishes but the combined daily goal still needs more and
+         another account is ready — each leg is its own separate session,
+         sized to that one account's own remaining capacity for today, not a
+         merged batch across accounts. No switch cooldown here (unlike the
+         reactive "daily limit reached mid-session" screen below) — you're
+         choosing deliberately, not reacting to a surprise limit. -->
+    <section id="view-ig-account-picker" class="view hidden">
+      <div class="end-hero">
+        <div class="end-emoji" id="ig-account-picker-emoji">🎯</div>
+        <h1 id="ig-account-picker-title">Choose an account to start with</h1>
+        <p class="end-sub hidden" id="ig-account-picker-banner"></p>
+      </div>
+      <div class="daily-goal-account-picker-list" id="ig-account-picker-list"></div>
+      <div class="row-between" style="margin-top:16px;">
+        <span class="muted">&nbsp;</span>
+        <button id="ig-account-picker-home-btn" class="btn-secondary">Not now — back to Home</button>
       </div>
     </section>
 
@@ -1076,9 +1098,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=17"></script>
-<script src="app.js?v=17"></script>
-<script src="leads.js?v=17"></script>
-<script src="followups.js?v=17"></script>
+<script src="templates.js?v=18"></script>
+<script src="app.js?v=18"></script>
+<script src="leads.js?v=18"></script>
+<script src="followups.js?v=18"></script>
 </body>
 </html>

@@ -1619,6 +1619,44 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 .account-main { min-width: 0; flex: 1; }
 .account-username { font-weight: 700; font-size: 0.92rem; }
 .account-meta { font-size: 0.78rem; margin-top: 2px; }
+
+/* Daily-goal account picker — a clickable card per ready account (avatar,
+   messaging sequence, age, today's volume) so choosing between them is a
+   real, informed decision instead of a blind auto-pick. Reuses
+   .account-photo/.account-photo-placeholder for visual consistency with
+   Settings' account rows, just at a larger size since each card only shows
+   one account instead of a dense list. */
+.daily-goal-account-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 480px;
+  margin: 0 auto;
+}
+.daily-goal-account-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg);
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  width: 100%;
+  transition: border-color 0.15s, background 0.15s;
+}
+.daily-goal-account-card:hover { border-color: var(--accent); background: var(--purple-soft); }
+.daily-goal-account-card .account-photo,
+.daily-goal-account-card .account-photo-placeholder {
+  width: 52px;
+  height: 52px;
+  font-size: 1.1rem;
+}
+.daily-goal-account-card-main { min-width: 0; flex: 1; }
+.daily-goal-account-card-username { font-weight: 700; font-size: 1rem; }
+.daily-goal-account-card-meta { font-size: 0.8rem; color: var(--muted); margin-top: 3px; line-height: 1.5; }
 .account-limit-label {
   display: flex;
   flex-direction: column;

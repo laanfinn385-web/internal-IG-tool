@@ -516,6 +516,120 @@ function renderDailyGoal(dailyGoal) {
   }
 }
 
+// A daily-goal Instagram leg is sized to whichever is smaller: what's still
+// needed to hit today's combined goal, or this one account's own remaining
+// capacity for today — so a leg always ends exactly when one of those runs
+// out, never partway through an oversized shared batch.
+async function startLegForAccount(accountId, igRemaining, liRemaining) {
+  const account = findIgAccount(accountId);
+  const legTarget = Math.min(igRemaining, account ? account.effectiveRemainingForNewSends : igRemaining);
+  if (liRemaining > 0) {
+    await startCombiSession(legTarget, liRemaining, true, accountId);
+  } else {
+    await startSinglePlatformSession('instagram', legTarget, true, accountId);
+  }
+  // Both of the above silently write an insufficient-leads message into
+  // #home-session-error and return (instead of throwing) when there aren't
+  // enough leads — fine when called from the Home view itself, but this can
+  // now also be called from the account-picker screen, where that banner is
+  // invisible. Surface it as a real error so the caller can show it.
+  const homeError = $('#home-session-error');
+  if (!homeError.classList.contains('hidden')) {
+    const message = homeError.textContent.trim();
+    homeError.classList.add('hidden');
+    throw new Error(message || 'Not enough leads available right now.');
+  }
+}
+
+// Shared by the very first "Start daily goal session" click (isHandoff:
+// false) and by finishInstagramPortion() once one account's own leg finishes
+// (isHandoff: true) — decides whether the Instagram side of today's goal
+// needs another leg at all, and if so, either auto-starts the one usable
+// account (first click, single account — today's original one-click
+// convenience) or shows the account-picker screen so the choice (or the
+// "done, switching" handoff) is always visible. Returns true if this call
+// handled things (started a leg, showed the picker, or showed the "no
+// accounts" alert) — false only means "nothing more to do here", so the
+// caller falls through to its own normal end screen.
+async function beginOrContinueDailyGoalIg(liRemaining, isHandoff) {
+  await loadHome();
+  const igRemaining = Math.max(0, homeDailyGoalData.instagram - homeDailyGoalData.todaySentInstagram);
+  if (igRemaining <= 0) return false;
+
+  const accounts = await loadIgAccounts(true);
+  const usable = accounts.filter(a => accountCanSendToday(a));
+  if (usable.length === 0) {
+    if (isHandoff) return false;
+    alert(accounts.length === 0
+      ? 'Add an Instagram account in Settings before starting an Instagram session.'
+      : "None of your Instagram accounts can send right now — they're either still warming up or already at today's limit.");
+    return true;
+  }
+  if (!isHandoff && usable.length === 1) {
+    await startLegForAccount(usable[0].id, igRemaining, liRemaining);
+    return true;
+  }
+  showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable });
+  return true;
+}
+
+// Stashed target numbers for whichever account card gets clicked next —
+// set fresh every time the picker is shown, read once by the click handler.
+let igAccountPickerState = null;
+
+function showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable }) {
+  igAccountPickerState = { igRemaining, liRemaining };
+  const banner = $('#ig-account-picker-banner');
+  const title = $('#ig-account-picker-title');
+  const emoji = $('#ig-account-picker-emoji');
+  if (isHandoff) {
+    emoji.textContent = '✅';
+    title.textContent = 'Switching accounts';
+    banner.textContent = `Finished with @${state.igAccountUsername || 'that account'} for today — ${state.sentCount} sent. ${igRemaining} more needed to hit today's Instagram goal.`;
+    banner.classList.remove('hidden');
+  } else {
+    emoji.textContent = '🎯';
+    title.textContent = 'Choose an account to start with';
+    banner.classList.add('hidden');
+  }
+  // accountPhotoHtml/formatAccountAge — defined in followups.js, callable
+  // here since every public/*.js file shares one global scope.
+  $('#ig-account-picker-list').innerHTML = usable.map(a => {
+    const seq = (messageSequencesCache || []).find(s => s.id === a.messageSequenceId);
+    const seqName = seq ? seq.name : 'No sequence assigned';
+    return `
+      <button type="button" class="daily-goal-account-card" data-id="${a.id}">
+        ${accountPhotoHtml(a)}
+        <div class="daily-goal-account-card-main">
+          <div class="daily-goal-account-card-username">@${escapeHtml(a.username)}</div>
+          <div class="daily-goal-account-card-meta">
+            ${escapeHtml(seqName)} · ${formatAccountAge(a.ageDays)}<br>
+            ${a.todaySentCount}/${a.dailyLimit} sent today · ${a.effectiveRemainingForNewSends} left today
+          </div>
+        </div>
+      </button>`;
+  }).join('');
+  showView('ig-account-picker');
+}
+
+$('#ig-account-picker-list').addEventListener('click', async (e) => {
+  const card = e.target.closest('.daily-goal-account-card');
+  if (!card || !igAccountPickerState) return;
+  const { igRemaining, liRemaining } = igAccountPickerState;
+  $all('.daily-goal-account-card').forEach(c => c.disabled = true);
+  try {
+    await startLegForAccount(card.dataset.id, igRemaining, liRemaining);
+  } catch (err) {
+    alert(`Could not start this account's session: ${err.message}`);
+    $all('.daily-goal-account-card').forEach(c => c.disabled = false);
+  }
+});
+
+$('#ig-account-picker-home-btn').addEventListener('click', () => {
+  igAccountPickerState = null;
+  showView('home');
+});
+
 $('#daily-goal-session-btn').addEventListener('click', async () => {
   if (!homeDailyGoalData) return;
   if (homeDailyGoalData.savedSession) {
@@ -530,32 +644,14 @@ $('#daily-goal-session-btn').addEventListener('click', async () => {
     alert(`Instagram is on a switch cooldown for another ${formatCountdown(igCooldownState.until - Date.now())} — new Instagram sessions are blocked until then.`);
     return;
   }
-  // No dedicated account picker for this button — defaults to the first
-  // account that can actually send today (not warming up, not already
-  // maxed out), same one-click spirit as the rest of the daily-goal flow
-  // (it doesn't ask for platform counts either, just works them out).
-  let accountId = null;
-  if (igRemaining > 0) {
-    const accounts = await loadIgAccounts(true);
-    const usable = accounts.find(a => accountCanSendToday(a));
-    if (!usable) {
-      alert(accounts.length === 0
-        ? 'Add an Instagram account in Settings before starting an Instagram session.'
-        : "None of your Instagram accounts can send right now — they're either still warming up or already at today's limit.");
-      return;
-    }
-    accountId = usable.id;
-  }
 
   const btn = $('#daily-goal-session-btn');
   btn.disabled = true;
   try {
-    if (igRemaining > 0 && liRemaining > 0) {
-      await startCombiSession(igRemaining, liRemaining, true, accountId);
-    } else if (igRemaining > 0) {
-      await startSinglePlatformSession('instagram', igRemaining, true, accountId);
+    if (igRemaining > 0) {
+      await beginOrContinueDailyGoalIg(liRemaining, false);
     } else {
-      await startSinglePlatformSession('linkedin', liRemaining, true, accountId);
+      await startSinglePlatformSession('linkedin', liRemaining, true, null);
     }
   } catch (e) {
     alert(`Could not start the daily goal session: ${e.message}`);
@@ -1798,7 +1894,22 @@ async function decide(status) {
 // the forced final break already happened). Also what a forced final
 // break's own "Continue" click falls through to, instead of resuming the
 // next lead like a mid-session break does.
-function finishInstagramPortion() {
+async function finishInstagramPortion() {
+  // A daily-goal leg that reached its own target (not one that simply ran
+  // dry — switching accounts wouldn't conjure up more leads) may still have
+  // more of today's combined Instagram goal left to send, from a different
+  // account. liRemaining is always 0 here: a combi session's LinkedIn half,
+  // if any, is already sitting untouched in state.combi.liLeads and only
+  // gets picked up once Instagram is *truly* done (goal met, or no account
+  // left that can send) — never re-derived at each handoff.
+  if (state.isDailyGoal && state.sessionKind === 'ig_message' && !state.outOfLeads) {
+    try {
+      const handled = await beginOrContinueDailyGoalIg(0, true);
+      if (handled) return;
+    } catch (e) {
+      alert(`Could not start the next account's session: ${e.message}`);
+    }
+  }
   if (state.combi && state.sessionKind === 'ig_message') {
     // Instagram portion of a combi session just ended (goal reached, or ran
     // out of Instagram leads) — the LinkedIn batch is already fetched and
