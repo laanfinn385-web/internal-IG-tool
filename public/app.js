@@ -1420,7 +1420,16 @@ function enterDashboard() {
 }
 
 async function preloadSessionVideos() {
-  const targets = state.profiles.filter(p => p.leadId && p.videoStatus !== 'done' && p.videoStatus !== 'rendering');
+  // Video is a per-Messaging-sequence choice (the "with/without video"
+  // toggle next to the opener variants) — a session whose assigned account's
+  // sequence has it off (or a LinkedIn session, which never has video at
+  // all — see the isLinkedin check in renderProfile) has nothing to
+  // preload, full stop, regardless of what leads are in the queue.
+  const seq = messageSequenceForAccount(findIgAccount(state.igAccountId));
+  const videoEnabled = !!(seq && seq.firstMessageHasVideo);
+  const targets = videoEnabled
+    ? state.profiles.filter(p => p.leadId && p.platform === 'instagram' && p.videoStatus !== 'done' && p.videoStatus !== 'rendering')
+    : [];
   if (targets.length === 0) {
     // Nothing to wait for — same fast path as before this feature existed,
     // no button needed since there's no rendering delay to protect against.
