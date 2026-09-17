@@ -1235,8 +1235,16 @@ function updateMessage() {
   // same reasoning p.openerId itself is cached for. {naam}/{views}/{months}
   // placeholders resolve fresh every render on top of that (so editing the
   // name field still live-updates the message), via renderTemplateString.
-  if (opener && p.resolvedOpenerTemplate == null) {
+  // Also re-resolves if the opener's own raw text changed since the cached
+  // resolve — PUT /api/message-sequences/:id/openers updates a kept variant
+  // in place (same id, new text) so leads already assigned it stay correctly
+  // attributed, which means an id match alone doesn't mean "still the same
+  // wording": a session quit-saved before an in-place wording edit (or a
+  // sequence swap that happens to reuse an id) would otherwise keep showing
+  // the pre-edit text forever once resumed.
+  if (opener && (p.resolvedOpenerTemplate == null || p.resolvedOpenerSourceText !== opener.text)) {
     p.resolvedOpenerTemplate = resolveSpintax(opener.text);
+    p.resolvedOpenerSourceText = opener.text;
   }
   const text = opener ? renderTemplateString(p.resolvedOpenerTemplate, buildPlaceholders(p)) : '';
   p.message = text;
