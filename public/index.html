@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=19">
+<link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -333,6 +333,7 @@
           <div class="progress-label"><span id="simple-progress-current">1</span> / <span id="simple-progress-total">15</span></div>
           <div class="progress-bar"><div class="progress-fill" id="simple-progress-fill"></div></div>
         </div>
+        <button id="simple-switch-accounts-btn" class="btn-switch-accounts hidden" type="button" title="Switch to an Instagram account">🔀 Switch accounts</button>
         <button id="simple-quit-save-btn" class="btn-quit-save" type="button" title="Save the rest of this session for later">⏸ Quit &amp; save</button>
       </div>
 
@@ -375,6 +376,7 @@
           <div class="progress-label"><span id="progress-current">1</span> / <span id="progress-total">15</span></div>
           <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
         </div>
+        <button id="switch-accounts-btn" class="btn-switch-accounts hidden" type="button" title="Switch to a different account, or to LinkedIn">🔀 Switch accounts</button>
         <button id="quit-save-btn" class="btn-quit-save" type="button" title="Save the rest of this session for later">⏸ Quit &amp; save</button>
       </div>
 
@@ -469,6 +471,45 @@
         <button id="next-unreachable-btn" class="btn-next-grey hidden">Next <span aria-hidden="true">→</span></button>
       </div>
     </section>
+
+    <!-- SWITCH ACCOUNTS — a quick in-session interrupt (not a navigation),
+         reachable from both the Instagram dashboard and the LinkedIn simple
+         session. Whatever leg is currently active gets saved for later
+         first (same mechanism as "Quit & save"), so switching never loses
+         progress. No switch cooldown — this is a deliberate choice, not a
+         reactive daily-limit hit. -->
+    <div id="switch-accounts-modal" class="modal-overlay hidden">
+      <div class="modal">
+        <h3>Switch accounts</h3>
+        <p class="muted" style="margin-top:-8px;">Your progress here is saved automatically — pick up again anytime from Saved Sessions.</p>
+        <div id="switch-accounts-list" class="daily-goal-account-picker-list"></div>
+        <p class="muted hidden" id="switch-accounts-empty">Nothing else to switch to right now.</p>
+
+        <div id="switch-accounts-size-step" class="hidden">
+          <h4 id="switch-accounts-size-title" style="margin-bottom:6px;"></h4>
+          <div class="session-size-row">
+            <div class="session-size-presets" id="switch-accounts-size-presets">
+              <button type="button" class="switch-size-preset-btn" data-size="10">10</button>
+              <button type="button" class="switch-size-preset-btn active" data-size="15">15</button>
+              <button type="button" class="switch-size-preset-btn" data-size="25">25</button>
+              <button type="button" class="switch-size-preset-btn" data-size="50">50</button>
+              <button type="button" class="switch-size-preset-btn" data-size="100">100</button>
+            </div>
+            <label class="session-size-custom">Leads
+              <input type="number" id="switch-accounts-size-input" min="1" value="15">
+            </label>
+          </div>
+          <div class="modal-actions" style="justify-content:space-between;">
+            <button id="switch-accounts-size-back-btn" class="btn-secondary" type="button">← Back</button>
+            <button id="switch-accounts-size-confirm-btn" class="btn-primary" type="button">Start this account's session →</button>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button id="switch-accounts-cancel-btn" class="btn-secondary">Cancel</button>
+        </div>
+      </div>
+    </div>
 
     <!-- END SCREEN -->
     <section id="view-end" class="view hidden">
@@ -1098,9 +1139,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=19"></script>
-<script src="app.js?v=19"></script>
-<script src="leads.js?v=19"></script>
-<script src="followups.js?v=19"></script>
+<script src="templates.js?v=20"></script>
+<script src="app.js?v=20"></script>
+<script src="leads.js?v=20"></script>
+<script src="followups.js?v=20"></script>
 </body>
 </html>

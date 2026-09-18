@@ -1180,6 +1180,7 @@ function renderProfile() {
   $('.video-card').classList.toggle('hidden', !seq || !seq.firstMessageHasVideo);
   renderVideoSection();
   renderLeadStatusSection();
+  updateSwitchAccountsButtonVisibility();
 
   $('#prev-btn').disabled = state.index === 0;
   $('#next-btn').disabled = state.index === state.profiles.length - 1;
@@ -2508,6 +2509,72 @@ $('#back-home-btn').addEventListener('click', () => {
 });
 
 // ---------- QUIT & SAVE ----------
+
+// Persists whatever's left of the active Instagram-dashboard session,
+// combi-aware (bundling any untouched LinkedIn batch in alongside it) — used
+// by #quit-save-btn itself, a genuine exit where nothing keeps running.
+// NOT used by the "Switch accounts" flow below: that flow keeps one half of
+// a combi live (either the new Instagram account, or LinkedIn) while only
+// the OTHER half gets parked, so it needs savePartialInstagramLeg's
+// narrower, non-bundling save instead — bundling here too would let the
+// still-live half get resumed a second time later and worked twice.
+async function saveCurrentDashboardLeg() {
+  // Mid-combi, "remaining" spans two different session kinds: whatever's
+  // left of the Instagram portion, plus the LinkedIn batch that hasn't
+  // started at all yet. Each profile is tagged with its own sessionKind so
+  // resumeSavedSession can split them back apart later — see the 'combi'
+  // branch there.
+  const remainingProfiles = state.combi
+    ? state.profiles.slice(state.index).map(p => ({ ...p, sessionKind: 'ig_message' }))
+        .concat(state.combi.liLeads.map(p => ({ ...p, sessionKind: 'li_engagement' }))) // already profile-shaped — see startCombiSession
+    : state.profiles.slice(state.index);
+  if (remainingProfiles.length === 0) return { saved: false };
+  await fetchJson('/api/saved-sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionKind: state.combi ? 'combi' : state.sessionKind,
+      sessionMode: state.sessionMode,
+      sessionTarget: state.sessionTarget,
+      sentCount: state.sentCount,
+      results: state.results,
+      remainingProfiles,
+      isDailyGoal: state.isDailyGoal,
+      // Doubles as "resume with this account" even without an actual
+      // cooldown — see resumeSavedSession, which passes it straight
+      // through to enterResumedSession either way.
+      igCooldownAccountId: state.igAccountId || null
+    })
+  });
+  return { saved: true };
+}
+
+// Used by "Switch accounts" when leaving the Instagram dashboard (to
+// another Instagram account, or to LinkedIn) — only the not-yet-decided
+// Instagram leads for the account being left, never bundled with
+// state.combi.liLeads, since that batch is about to keep going (either
+// carried over into the new account's leg, or started live as its own
+// LinkedIn session) rather than being parked too.
+async function savePartialInstagramLeg() {
+  const remainingProfiles = state.profiles.slice(state.index);
+  if (remainingProfiles.length === 0) return { saved: false };
+  await fetchJson('/api/saved-sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionKind: 'ig_message',
+      sessionMode: state.sessionMode,
+      sessionTarget: state.sessionTarget,
+      sentCount: state.sentCount,
+      results: state.results,
+      remainingProfiles,
+      isDailyGoal: state.isDailyGoal,
+      igCooldownAccountId: state.igAccountId || null
+    })
+  });
+  return { saved: true };
+}
+
 $('#quit-save-btn').addEventListener('click', async () => {
   // Nothing decided yet — there's nothing worth saving, and nothing should
   // be touched. Just leave.
@@ -2518,44 +2585,18 @@ $('#quit-save-btn').addEventListener('click', async () => {
     return;
   }
 
-  // Mid-combi, "remaining" spans two different session kinds: whatever's
-  // left of the Instagram portion, plus the LinkedIn batch that hasn't
-  // started at all yet. Each profile is tagged with its own sessionKind so
-  // resumeSavedSession can split them back apart later — see the 'combi'
-  // branch there.
-  const remainingProfiles = state.combi
-    ? state.profiles.slice(state.index).map(p => ({ ...p, sessionKind: 'ig_message' }))
-        .concat(state.combi.liLeads.map(p => ({ ...p, sessionKind: 'li_engagement' }))) // already profile-shaped — see startCombiSession
-    : state.profiles.slice(state.index);
   const btn = $('#quit-save-btn');
   btn.disabled = true;
-  if (remainingProfiles.length > 0) {
-    try {
-      await fetchJson('/api/saved-sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionKind: state.combi ? 'combi' : state.sessionKind,
-          sessionMode: state.sessionMode,
-          sessionTarget: state.sessionTarget,
-          sentCount: state.sentCount,
-          results: state.results,
-          remainingProfiles,
-          isDailyGoal: state.isDailyGoal,
-          // Doubles as "resume with this account" even without an actual
-          // cooldown — see resumeSavedSession, which passes it straight
-          // through to enterResumedSession either way.
-          igCooldownAccountId: state.igAccountId || null
-        })
-      });
-    } catch (e) {
-      btn.disabled = false;
-      alert(`Could not save the rest of this session (${e.message}). Nothing was lost — you're still where you were, try again.`);
-      return;
-    }
+  let result;
+  try {
+    result = await saveCurrentDashboardLeg();
+  } catch (e) {
+    btn.disabled = false;
+    alert(`Could not save the rest of this session (${e.message}). Nothing was lost — you're still where you were, try again.`);
+    return;
   }
   btn.disabled = false;
-  showEndScreen({ savedForLater: remainingProfiles.length > 0 });
+  showEndScreen({ savedForLater: result.saved });
 });
 
 // ---------- SIMPLE SESSION (LinkedIn engagement / connection) ----------
@@ -2600,6 +2641,7 @@ function renderSimpleSessionProfile() {
   $('#simple-session-link').href = p.profileUrl || '#';
   $('#simple-positive-btn').textContent = cfg.positiveLabel;
   $('#simple-negative-btn').textContent = cfg.negativeLabel;
+  updateSwitchAccountsButtonVisibility();
 }
 
 async function decideSimple(positive) {
@@ -2709,6 +2751,29 @@ function showSimpleSessionEndScreen(opts = {}) {
   showView('simple-end');
 }
 
+// Shared by #simple-quit-save-btn and "Switch accounts" when leaving the
+// LinkedIn simple session (always to Instagram — see
+// updateSwitchAccountsButtonVisibility, LinkedIn has no further "switch"
+// destination of its own).
+async function saveCurrentSimpleLeg() {
+  const remainingProfiles = state.profiles.slice(state.index);
+  if (remainingProfiles.length === 0) return { saved: false };
+  await fetchJson('/api/saved-sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      sessionKind: state.sessionKind,
+      sessionMode: state.sessionMode,
+      sessionTarget: state.sessionTarget,
+      sentCount: state.sentCount,
+      results: state.results,
+      remainingProfiles,
+      isDailyGoal: state.isDailyGoal
+    })
+  });
+  return { saved: true };
+}
+
 $('#simple-quit-save-btn').addEventListener('click', async () => {
   if (state.results.length === 0) {
     resetSessionState();
@@ -2716,38 +2781,223 @@ $('#simple-quit-save-btn').addEventListener('click', async () => {
     showView('home');
     return;
   }
-  const remainingProfiles = state.profiles.slice(state.index);
   const btn = $('#simple-quit-save-btn');
   btn.disabled = true;
-  if (remainingProfiles.length > 0) {
-    try {
-      await fetchJson('/api/saved-sessions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          sessionKind: state.sessionKind,
-          sessionMode: state.sessionMode,
-          sessionTarget: state.sessionTarget,
-          sentCount: state.sentCount,
-          results: state.results,
-          remainingProfiles,
-          isDailyGoal: state.isDailyGoal
-        })
-      });
-    } catch (e) {
-      btn.disabled = false;
-      alert(`Could not save the rest of this session (${e.message}). Nothing was lost — you're still where you were, try again.`);
-      return;
-    }
+  let result;
+  try {
+    result = await saveCurrentSimpleLeg();
+  } catch (e) {
+    btn.disabled = false;
+    alert(`Could not save the rest of this session (${e.message}). Nothing was lost — you're still where you were, try again.`);
+    return;
   }
   btn.disabled = false;
-  showSimpleSessionEndScreen({ savedForLater: remainingProfiles.length > 0 });
+  showSimpleSessionEndScreen({ savedForLater: result.saved });
 });
 
 $('#simple-end-back-btn').addEventListener('click', () => {
   resetSessionState();
   showView('home');
 });
+
+// ---------- SWITCH ACCOUNTS (mid-session, deliberate — no anti-detection
+// cooldown, unlike the reactive "daily limit reached" flow) ----------
+// Reachable from both the Instagram dashboard (switch to another due
+// Instagram account, or to LinkedIn if this is a combi session) and the
+// LinkedIn simple session (switch to a due Instagram account). Whichever
+// leg is active gets saved for later first, exactly like "Quit & save"
+// already does, so nothing is ever lost.
+
+// account id -> its pending saved_sessions row, refreshed every time the
+// modal opens.
+let switchAccountsPendingByAccount = {};
+// { accountId } while the leads-count step is showing, cleared once
+// confirmed/cancelled/backed-out-of.
+let switchAccountsSizeStepFor = null;
+
+async function openSwitchAccountsModal() {
+  const accounts = await loadIgAccounts(true);
+  const currentAccountId = state.sessionKind === 'ig_message' ? state.igAccountId : null;
+  const usable = accounts.filter(a => a.id !== currentAccountId && accountCanSendToday(a));
+
+  switchAccountsPendingByAccount = {};
+  try {
+    const data = await fetchJson('/api/saved-sessions');
+    (data.sessions || []).forEach(s => {
+      if (s.sessionKind === 'ig_message' && s.igCooldownAccountId) {
+        switchAccountsPendingByAccount[s.igCooldownAccountId] = s;
+      }
+    });
+  } catch (e) {
+    console.error('Could not check for pending saved sessions', e);
+  }
+
+  const showLinkedInOption = state.sessionKind === 'ig_message' && !!state.combi;
+  const cards = [];
+  if (showLinkedInOption) {
+    const liCount = state.combi.liLeads.length;
+    cards.push(`
+      <button type="button" class="daily-goal-account-card" data-switch-li="1">
+        <div class="account-photo account-photo-placeholder">in</div>
+        <div class="daily-goal-account-card-main">
+          <div class="daily-goal-account-card-username">Switch to LinkedIn</div>
+          <div class="daily-goal-account-card-meta">${liCount} lead${liCount === 1 ? '' : 's'} ready to go</div>
+        </div>
+      </button>`);
+  }
+  // accountPhotoHtml/formatAccountAge — defined in followups.js, callable
+  // here since every public/*.js file shares one global scope (same reuse
+  // already relied on by the daily-goal account picker).
+  usable.forEach(a => {
+    const seq = (messageSequencesCache || []).find(s => s.id === a.messageSequenceId);
+    const seqName = seq ? seq.name : 'No sequence assigned';
+    const pending = switchAccountsPendingByAccount[a.id];
+    cards.push(`
+      <button type="button" class="daily-goal-account-card" data-account-id="${a.id}">
+        ${accountPhotoHtml(a)}
+        <div class="daily-goal-account-card-main">
+          <div class="daily-goal-account-card-username">@${escapeHtml(a.username)}</div>
+          <div class="daily-goal-account-card-meta">
+            ${escapeHtml(seqName)} · ${formatAccountAge(a.ageDays)}<br>
+            ${pending ? 'Resume paused session →' : `${a.todaySentCount}/${a.dailyLimit} sent today · ${a.effectiveRemainingForNewSends} left today`}
+          </div>
+        </div>
+      </button>`);
+  });
+
+  $('#switch-accounts-list').innerHTML = cards.join('');
+  $('#switch-accounts-list').classList.toggle('hidden', cards.length === 0);
+  $('#switch-accounts-empty').classList.toggle('hidden', cards.length > 0);
+  $('#switch-accounts-size-step').classList.add('hidden');
+  switchAccountsSizeStepFor = null;
+  $('#switch-accounts-modal').classList.remove('hidden');
+}
+
+$('#switch-accounts-btn').addEventListener('click', openSwitchAccountsModal);
+$('#simple-switch-accounts-btn').addEventListener('click', openSwitchAccountsModal);
+
+$('#switch-accounts-list').addEventListener('click', (e) => {
+  if (e.target.closest('[data-switch-li]')) {
+    switchToLinkedIn();
+    return;
+  }
+  const card = e.target.closest('[data-account-id]');
+  if (!card) return;
+  const accountId = card.dataset.accountId;
+  const pending = switchAccountsPendingByAccount[accountId];
+  if (pending) {
+    switchToInstagramAccount(accountId, null, pending);
+    return;
+  }
+  switchAccountsSizeStepFor = accountId;
+  const account = findIgAccount(accountId);
+  $('#switch-accounts-size-title').textContent = `How many leads for @${account ? account.username : 'this account'}?`;
+  $('#switch-accounts-list').classList.add('hidden');
+  $('#switch-accounts-empty').classList.add('hidden');
+  $('#switch-accounts-size-step').classList.remove('hidden');
+});
+
+$('#switch-accounts-size-back-btn').addEventListener('click', () => {
+  switchAccountsSizeStepFor = null;
+  $('#switch-accounts-size-step').classList.add('hidden');
+  $('#switch-accounts-list').classList.remove('hidden');
+});
+
+$all('.switch-size-preset-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    $all('.switch-size-preset-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    $('#switch-accounts-size-input').value = btn.dataset.size;
+  });
+});
+$('#switch-accounts-size-input').addEventListener('input', () => {
+  const val = $('#switch-accounts-size-input').value;
+  $all('.switch-size-preset-btn').forEach(b => b.classList.toggle('active', b.dataset.size === val));
+});
+
+$('#switch-accounts-size-confirm-btn').addEventListener('click', async () => {
+  if (!switchAccountsSizeStepFor) return;
+  const rawCount = Number($('#switch-accounts-size-input').value);
+  const count = Math.max(1, Number.isFinite(rawCount) && rawCount > 0 ? Math.round(rawCount) : 15);
+  const accountId = switchAccountsSizeStepFor;
+  switchAccountsSizeStepFor = null;
+  await switchToInstagramAccount(accountId, count, null);
+});
+
+$('#switch-accounts-cancel-btn').addEventListener('click', () => {
+  switchAccountsSizeStepFor = null;
+  $('#switch-accounts-modal').classList.add('hidden');
+});
+
+function closeSwitchAccountsModal() {
+  $('#switch-accounts-modal').classList.add('hidden');
+}
+
+async function switchToInstagramAccount(accountId, count, existingSession) {
+  try {
+    if (SIMPLE_SESSION_KINDS.includes(state.sessionKind)) {
+      await saveCurrentSimpleLeg();
+    } else {
+      await savePartialInstagramLeg();
+    }
+  } catch (e) {
+    alert(`Could not save your progress before switching (${e.message}). Nothing was lost — you're still where you were, try again.`);
+    return;
+  }
+  closeSwitchAccountsModal();
+  try {
+    if (existingSession) {
+      resumeSavedSession(existingSession);
+    } else {
+      await startSinglePlatformSession('instagram', count, state.isDailyGoal, accountId);
+      // startSinglePlatformSession silently writes an insufficient-leads
+      // message into #home-session-error and returns (rather than
+      // throwing) when there aren't enough leads — invisible here since
+      // Home isn't the active view. Surface it as a real error instead of
+      // leaving the screen stuck on the leg that was just saved away (same
+      // fix as the daily-goal account picker's startLegForAccount).
+      const homeError = $('#home-session-error');
+      if (!homeError.classList.contains('hidden')) {
+        const message = homeError.textContent.trim();
+        homeError.classList.add('hidden');
+        throw new Error(message || 'Not enough leads available right now.');
+      }
+    }
+  } catch (e) {
+    alert(`Could not switch accounts: ${e.message}`);
+  }
+}
+
+async function switchToLinkedIn() {
+  try {
+    await savePartialInstagramLeg();
+  } catch (e) {
+    alert(`Could not save your progress before switching (${e.message}). Nothing was lost — you're still where you were, try again.`);
+    return;
+  }
+  closeSwitchAccountsModal();
+  // Same three steps #combi-continue-li-btn's handler runs.
+  const liProfiles = state.combi.liLeads;
+  const target = liProfiles.length;
+  const wasDailyGoal = state.isDailyGoal;
+  state.combi = null;
+  await beginSessionWithLeads(liProfiles, { mode: 'goal', target, kind: 'li_engagement', alreadyProfiles: true, isDailyGoal: wasDailyGoal });
+}
+
+// Toggles #switch-accounts-btn (dashboard) / #simple-switch-accounts-btn
+// (LinkedIn simple session) based on the already-cached account list — no
+// forced network call on every render; the modal itself force-refreshes
+// when actually opened.
+function updateSwitchAccountsButtonVisibility() {
+  const accounts = igAccountsCache || [];
+  if (state.sessionKind === 'ig_message') {
+    const hasOtherAccount = accounts.some(a => a.id !== state.igAccountId && accountCanSendToday(a));
+    $('#switch-accounts-btn').classList.toggle('hidden', !(hasOtherAccount || !!state.combi));
+  } else if (SIMPLE_SESSION_KINDS.includes(state.sessionKind)) {
+    const hasAnyAccount = accounts.some(a => accountCanSendToday(a));
+    $('#simple-switch-accounts-btn').classList.toggle('hidden', !hasAnyAccount);
+  }
+}
 
 // ---------- SAVED SESSIONS ----------
 const savedSessionsState = { sessions: [], viewingId: null, typeFilter: 'all' };

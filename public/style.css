@@ -377,7 +377,11 @@ input:focus, textarea:focus, select:focus {
   margin: 16px 0 4px;
 }
 .session-size-presets { display: flex; gap: 8px; flex-wrap: wrap; }
-.preset-btn {
+/* .switch-size-preset-btn (Switch-accounts modal's own leads-count step)
+   shares this exact look but deliberately isn't also a .preset-btn — that
+   class is wired to a page-wide click handler that writes into Home's own
+   #session-size-input, which would be the wrong target here. */
+.preset-btn, .switch-size-preset-btn {
   background: var(--bg);
   border: 1px solid var(--border);
   color: var(--text);
@@ -388,8 +392,8 @@ input:focus, textarea:focus, select:focus {
   cursor: pointer;
   transition: background 0.15s, transform 0.15s, color 0.15s, border-color 0.15s;
 }
-.preset-btn:hover { transform: translateY(-1px); background: var(--purple-soft); }
-.preset-btn.active { background: linear-gradient(135deg, var(--purple), var(--purple-light)); color: white; border-color: transparent; }
+.preset-btn:hover, .switch-size-preset-btn:hover { transform: translateY(-1px); background: var(--purple-soft); }
+.preset-btn.active, .switch-size-preset-btn.active { background: linear-gradient(135deg, var(--purple), var(--purple-light)); color: white; border-color: transparent; }
 .session-size-custom { margin-bottom: 0; min-width: 90px; }
 .session-size-custom input { text-align: center; font-weight: 700; }
 .combi-size-row { display: flex; gap: 16px; margin: 10px 0 4px; }
@@ -411,6 +415,19 @@ input:focus, textarea:focus, select:focus {
   transition: background 0.15s, transform 0.15s;
 }
 .btn-quit-save:hover { background: rgba(255, 49, 49, 0.16); transform: translateY(-1px); }
+.btn-switch-accounts {
+  flex-shrink: 0;
+  padding: 9px 16px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--text);
+  font-weight: 600;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+.btn-switch-accounts:hover { background: var(--purple-soft); transform: translateY(-1px); }
 .progress-label { font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
 .progress-bar { height: 9px; background: var(--border); border-radius: 5px; overflow: hidden; }
 .progress-fill { height: 100%; background: linear-gradient(90deg, var(--purple), var(--purple-light)); transition: width 0.3s; }
