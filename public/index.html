@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=20">
+<link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -22,9 +22,18 @@
 
   <aside class="sidebar" id="sidebar">
     <div class="sidebar-top">
-      <div class="brand">
-        <span class="brand-icon">📩</span>
-        <span class="brand-text">Outreach Tool<span class="brand-sub">A&amp;P Media</span></span>
+      <div class="profile-switcher">
+        <button id="profile-switcher-btn" class="profile-switcher-btn" type="button" title="Switch profile">
+          <span id="profile-switcher-avatar"></span>
+          <span class="brand-text">
+            <span id="profile-switcher-name">Loading…</span>
+            <span class="brand-sub">Switch profile ▾</span>
+          </span>
+        </button>
+        <div id="profile-switcher-dropdown" class="profile-switcher-dropdown hidden">
+          <div id="profile-switcher-list" class="profile-switcher-list"></div>
+          <button type="button" id="profile-switcher-new-btn" class="profile-switcher-new-btn">+ New profile</button>
+        </div>
       </div>
       <button id="sidebar-toggle" class="sidebar-toggle-btn" title="Collapse sidebar">◀</button>
     </div>
@@ -38,6 +47,28 @@
       <button id="settings-btn" class="navbtn" title="Settings" data-nav="settings"><span class="navbtn-icon">⚙️</span><span class="navbtn-label">Settings</span></button>
     </div>
   </aside>
+
+  <!-- NEW PROFILE — creating a profile switches into it immediately, same
+       "create and start using it" spirit as the rest of this app. -->
+  <div id="new-profile-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3>New profile</h3>
+      <label>Name
+        <input type="text" id="new-profile-name" placeholder="e.g. a client's name">
+      </label>
+      <label>Picture (optional)
+        <input type="file" id="new-profile-image" accept="image/*">
+      </label>
+      <p class="muted hidden" id="new-profile-image-status"></p>
+      <label class="radio-label"><input type="checkbox" id="new-profile-instagram" checked> Instagram</label>
+      <label class="radio-label"><input type="checkbox" id="new-profile-linkedin" checked> LinkedIn</label>
+      <p class="hidden" id="new-profile-error" style="color: var(--red); font-size: 0.85rem;"></p>
+      <div class="modal-actions">
+        <button id="new-profile-cancel-btn" class="btn-secondary">Cancel</button>
+        <button id="new-profile-create-btn" class="btn-primary">Create profile →</button>
+      </div>
+    </div>
+  </div>
 
   <div class="notif-wrap">
     <button id="notif-bell" class="icon-btn notif-bell" title="Follow-up notifications">
@@ -902,6 +933,30 @@
     <section id="view-settings" class="view hidden">
       <h1 class="page-title">Settings</h1>
 
+      <div class="card" id="settings-profile-card">
+        <h3>Profile</h3>
+        <p class="muted" style="margin-top:-8px;">This profile's own name, picture, and which platforms it uses — everything else on this page (accounts, sequences, leads, settings) belongs to it alone. Switch profiles from the sidebar.</p>
+        <div class="profile-settings-row">
+          <div id="profile-settings-avatar"></div>
+          <div class="profile-settings-fields">
+            <label>Name
+              <input type="text" id="profile-settings-name">
+            </label>
+            <label>Picture
+              <input type="file" id="profile-settings-image" accept="image/*">
+            </label>
+            <p class="muted hidden" id="profile-settings-image-status"></p>
+          </div>
+        </div>
+        <label class="radio-label"><input type="checkbox" id="profile-settings-instagram"> Instagram</label>
+        <label class="radio-label"><input type="checkbox" id="profile-settings-linkedin"> LinkedIn</label>
+        <p class="hidden" id="profile-settings-error" style="color: var(--red); font-size: 0.85rem;"></p>
+        <div class="row-between">
+          <button id="profile-settings-archive-btn" class="btn-secondary" type="button" style="color: var(--red-dark);">Archive this profile</button>
+          <button id="profile-settings-save-btn" class="btn-primary">Save</button>
+        </div>
+      </div>
+
       <div class="card" id="settings-accounts-card">
         <h3>Instagram accounts</h3>
         <p class="muted" style="margin-top:-8px;">Rotate between accounts to keep Instagram from flagging any one of them for high-volume DMing. Each account's daily limit and in-session pacing come from its assigned Timing sequence below.</p>
@@ -909,7 +964,7 @@
         <button id="accounts-add-btn" class="btn-secondary">+ Add account</button>
       </div>
 
-      <div class="card">
+      <div class="card" id="settings-timing-sequences-card">
         <h3>⏱️ Timing sequences</h3>
         <p class="muted" style="margin-top:-8px;">Named, reusable presets for how an account ramps up its daily send limit and paces itself in-session — since Instagram's rules shift, edit these instead of digging through code. Assign one to each account above.</p>
         <button type="button" id="open-timing-sequences-btn" class="btn-secondary">Open Timing sequences →</button>
@@ -1017,13 +1072,13 @@
         <button id="settings-general-save" class="btn-secondary">Save</button>
       </div>
 
-      <div class="card">
+      <div class="card" id="settings-message-sequences-card">
         <h3>💬 Messaging sequences</h3>
         <p class="muted" style="margin-top:-8px;">Named, reusable presets for Instagram's first message and phase1/2/3 follow-up steps — since your messaging keeps changing, edit these instead of digging through code. Assign one to each account above.</p>
         <button type="button" id="open-message-sequences-btn" class="btn-secondary">Open Messaging sequences →</button>
       </div>
 
-      <div class="card">
+      <div class="card" id="settings-linkedin-followups-card">
         <h3>Follow-up sequence (LinkedIn)</h3>
         <p class="muted">Timing is days since the phase started. <code>{naam}</code> becomes the lead's first name, <code>{link}</code> your calendar link. Each step's wording is composed from several phrasings, so leads due for the same step at the same time don't all get the identical nudge. Instagram's follow-up sequence now lives per Messaging sequence above.</p>
         <p class="muted spintax-help">Also supports <strong>spintax</strong> — write <code>{option one|option two}</code> in a message and one option is picked at random each time it's sent. Example: <code>{Hey|Hi} {naam}, {just checking in|following up}</code>. Nesting works too.</p>
@@ -1139,9 +1194,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=20"></script>
-<script src="app.js?v=20"></script>
-<script src="leads.js?v=20"></script>
-<script src="followups.js?v=20"></script>
+<script src="templates.js?v=21"></script>
+<script src="app.js?v=21"></script>
+<script src="leads.js?v=21"></script>
+<script src="followups.js?v=21"></script>
 </body>
 </html>

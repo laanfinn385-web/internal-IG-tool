@@ -60,14 +60,238 @@ const state = {
   pacingBreakIsFinal: false
 };
 
-const SESSION_KEY = 'outreach_session_v1';
+// ---------- WORKSPACES (profiles) ----------
+// Client identity for a no-auth, single-user-per-browser app — "workspace"
+// internally (variable/header/table names) to avoid colliding with this
+// file's own unrelated state.profiles/currentProfile() (the queued leads in
+// an active outreach session); the UI-facing label is "Profile", matching
+// the sidebar switcher. Sent as the X-Workspace-Id header on every request
+// (see fetchJson) — the server falls back to its own seeded default if this
+// is ever null, so the app still works before loadWorkspaces() resolves it
+// on first load.
+const ACTIVE_WORKSPACE_KEY = 'outreach_active_workspace_id';
+let activeWorkspaceId = localStorage.getItem(ACTIVE_WORKSPACE_KEY) || null;
+let workspacesCache = [];
+
+function setActiveWorkspaceId(id) {
+  activeWorkspaceId = id;
+  try { localStorage.setItem(ACTIVE_WORKSPACE_KEY, id); } catch (e) { /* storage unavailable — falls back to the server's own default next load */ }
+}
+
+function activeWorkspace() {
+  return workspacesCache.find(w => w.id === activeWorkspaceId) || null;
+}
+
+// Called first thing in init() — resolves which profile is active before
+// anything else loads (session restoration, account/sequence caches, etc.
+// all key off activeWorkspaceId). If the stored id is stale (archived from
+// another tab/device) or this is the very first load ever, falls back to
+// whichever workspace the server considers its default.
+async function loadWorkspaces() {
+  try {
+    const data = await fetchJson('/api/workspaces');
+    workspacesCache = data.workspaces || [];
+  } catch (e) {
+    console.error('Could not load profiles', e);
+    workspacesCache = [];
+  }
+  if (!activeWorkspace() && workspacesCache.length > 0) {
+    setActiveWorkspaceId(workspacesCache[0].id);
+  }
+  return workspacesCache;
+}
+
+function workspacePhotoHtml(w) {
+  if (w.pictureUrl) return `<img class="account-photo" src="${escapeHtml(w.pictureUrl)}" alt="">`;
+  const letter = (w.name || '?').charAt(0).toUpperCase();
+  return `<div class="account-photo account-photo-placeholder">${escapeHtml(letter)}</div>`;
+}
+
+// Replaces the sidebar's old static branding — shows the active profile's
+// picture/name and lists every profile in the dropdown. Switching (or
+// creating) a profile reloads the whole page rather than trying to
+// surgically re-scope this app's many long-lived module-level caches
+// (igAccountsCache, messageSequencesCache, leadsState, settingsState, etc.)
+// — simplest way to guarantee nothing from the old profile lingers.
+function renderSidebarProfileSwitcher() {
+  const current = activeWorkspace();
+  $('#profile-switcher-avatar').innerHTML = current ? workspacePhotoHtml(current) : '';
+  $('#profile-switcher-name').textContent = current ? current.name : 'Choose a profile';
+  $('#profile-switcher-list').innerHTML = workspacesCache.map(w => `
+    <button type="button" class="profile-switcher-item${w.id === activeWorkspaceId ? ' active' : ''}" data-workspace-id="${w.id}">
+      ${workspacePhotoHtml(w)}
+      <span>${escapeHtml(w.name)}</span>
+    </button>`).join('');
+}
+
+// Applied once, right after loadWorkspaces() resolves the active profile —
+// switching profiles always reloads the whole page, so this never needs to
+// re-run mid-session. Deliberately just hides the disabled platform's own
+// option everywhere it appears (tabs, radios, checkboxes, Settings cards)
+// rather than also trying to collapse "All"-style umbrella tabs or reset
+// each page's own platform-filter default — those still work fine on
+// whatever's left since there's nothing on the other platform to show
+// anyway; this keeps the change a pure visibility pass, no risk of
+// interfering with each page's own distinct filter-state logic.
+function applyPlatformVisibility() {
+  const ws = activeWorkspace();
+  const igOn = !ws || ws.instagramEnabled;
+  const liOn = !ws || ws.linkedinEnabled;
+  if (igOn && liOn) return;
+
+  $all('[data-platform="instagram"]').forEach(el => el.classList.toggle('hidden', !igOn));
+  $all('[data-platform="linkedin"]').forEach(el => el.classList.toggle('hidden', !liOn));
+  $all('[data-session-platform="instagram"]').forEach(el => el.classList.toggle('hidden', !igOn));
+  $all('[data-session-platform="linkedin"]').forEach(el => el.classList.toggle('hidden', !liOn));
+  $all('[data-session-platform="combi"]').forEach(el => el.classList.toggle('hidden', !(igOn && liOn)));
+  $all('[data-type-filter="instagram"]').forEach(el => el.classList.toggle('hidden', !igOn));
+  $all('[data-type-filter="linkedin"]').forEach(el => el.classList.toggle('hidden', !liOn));
+  $all('[data-type-filter="combi"]').forEach(el => el.classList.toggle('hidden', !(igOn && liOn)));
+  $all('[data-mode="openers"]').forEach(el => el.classList.toggle('hidden', !igOn)); // Analytics' opener A/B tab — Instagram only
+
+  // Add-lead / CSV-mapping radios default to Instagram in the raw HTML —
+  // hiding the disabled one isn't enough if it's also the one still checked.
+  if (!igOn) {
+    $('#add-platform-instagram').closest('.radio-label').classList.add('hidden');
+    $('#add-platform-linkedin').checked = true;
+    $('#mapping-platform-instagram').closest('.radio-label').classList.add('hidden');
+    $('#mapping-platform-linkedin').checked = true;
+  }
+  if (!liOn) {
+    $('#add-platform-linkedin').closest('.radio-label').classList.add('hidden');
+    $('#mapping-platform-linkedin').closest('.radio-label').classList.add('hidden');
+  }
+  if (!igOn) $('#delete-platform-instagram').closest('.radio-label').classList.add('hidden');
+  if (!liOn) $('#delete-platform-linkedin').closest('.radio-label').classList.add('hidden');
+
+  // Settings cards — Instagram-only systems (accounts, Timing/Messaging
+  // sequences) vs LinkedIn's own separate follow-up template system.
+  if (!igOn) {
+    $('#settings-accounts-card').classList.add('hidden');
+    $('#settings-timing-sequences-card').classList.add('hidden');
+    $('#settings-message-sequences-card').classList.add('hidden');
+  }
+  if (!liOn) {
+    $('#settings-linkedin-followups-card').classList.add('hidden');
+  }
+}
+
+function toggleProfileSwitcherDropdown(show) {
+  $('#profile-switcher-dropdown').classList.toggle('hidden', !show);
+}
+
+$('#profile-switcher-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const isHidden = $('#profile-switcher-dropdown').classList.contains('hidden');
+  toggleProfileSwitcherDropdown(isHidden);
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.profile-switcher')) toggleProfileSwitcherDropdown(false);
+});
+
+$('#profile-switcher-list').addEventListener('click', (e) => {
+  const item = e.target.closest('.profile-switcher-item');
+  if (!item) return;
+  const id = item.dataset.workspaceId;
+  toggleProfileSwitcherDropdown(false);
+  if (id === activeWorkspaceId) return;
+  setActiveWorkspaceId(id);
+  location.reload();
+});
+
+// ---------- New profile modal ----------
+let pendingNewProfileImageUrl = null;
+
+function resetNewProfileModal() {
+  $('#new-profile-name').value = '';
+  $('#new-profile-image').value = '';
+  $('#new-profile-image-status').classList.add('hidden');
+  $('#new-profile-instagram').checked = true;
+  $('#new-profile-linkedin').checked = true;
+  $('#new-profile-error').classList.add('hidden');
+  pendingNewProfileImageUrl = null;
+}
+
+$('#profile-switcher-new-btn').addEventListener('click', () => {
+  toggleProfileSwitcherDropdown(false);
+  resetNewProfileModal();
+  $('#new-profile-modal').classList.remove('hidden');
+});
+
+$('#new-profile-cancel-btn').addEventListener('click', () => {
+  $('#new-profile-modal').classList.add('hidden');
+});
+
+// fileToBase64 — defined in public/followups.js (already used there for an
+// Instagram account's photo), reused here for a profile picture via the
+// same shared-global-scope pattern the rest of this app already relies on.
+$('#new-profile-image').addEventListener('change', async () => {
+  const file = $('#new-profile-image').files[0];
+  const statusEl = $('#new-profile-image-status');
+  if (!file) return;
+  statusEl.textContent = 'Uploading…';
+  statusEl.classList.remove('hidden');
+  try {
+    const imageBase64 = await fileToBase64(file);
+    const data = await fetchJson('/api/workspaces/upload-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64, contentType: file.type })
+    });
+    pendingNewProfileImageUrl = data.url;
+    statusEl.textContent = '✓ Uploaded';
+  } catch (e) {
+    pendingNewProfileImageUrl = null;
+    statusEl.textContent = `Could not upload (${e.message})`;
+  }
+});
+
+$('#new-profile-create-btn').addEventListener('click', async () => {
+  const name = $('#new-profile-name').value.trim();
+  const errorEl = $('#new-profile-error');
+  if (!name) {
+    errorEl.textContent = 'A name is required.';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+  const instagramEnabled = $('#new-profile-instagram').checked;
+  const linkedinEnabled = $('#new-profile-linkedin').checked;
+  if (!instagramEnabled && !linkedinEnabled) {
+    errorEl.textContent = 'Select at least one platform.';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+  const btn = $('#new-profile-create-btn');
+  btn.disabled = true;
+  try {
+    const data = await fetchJson('/api/workspaces', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, pictureUrl: pendingNewProfileImageUrl, instagramEnabled, linkedinEnabled })
+    });
+    setActiveWorkspaceId(data.id);
+    location.reload();
+  } catch (e) {
+    btn.disabled = false;
+    errorEl.textContent = `Could not create profile: ${e.message}`;
+    errorEl.classList.remove('hidden');
+  }
+});
+
+// Both localStorage keys below fold in the active workspace id — each
+// profile's in-progress session (and its opener/wording-rotation memory)
+// is completely independent, exactly like everything else about a profile.
+function sessionStorageKey() {
+  return `outreach_session_v1__${activeWorkspaceId || 'default'}`;
+}
 
 // Persist the in-progress session so an accidental refresh/tab-close doesn't
 // wipe unsaved profile data (already-decided profiles are safe server-side;
 // this covers the one currently being filled in).
 function saveSession() {
   try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify({
+    localStorage.setItem(sessionStorageKey(), JSON.stringify({
       profiles: state.profiles,
       index: state.index,
       results: state.results,
@@ -96,7 +320,7 @@ function saveSession() {
 
 function loadSession() {
   try {
-    const raw = localStorage.getItem(SESSION_KEY);
+    const raw = localStorage.getItem(sessionStorageKey());
     if (!raw) return null;
     return JSON.parse(raw);
   } catch (e) {
@@ -105,7 +329,7 @@ function loadSession() {
 }
 
 function clearSession() {
-  localStorage.removeItem(SESSION_KEY);
+  localStorage.removeItem(sessionStorageKey());
 }
 
 function $(sel) { return document.querySelector(sel); }
@@ -145,11 +369,13 @@ function leadDmUrl(entry) {
 // across a reshuffle. Persisted in localStorage (not sessionStorage) because
 // the pattern Instagram sees spans every session you've ever sent from, not
 // just today's batch.
-const MESSAGE_PART_ROTATION_KEY = 'template_part_rotation_v1';
+function partRotationStorageKey() {
+  return `template_part_rotation_v1__${activeWorkspaceId || 'default'}`;
+}
 
 function loadPartRotation() {
   try {
-    return JSON.parse(localStorage.getItem(MESSAGE_PART_ROTATION_KEY)) || {};
+    return JSON.parse(localStorage.getItem(partRotationStorageKey())) || {};
   } catch (e) {
     return {};
   }
@@ -157,7 +383,7 @@ function loadPartRotation() {
 
 function savePartRotation(rotation) {
   try {
-    localStorage.setItem(MESSAGE_PART_ROTATION_KEY, JSON.stringify(rotation));
+    localStorage.setItem(partRotationStorageKey(), JSON.stringify(rotation));
   } catch (e) { /* storage full or unavailable — non-fatal */ }
 }
 
@@ -220,7 +446,14 @@ async function fetchJson(url, options, timeoutMs = 30000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(url, { ...(options || {}), signal: controller.signal });
+    // X-Workspace-Id scopes every request to the active profile — the one
+    // change every one of this app's ~90 call sites gets for free, since
+    // they all already funnel through here. Omitted when unknown (falls
+    // back to the server's own seeded default) — never sent as an empty
+    // string, which the server would just trim away anyway.
+    const headers = { ...(options && options.headers) };
+    if (activeWorkspaceId) headers['X-Workspace-Id'] = activeWorkspaceId;
+    const res = await fetch(url, { ...(options || {}), headers, signal: controller.signal });
     let data = null;
     try { data = await res.json(); } catch (_) { /* empty or non-JSON body */ }
     if (!res.ok) {
@@ -3508,6 +3741,13 @@ async function loadViewsThreshold() {
 }
 
 (async function init() {
+  // Resolved first — every localStorage key below (the in-progress session,
+  // the wording-rotation memory) and every API call this function makes is
+  // scoped to whichever profile this resolves.
+  await loadWorkspaces();
+  renderSidebarProfileSwitcher();
+  applyPlatformVisibility();
+
   // loadIgAccounts() here too (not just when a session actually starts) so
   // a page reload landing mid-pacing-break (see the restoration block below)
   // has the active account's pacing blocks ready for activePauseBlock().

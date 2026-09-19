@@ -422,6 +422,7 @@ $('#followup-done-btn').addEventListener('click', () => showView('home'));
 const settingsState = { followups: [], phase: 1, reminders: [], accounts: [] };
 
 async function loadSettingsPage() {
+  renderProfileSettingsCard();
   try {
     const [fuData, appData] = await Promise.all([
       fetchJson('/api/settings/followups?platform=linkedin'),
@@ -443,6 +444,103 @@ async function loadSettingsPage() {
     alert(`Could not load settings: ${e.message}`);
   }
 }
+
+// ---------- Settings: Profile card (the active workspace's own name,
+// picture, and platform toggles — workspacePhotoHtml/activeWorkspace/
+// setActiveWorkspaceId/fileToBase64 all defined in app.js, callable here
+// since every public/*.js file shares one global scope) ----------
+let pendingProfileSettingsImageUrl = null;
+
+function renderProfileSettingsCard() {
+  const ws = activeWorkspace();
+  if (!ws) return;
+  $('#profile-settings-avatar').innerHTML = workspacePhotoHtml(ws);
+  $('#profile-settings-name').value = ws.name;
+  $('#profile-settings-instagram').checked = ws.instagramEnabled;
+  $('#profile-settings-linkedin').checked = ws.linkedinEnabled;
+  $('#profile-settings-image').value = '';
+  $('#profile-settings-image-status').classList.add('hidden');
+  $('#profile-settings-error').classList.add('hidden');
+  pendingProfileSettingsImageUrl = null;
+}
+
+$('#profile-settings-image').addEventListener('change', async () => {
+  const file = $('#profile-settings-image').files[0];
+  const statusEl = $('#profile-settings-image-status');
+  if (!file) return;
+  statusEl.textContent = 'Uploading…';
+  statusEl.classList.remove('hidden');
+  try {
+    const imageBase64 = await fileToBase64(file);
+    const data = await fetchJson('/api/workspaces/upload-image', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageBase64, contentType: file.type })
+    });
+    pendingProfileSettingsImageUrl = data.url;
+    statusEl.textContent = '✓ Uploaded';
+  } catch (e) {
+    pendingProfileSettingsImageUrl = null;
+    statusEl.textContent = `Could not upload (${e.message})`;
+  }
+});
+
+$('#profile-settings-save-btn').addEventListener('click', async () => {
+  const ws = activeWorkspace();
+  if (!ws) return;
+  const name = $('#profile-settings-name').value.trim();
+  const errorEl = $('#profile-settings-error');
+  if (!name) {
+    errorEl.textContent = 'A name is required.';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+  const instagramEnabled = $('#profile-settings-instagram').checked;
+  const linkedinEnabled = $('#profile-settings-linkedin').checked;
+  if (!instagramEnabled && !linkedinEnabled) {
+    errorEl.textContent = 'Select at least one platform.';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+  const btn = $('#profile-settings-save-btn');
+  btn.disabled = true;
+  try {
+    const body = { name, instagramEnabled, linkedinEnabled };
+    if (pendingProfileSettingsImageUrl) body.pictureUrl = pendingProfileSettingsImageUrl;
+    await fetchJson(`/api/workspaces/${ws.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    // The switcher's display and every platform-visibility check both need
+    // this profile's fresh fields — simplest is the same full reload every
+    // other workspace-affecting action already uses.
+    location.reload();
+  } catch (e) {
+    btn.disabled = false;
+    errorEl.textContent = `Could not save: ${e.message}`;
+    errorEl.classList.remove('hidden');
+  }
+});
+
+$('#profile-settings-archive-btn').addEventListener('click', async () => {
+  const ws = activeWorkspace();
+  if (!ws) return;
+  if (!confirm(`Archive "${ws.name}"? Its leads/accounts/sequences stay intact but you won't be able to switch to it anymore.`)) return;
+  const btn = $('#profile-settings-archive-btn');
+  btn.disabled = true;
+  try {
+    await fetchJson(`/api/workspaces/${ws.id}`, { method: 'DELETE' });
+    // Switch to whatever's left before reloading, so the app doesn't come
+    // back up still pointed at the profile that was just archived.
+    const remaining = workspacesCache.filter(w => w.id !== ws.id);
+    if (remaining.length > 0) setActiveWorkspaceId(remaining[0].id);
+    location.reload();
+  } catch (e) {
+    btn.disabled = false;
+    alert(`Could not archive this profile: ${e.message}`);
+  }
+});
 
 $('#settings-phase-tabs').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-phase]');

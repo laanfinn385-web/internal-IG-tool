@@ -97,43 +97,38 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.01em; }
 }
 .sidebar.collapsed { width: 76px; }
 
-.sidebar-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 22px; padding: 0 4px; }
-.brand {
+.sidebar-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 22px; padding: 0 4px; position: relative; }
+
+/* Profile switcher — replaces the old static "Outreach Tool / A&P Media"
+   brand block. #profile-switcher-avatar holds one .account-photo (36px,
+   sized below to match the old .brand-icon), reusing that class's existing
+   photo-or-initial-letter styling rather than inventing new visual language. */
+.profile-switcher { position: relative; min-width: 0; flex: 1; }
+.profile-switcher-btn {
   display: flex;
   align-items: center;
   gap: 10px;
-  font-family: var(--font-display);
-  font-weight: 700;
-  font-size: 1.02rem;
-  color: var(--text);
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 4px;
+  border-radius: 10px;
+  cursor: pointer;
   overflow: hidden;
   min-width: 0;
+  text-align: left;
+  transition: background 0.15s;
 }
-.brand-icon {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+.profile-switcher-btn:hover { background: var(--purple-soft); }
+.profile-switcher-btn .account-photo,
+.profile-switcher-btn .account-photo-placeholder {
   width: 36px;
   height: 36px;
-  flex-shrink: 0;
   border-radius: 11px;
-  background: linear-gradient(135deg, var(--purple), var(--purple-light));
   font-size: 1.05rem;
   box-shadow: 0 6px 14px rgba(67, 0, 116, 0.3);
 }
-.brand-icon::after {
-  content: '';
-  position: absolute;
-  top: -3px;
-  right: -3px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--red);
-  box-shadow: 0 0 0 2.5px var(--card-bg);
-}
-.brand-text { display: flex; flex-direction: column; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.brand-text { display: flex; flex-direction: column; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-display); font-weight: 700; font-size: 1.02rem; color: var(--text); }
 .brand-sub {
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-weight: 500;
@@ -143,6 +138,52 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.01em; }
   color: var(--muted);
 }
 .sidebar.collapsed .brand-text, .sidebar.collapsed .navbtn-label { display: none; }
+.sidebar.collapsed .profile-switcher-dropdown { left: 76px; top: 0; }
+
+.profile-switcher-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  width: 240px;
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: var(--shadow-lift);
+  padding: 8px;
+  z-index: 50;
+}
+.profile-switcher-list { display: flex; flex-direction: column; gap: 2px; max-height: 280px; overflow-y: auto; }
+.profile-switcher-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 8px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.profile-switcher-item .account-photo, .profile-switcher-item .account-photo-placeholder { width: 28px; height: 28px; font-size: 0.8rem; }
+.profile-switcher-item:hover { background: var(--purple-soft); }
+.profile-switcher-item.active { background: var(--purple-soft); color: var(--accent); }
+.profile-switcher-new-btn {
+  width: 100%;
+  margin-top: 6px;
+  padding: 8px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: none;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.profile-switcher-new-btn:hover { background: var(--purple-soft); color: var(--accent); border-color: transparent; }
 
 .sidebar-toggle-btn {
   flex-shrink: 0;
@@ -1636,6 +1677,11 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 .account-main { min-width: 0; flex: 1; }
 .account-username { font-weight: 700; font-size: 0.92rem; }
 .account-meta { font-size: 0.78rem; margin-top: 2px; }
+
+/* Settings' Profile card */
+.profile-settings-row { display: flex; align-items: flex-start; gap: 16px; margin: 14px 0; }
+.profile-settings-row .account-photo, .profile-settings-row .account-photo-placeholder { width: 56px; height: 56px; font-size: 1.2rem; }
+.profile-settings-fields { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
 
 /* Daily-goal account picker — a clickable card per ready account (avatar,
    messaging sequence, age, today's volume) so choosing between them is a

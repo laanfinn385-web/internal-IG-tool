@@ -10,6 +10,114 @@ const { neon } = require('@neondatabase/serverless');
 const sql = neon(process.env.DATABASE_URL);
 const { put: putBlob } = require('@vercel/blob');
 
+// ---------- WORKSPACES (profiles) ----------
+// No login/auth exists in this app (single-user personal tool) — a
+// "workspace" is just a data-scoping boundary, identified per-request via
+// the X-Workspace-Id header the client sends on every call (set in
+// fetchJson, public/app.js). Falls back to the seeded default workspace
+// ('A&P Media', backfilled with every pre-existing row when workspaces were
+// introduced) so a stray unscoped request never 500s or silently touches
+// every workspace's data at once.
+let defaultWorkspaceIdCache = null;
+async function getDefaultWorkspaceId() {
+  if (defaultWorkspaceIdCache) return defaultWorkspaceIdCache;
+  const [row] = await sql`SELECT id FROM workspaces WHERE archived_at IS NULL ORDER BY created_at ASC LIMIT 1`;
+  defaultWorkspaceIdCache = row ? row.id : null;
+  return defaultWorkspaceIdCache;
+}
+async function getWorkspaceId(req) {
+  const header = req.headers['x-workspace-id'];
+  if (typeof header === 'string' && header.trim()) return header.trim();
+  return getDefaultWorkspaceId();
+}
+
+function mapWorkspaceRow(r) {
+  return {
+    id: r.id,
+    name: r.name,
+    pictureUrl: r.picture_url,
+    instagramEnabled: r.instagram_enabled,
+    linkedinEnabled: r.linkedin_enabled,
+    createdAt: r.created_at
+  };
+}
+
+// Routes registered here (rather than grouped with the rest of the API
+// further down) since they're the one thing that has to work before any
+// other endpoint's workspace scoping means anything — switching profiles
+// happens before the client sends its next X-Workspace-Id-tagged request.
+app.get('/api/workspaces', asyncRoute(async (req, res) => {
+  const rows = await sql`SELECT * FROM workspaces WHERE archived_at IS NULL ORDER BY created_at ASC`;
+  res.json({ workspaces: rows.map(mapWorkspaceRow) });
+}));
+
+app.post('/api/workspaces', asyncRoute(async (req, res) => {
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'Name is required.' });
+  const id = crypto.randomUUID();
+  const instagramEnabled = req.body.instagramEnabled !== false;
+  const linkedinEnabled = req.body.linkedinEnabled !== false;
+  if (!instagramEnabled && !linkedinEnabled) {
+    return res.status(400).json({ error: 'At least one platform must be enabled.' });
+  }
+  await sql`
+    INSERT INTO workspaces (id, name, picture_url, instagram_enabled, linkedin_enabled)
+    VALUES (${id}, ${name}, ${req.body.pictureUrl || null}, ${instagramEnabled}, ${linkedinEnabled})
+  `;
+  res.json({ ok: true, id });
+}));
+
+app.patch('/api/workspaces/:id', asyncRoute(async (req, res) => {
+  const sets = []; const params = []; let i = 1;
+  if (req.body.name !== undefined) {
+    const name = String(req.body.name).trim();
+    if (!name) return res.status(400).json({ error: 'Name is required.' });
+    sets.push(`name = $${i++}`); params.push(name);
+  }
+  if (req.body.pictureUrl !== undefined) { sets.push(`picture_url = $${i++}`); params.push(req.body.pictureUrl); }
+  if (req.body.instagramEnabled !== undefined) { sets.push(`instagram_enabled = $${i++}`); params.push(!!req.body.instagramEnabled); }
+  if (req.body.linkedinEnabled !== undefined) { sets.push(`linkedin_enabled = $${i++}`); params.push(!!req.body.linkedinEnabled); }
+  if (sets.length === 0) return res.json({ ok: true });
+  // Read-modify-check rather than a DB constraint — simplest way to block
+  // "both platforms off" across a partial PATCH (e.g. only instagramEnabled
+  // sent) without a cross-column CHECK constraint that'd need updating every
+  // time these two columns' semantics changed.
+  const [current] = await sql`SELECT instagram_enabled, linkedin_enabled FROM workspaces WHERE id = ${req.params.id} AND archived_at IS NULL`;
+  if (!current) return res.status(404).json({ error: 'Profile not found.' });
+  const nextIg = req.body.instagramEnabled !== undefined ? !!req.body.instagramEnabled : current.instagram_enabled;
+  const nextLi = req.body.linkedinEnabled !== undefined ? !!req.body.linkedinEnabled : current.linkedin_enabled;
+  if (!nextIg && !nextLi) return res.status(400).json({ error: 'At least one platform must be enabled.' });
+  params.push(req.params.id);
+  await sql.query(`UPDATE workspaces SET ${sets.join(', ')} WHERE id = $${i}`, params);
+  defaultWorkspaceIdCache = null; // name/archival elsewhere could change which workspace this resolves to
+  res.json({ ok: true });
+}));
+
+app.delete('/api/workspaces/:id', asyncRoute(async (req, res) => {
+  const [{ count }] = await sql`SELECT count(*)::int AS count FROM workspaces WHERE archived_at IS NULL`;
+  if (count <= 1) {
+    return res.status(400).json({ error: "Can't archive the only remaining profile." });
+  }
+  await sql`UPDATE workspaces SET archived_at = now() WHERE id = ${req.params.id}`;
+  defaultWorkspaceIdCache = null;
+  res.json({ ok: true });
+}));
+
+// Same base64-JSON-to-Blob pattern as /api/accounts/upload-image — a profile
+// picture is small enough that base64's ~33% overhead against the existing
+// 15mb JSON limit doesn't matter.
+app.post('/api/workspaces/upload-image', asyncRoute(async (req, res) => {
+  const { imageBase64, contentType } = req.body;
+  if (!imageBase64) return res.status(400).json({ error: 'imageBase64 is required.' });
+  const buffer = Buffer.from(imageBase64, 'base64');
+  const ext = (contentType && contentType.split('/')[1]) || 'jpg';
+  const blob = await putBlob(`workspace-photos/${crypto.randomUUID()}.${ext}`, buffer, {
+    access: 'public',
+    contentType: contentType || 'image/jpeg'
+  });
+  res.json({ url: blob.url });
+}));
+
 // The video-render-service is a separate Vercel deployment (see
 // video-render-service/README.md) — these point this app at it.
 const RENDER_SERVICE_URL = process.env.RENDER_SERVICE_URL;
@@ -89,8 +197,8 @@ function platformClause(platform) {
   return platform === 'all' ? sql`` : sql`AND platform = ${platform}`;
 }
 
-async function loadData(platform = 'all') {
-  const rows = await sql`SELECT * FROM outreaches WHERE true ${platformClause(platform)}`;
+async function loadData(workspaceId, platform = 'all') {
+  const rows = await sql`SELECT * FROM outreaches WHERE workspace_id = ${workspaceId} ${platformClause(platform)}`;
   return {
     outreaches: rows.map(r => ({
       id: r.id,
@@ -178,8 +286,9 @@ function computeGoalStreak(igByDate, liByDate, igGoal, liGoal) {
 }
 
 app.get('/api/home', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const platform = ['instagram', 'linkedin'].includes(req.query.platform) ? req.query.platform : 'all';
-  const data = await loadData(platform);
+  const data = await loadData(workspaceId, platform);
   const sent = data.outreaches.filter(o => o.status === 'sent');
   const sevenDaysAgo = daysAgoStr(6);
   const last7Days = sent.filter(o => o.date >= sevenDaysAgo).length;
@@ -200,8 +309,8 @@ app.get('/api/home', asyncRoute(async (req, res) => {
     sendsTrend.push({ date: ds, count: sent.filter(o => o.date === ds).length });
   }
 
-  const [{ count }] = await sql`SELECT count(*) FROM leads WHERE deleted_at IS NULL AND stage = 'new' ${platformClause(platform)}`;
-  const stageRows = await sql`SELECT stage, count(*) FROM leads WHERE deleted_at IS NULL ${platformClause(platform)} GROUP BY stage`;
+  const [{ count }] = await sql`SELECT count(*) FROM leads WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL AND stage = 'new' ${platformClause(platform)}`;
+  const stageRows = await sql`SELECT stage, count(*) FROM leads WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL ${platformClause(platform)} GROUP BY stage`;
   const stageCounts = { new: 0, engaged: 0, connection_sent: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0, cant_message: 0, in_conversation: 0 };
   stageRows.forEach(r => { if (r.stage in stageCounts) stageCounts[r.stage] = Number(r.count); });
 
@@ -213,7 +322,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   const eventRows = await sql`
     SELECT e.event, count(*) FROM lead_events e
     JOIN leads l ON l.id = e.lead_id
-    WHERE e.event IN ('positive_reply', 'dead', 'call_booked', 'connection_sent', 'connection_accepted')
+    WHERE e.workspace_id = ${workspaceId} AND e.event IN ('positive_reply', 'dead', 'call_booked', 'connection_sent', 'connection_accepted')
     ${platform === 'all' ? sql`` : sql`AND l.platform = ${platform}`}
     GROUP BY e.event
   `;
@@ -237,10 +346,10 @@ app.get('/api/home', asyncRoute(async (req, res) => {
     liEngagedByDateRows,
     [dailyGoalSession]
   ] = await Promise.all([
-    sql`SELECT key, value FROM app_settings WHERE key IN ('daily_goal_instagram', 'daily_goal_linkedin', 'daily_goal_instagram_sync')`,
-    sql`SELECT date, count(*) FROM outreaches WHERE platform = 'instagram' AND status = 'sent' GROUP BY date`,
-    sql`SELECT e.date, count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'engaged' AND l.platform = 'linkedin' GROUP BY e.date`,
-    sql`SELECT * FROM saved_sessions WHERE is_daily_goal = true ORDER BY created_at DESC LIMIT 1`
+    sql`SELECT key, value FROM app_settings WHERE workspace_id = ${workspaceId} AND key IN ('daily_goal_instagram', 'daily_goal_linkedin', 'daily_goal_instagram_sync')`,
+    sql`SELECT date, count(*) FROM outreaches WHERE workspace_id = ${workspaceId} AND platform = 'instagram' AND status = 'sent' GROUP BY date`,
+    sql`SELECT e.date, count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'engaged' AND l.platform = 'linkedin' GROUP BY e.date`,
+    sql`SELECT * FROM saved_sessions WHERE workspace_id = ${workspaceId} AND is_daily_goal = true ORDER BY created_at DESC LIMIT 1`
   ]);
   const goalSettings = {};
   goalSettingRows.forEach(r => { goalSettings[r.key] = r.value; });
@@ -268,7 +377,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   // spreads later in the day), so whatever gets computed first after that
   // boundary is already the correct, stable total for the rest of the day.
   if (dailyGoalInstagramSynced) {
-    const [dueHour, defaultSeqId] = await Promise.all([getFollowupDueHour(), getDefaultMessageSequenceId()]);
+    const [dueHour, defaultSeqId] = await Promise.all([getFollowupDueHour(workspaceId), getDefaultMessageSequenceId(workspaceId)]);
     // ::text — amsterdam_day_index() returns a Postgres `date`, which the
     // driver hands back as a JS Date object; String()-ing that produces a
     // verbose, environment-dependent locale string (and Vercel's UTC
@@ -276,7 +385,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
     // other date/day-index math expects), not a stable comparison key.
     const [{ day_index }] = await sql`SELECT amsterdam_day_index(now(), ${dueHour})::text AS day_index`;
     const snapshotKey = day_index;
-    const snapshotRows = await sql`SELECT key, value FROM app_settings WHERE key IN ('daily_goal_instagram_snapshot_day', 'daily_goal_instagram_snapshot_value')`;
+    const snapshotRows = await sql`SELECT key, value FROM app_settings WHERE workspace_id = ${workspaceId} AND key IN ('daily_goal_instagram_snapshot_day', 'daily_goal_instagram_snapshot_value')`;
     const snapshot = {};
     snapshotRows.forEach(r => { snapshot[r.key] = r.value; });
     if (snapshot.daily_goal_instagram_snapshot_day === snapshotKey && snapshot.daily_goal_instagram_snapshot_value !== undefined) {
@@ -294,20 +403,20 @@ app.get('/api/home', asyncRoute(async (req, res) => {
           JOIN message_sequence_followups msf
             ON msf.sequence_id = COALESCE(la.message_sequence_id, ${defaultSeqId})
            AND msf.phase = 1 AND msf.step = l.phase_step + 1
-          WHERE l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
+          WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
             AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
           GROUP BY l.account_id
         ) pending ON pending.account_id = a.id
-        WHERE a.archived_at IS NULL
+        WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL
       `;
       dailyGoalInstagram = Math.max(0, Number(total_limit) - Number(total_pending));
       await sql`
-        INSERT INTO app_settings (key, value) VALUES ('daily_goal_instagram_snapshot_day', ${snapshotKey})
-        ON CONFLICT (key) DO UPDATE SET value = ${snapshotKey}
+        INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'daily_goal_instagram_snapshot_day', ${snapshotKey})
+        ON CONFLICT (workspace_id, key) DO UPDATE SET value = ${snapshotKey}
       `;
       await sql`
-        INSERT INTO app_settings (key, value) VALUES ('daily_goal_instagram_snapshot_value', ${String(dailyGoalInstagram)})
-        ON CONFLICT (key) DO UPDATE SET value = ${String(dailyGoalInstagram)}
+        INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'daily_goal_instagram_snapshot_value', ${String(dailyGoalInstagram)})
+        ON CONFLICT (workspace_id, key) DO UPDATE SET value = ${String(dailyGoalInstagram)}
       `;
     }
   }
@@ -335,6 +444,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/outreach', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const record = {
     id: crypto.randomUUID(),
     date: todayStr(),
@@ -355,8 +465,8 @@ app.post('/api/outreach', asyncRoute(async (req, res) => {
   };
 
   await sql`
-    INSERT INTO outreaches (id, date, created_at, platform, account_id, username, profile_url, full_name, bio, followers, last_post_weeks, posts_per_week, avg_views, template, message, status)
-    VALUES (${record.id}, ${record.date}, ${record.createdAt}, ${record.platform}, ${record.accountId}, ${record.username}, ${record.profileUrl}, ${record.fullName}, ${record.bio}, ${record.followers}, ${record.lastPostWeeks}, ${record.postsPerWeek}, ${record.avgViews}, ${record.template}, ${record.message}, ${record.status})
+    INSERT INTO outreaches (id, workspace_id, date, created_at, platform, account_id, username, profile_url, full_name, bio, followers, last_post_weeks, posts_per_week, avg_views, template, message, status)
+    VALUES (${record.id}, ${workspaceId}, ${record.date}, ${record.createdAt}, ${record.platform}, ${record.accountId}, ${record.username}, ${record.profileUrl}, ${record.fullName}, ${record.bio}, ${record.followers}, ${record.lastPostWeeks}, ${record.postsPerWeek}, ${record.avgViews}, ${record.template}, ${record.message}, ${record.status})
   `;
 
   // Lets the client know immediately whether this send just hit the active
@@ -366,7 +476,7 @@ app.post('/api/outreach', asyncRoute(async (req, res) => {
   if (record.accountId && record.status === 'sent') {
     const [{ count }] = await sql`
       SELECT count(*) FROM outreaches
-      WHERE account_id = ${record.accountId} AND status = 'sent' AND date = ${record.date}
+      WHERE workspace_id = ${workspaceId} AND account_id = ${record.accountId} AND status = 'sent' AND date = ${record.date}
     `;
     accountTodaySentCount = Number(count);
   }
@@ -375,8 +485,9 @@ app.post('/api/outreach', asyncRoute(async (req, res) => {
 }));
 
 app.get('/api/analytics', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const platform = ['instagram', 'linkedin'].includes(req.query.platform) ? req.query.platform : 'all';
-  const data = await loadData(platform);
+  const data = await loadData(workspaceId, platform);
   const range = req.query.range || 'month';
   const sent = data.outreaches.filter(o => o.status === 'sent');
   // Built from todayStr() (Amsterdam-anchored) rather than `new Date()`
@@ -507,12 +618,12 @@ app.get('/api/analytics', asyncRoute(async (req, res) => {
     [{ count: followupsCount }], [{ count: positiveReplyCount }], [{ count: deadCount }],
     [{ count: appointmentsCount }], [{ count: connectionsSentCount }], [{ count: connectionsAcceptedCount }]
   ] = await Promise.all([
-    sql`SELECT count(*) FROM followup_sends fs JOIN leads l ON l.id = fs.lead_id WHERE fs.date >= ${currentStart} AND fs.date <= ${currentEnd} ${platformClause(platform)}`,
-    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'positive_reply' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
-    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'dead' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
-    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'call_booked' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
-    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'connection_sent' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
-    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.event = 'connection_accepted' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`
+    sql`SELECT count(*) FROM followup_sends fs JOIN leads l ON l.id = fs.lead_id WHERE fs.workspace_id = ${workspaceId} AND fs.date >= ${currentStart} AND fs.date <= ${currentEnd} ${platformClause(platform)}`,
+    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'positive_reply' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
+    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'dead' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
+    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'call_booked' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
+    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'connection_sent' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
+    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'connection_accepted' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`
   ]);
 
   const positiveReplies = Number(positiveReplyCount);
@@ -549,6 +660,7 @@ app.get('/api/analytics', asyncRoute(async (req, res) => {
 // archived/deleted sequence still shows its historical performance rather
 // than silently disappearing.
 app.get('/api/analytics/openers', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const rows = await sql`
     SELECT o.id, o.position, o.text, ms.name AS sequence_name,
       count(l.id) AS sends,
@@ -558,6 +670,7 @@ app.get('/api/analytics/openers', asyncRoute(async (req, res) => {
     FROM message_sequence_openers o
     JOIN message_sequences ms ON ms.id = o.sequence_id
     LEFT JOIN leads l ON l.opener_id = o.id AND l.deleted_at IS NULL
+    WHERE o.workspace_id = ${workspaceId}
     GROUP BY o.id, o.position, o.text, ms.name
     ORDER BY ms.name, o.position
   `;
@@ -631,13 +744,14 @@ function mapLeadRow(r) {
   };
 }
 
-async function loadLeads() {
-  const rows = await sql`SELECT * FROM leads WHERE deleted_at IS NULL ORDER BY seq ASC`;
+async function loadLeads(workspaceId) {
+  const rows = await sql`SELECT * FROM leads WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL ORDER BY seq ASC`;
   return rows.map(mapLeadRow);
 }
 
 app.get('/api/leads', asyncRoute(async (req, res) => {
-  const leads = await loadLeads();
+  const workspaceId = await getWorkspaceId(req);
+  const leads = await loadLeads(workspaceId);
   res.json({ leads });
 }));
 
@@ -649,6 +763,7 @@ app.get('/api/leads', asyncRoute(async (req, res) => {
 // decided (still `stage = 'new'` in the DB) — without risking a URL-length
 // limit on a large session. `count` still works the same as before.
 app.post('/api/leads/next', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const body = req.body || {};
   // `|| 15` would treat an explicit count=0 as "unset" and silently hand
   // back 15 leads instead of the Math.max(1, ...) floor doing that job.
@@ -659,13 +774,13 @@ app.post('/api/leads/next', asyncRoute(async (req, res) => {
   const rows = excludeIds.length > 0
     ? await sql`
         SELECT * FROM leads
-        WHERE deleted_at IS NULL AND stage = 'new' AND platform = ${platform} AND NOT (id = ANY(${excludeIds}))
+        WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL AND stage = 'new' AND platform = ${platform} AND NOT (id = ANY(${excludeIds}))
         ORDER BY seq ASC
         LIMIT ${count}
       `
     : await sql`
         SELECT * FROM leads
-        WHERE deleted_at IS NULL AND stage = 'new' AND platform = ${platform}
+        WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL AND stage = 'new' AND platform = ${platform}
         ORDER BY seq ASC
         LIMIT ${count}
       `;
@@ -678,6 +793,7 @@ app.post('/api/leads/next', asyncRoute(async (req, res) => {
 // request" — Postgres resolves conflicts between rows in the same INSERT
 // too, not just against rows already on disk.
 app.post('/api/leads', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const b = req.body;
   const platform = b.platform === 'linkedin' ? 'linkedin' : 'instagram';
   // LinkedIn leads have no username concept — a profile URL or full name is
@@ -691,10 +807,10 @@ app.post('/api/leads', asyncRoute(async (req, res) => {
   }
   const id = crypto.randomUUID();
   const rows = await sql`
-    INSERT INTO leads (id, platform, profile_url, username, full_name, bio, headline, followers, notes)
-    VALUES (${id}, ${platform}, ${sanitizeUrl(b.profileUrl)}, ${b.username || ''}, ${b.fullName || ''}, ${b.bio || ''},
+    INSERT INTO leads (id, workspace_id, platform, profile_url, username, full_name, bio, headline, followers, notes)
+    VALUES (${id}, ${workspaceId}, ${platform}, ${sanitizeUrl(b.profileUrl)}, ${b.username || ''}, ${b.fullName || ''}, ${b.bio || ''},
       ${b.headline || ''}, ${toNullableInt(b.followers)}, ${b.notes || ''})
-    ON CONFLICT (lower(username)) WHERE deleted_at IS NULL AND username <> '' DO NOTHING
+    ON CONFLICT (workspace_id, lower(username)) WHERE deleted_at IS NULL AND username <> '' DO NOTHING
     RETURNING id
   `;
   if (rows.length === 0 && b.username) {
@@ -704,6 +820,7 @@ app.post('/api/leads', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/leads/bulk', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   // One platform per import batch — the CSV mapping modal picks it up front.
   const platform = req.body.platform === 'linkedin' ? 'linkedin' : 'instagram';
   // Rows with nothing usable to identify them (e.g. a trailing blank line in
@@ -718,6 +835,7 @@ app.post('/api/leads/bulk', asyncRoute(async (req, res) => {
   }
 
   const ids = leads.map(() => crypto.randomUUID());
+  const workspaceIds = leads.map(() => workspaceId);
   const platforms = leads.map(() => platform);
   const profileUrls = leads.map(l => sanitizeUrl(l.profileUrl));
   const usernames = leads.map(l => l.username || '');
@@ -727,9 +845,9 @@ app.post('/api/leads/bulk', asyncRoute(async (req, res) => {
   const followersArr = leads.map(l => toNullableInt(l.followers));
 
   const rows = await sql`
-    INSERT INTO leads (id, platform, profile_url, username, full_name, bio, headline, followers)
-    SELECT * FROM unnest(${ids}::uuid[], ${platforms}::text[], ${profileUrls}::text[], ${usernames}::text[], ${fullNames}::text[], ${bios}::text[], ${headlines}::text[], ${followersArr}::integer[])
-    ON CONFLICT (lower(username)) WHERE deleted_at IS NULL AND username <> '' DO NOTHING
+    INSERT INTO leads (id, workspace_id, platform, profile_url, username, full_name, bio, headline, followers)
+    SELECT * FROM unnest(${ids}::uuid[], ${workspaceIds}::uuid[], ${platforms}::text[], ${profileUrls}::text[], ${usernames}::text[], ${fullNames}::text[], ${bios}::text[], ${headlines}::text[], ${followersArr}::integer[])
+    ON CONFLICT (workspace_id, lower(username)) WHERE deleted_at IS NULL AND username <> '' DO NOTHING
     RETURNING id
   `;
   res.json({ ok: true, inserted: rows.length, duplicates: leads.length - rows.length });
@@ -762,6 +880,7 @@ const FOLLOWUP_STAGES = ['phase1', 'phase2', 'phase3'];
 const POSITIVE_REPLY_STAGES = ['phase2', 'phase3', 'call_booked', 'in_conversation'];
 
 app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const { id } = req.params;
   const b = req.body;
   const sets = [];
@@ -777,7 +896,7 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   // even retroactively for past date ranges. Re-entering later logs a fresh
   // dated event rather than silently no-op'ing.
   if (Object.prototype.hasOwnProperty.call(b, 'stage')) {
-    const [current] = await sql`SELECT stage, ever_positive_reply, ever_call_booked, personalized_video_url FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
+    const [current] = await sql`SELECT stage, ever_positive_reply, ever_call_booked, personalized_video_url FROM leads WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
     if (current && current.stage !== b.stage) {
       // General "when did this lead's stage last change" — unlike
       // phase_started_at (only reset for phase1/2/3/engaged, for follow-up
@@ -820,7 +939,7 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
       // flag check based on stale data; they can't both pass the DB).
       if (enteringPositive && !current.ever_positive_reply) {
         sets.push('ever_positive_reply = true');
-        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'positive_reply', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
+        await sql`INSERT INTO lead_events (id, workspace_id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id},'positive_reply', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
       }
       if (leavingPositive) {
         sets.push('ever_positive_reply = false');
@@ -829,7 +948,7 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
 
       if (b.stage === 'call_booked' && !current.ever_call_booked) {
         sets.push('ever_call_booked = true');
-        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'call_booked', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
+        await sql`INSERT INTO lead_events (id, workspace_id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id},'call_booked', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
       }
       if (current.stage === 'call_booked' && b.stage !== 'call_booked') {
         sets.push('ever_call_booked = false');
@@ -841,7 +960,7 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
       // stages above, or un-deading a lead (e.g. undoing a misclick) leaves
       // it permanently stuck counting as a reply forever.
       if (b.stage === 'dead') {
-        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'dead', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
+        await sql`INSERT INTO lead_events (id, workspace_id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id},'dead', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
       }
       if (current.stage === 'dead' && b.stage !== 'dead') {
         await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'dead'`;
@@ -861,13 +980,13 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
       // deliberately narrow: only the exact reverse transition (an explicit
       // undo of the last stage move) un-counts it, not any forward move.
       if (b.stage === 'engaged') {
-        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'engaged', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
+        await sql`INSERT INTO lead_events (id, workspace_id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id},'engaged', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
       }
       if (current.stage === 'engaged' && b.stage === 'new') {
         await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'engaged'`;
       }
       if (b.stage === 'connection_sent') {
-        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'connection_sent', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
+        await sql`INSERT INTO lead_events (id, workspace_id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id},'connection_sent', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
       }
       if (current.stage === 'connection_sent' && b.stage === 'engaged') {
         await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'connection_sent'`;
@@ -878,7 +997,7 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
       // of it *is* the acceptance signal, so this fires on exactly that
       // transition rather than a separate button.
       if (current.stage === 'connection_sent' && b.stage === 'phase1') {
-        await sql`INSERT INTO lead_events (id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${id}, 'connection_accepted', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
+        await sql`INSERT INTO lead_events (id, workspace_id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id},'connection_accepted', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
       }
       if (current.stage === 'phase1' && b.stage === 'connection_sent') {
         await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'connection_accepted'`;
@@ -898,9 +1017,10 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   if (sets.length === 0) return res.json({ ok: true });
   sets.push('updated_at = now()');
   params.push(id);
+  params.push(workspaceId);
 
   try {
-    await sql.query(`UPDATE leads SET ${sets.join(', ')} WHERE id = $${i} AND deleted_at IS NULL`, params);
+    await sql.query(`UPDATE leads SET ${sets.join(', ')} WHERE id = $${i} AND workspace_id = $${i + 1} AND deleted_at IS NULL`, params);
   } catch (e) {
     if (e.code === '23505') {
       return res.status(409).json({ error: `A lead with username @${b.username} is already in your list.` });
@@ -917,11 +1037,12 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
 // browser once per lead in a batch, so a slow/failed render never blocks the
 // rest of a batch and each call stays within its own timeout budget.
 app.post('/api/leads/:id/render-video', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const { id } = req.params;
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'name is required' });
 
-  const [lead] = await sql`SELECT id FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
+  const [lead] = await sql`SELECT id FROM leads WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
   if (!lead) return res.status(404).json({ error: 'Lead not found' });
 
   if (!RENDER_SERVICE_URL || !RENDER_SERVICE_SECRET) {
@@ -930,7 +1051,7 @@ app.post('/api/leads/:id/render-video', asyncRoute(async (req, res) => {
 
   await sql`
     UPDATE leads SET personalized_video_status = 'rendering', personalized_video_error = NULL, updated_at = now()
-    WHERE id = ${id}
+    WHERE id = ${id} AND workspace_id = ${workspaceId}
   `;
 
   // Generous timeout — this is a real ffmpeg render on the other end, not a
@@ -947,7 +1068,7 @@ app.post('/api/leads/:id/render-video', asyncRoute(async (req, res) => {
     const data = await renderRes.json().catch(() => ({}));
     if (!renderRes.ok) {
       const errMsg = data.error || `Render service error (${renderRes.status})`;
-      await sql`UPDATE leads SET personalized_video_status = 'error', personalized_video_error = ${errMsg}, updated_at = now() WHERE id = ${id}`;
+      await sql`UPDATE leads SET personalized_video_status = 'error', personalized_video_error = ${errMsg}, updated_at = now() WHERE id = ${id} AND workspace_id = ${workspaceId}`;
       return res.status(502).json({ error: errMsg });
     }
     await sql`
@@ -957,12 +1078,12 @@ app.post('/api/leads/:id/render-video', asyncRoute(async (req, res) => {
         personalized_video_name = ${name},
         personalized_video_error = NULL,
         updated_at = now()
-      WHERE id = ${id}
+      WHERE id = ${id} AND workspace_id = ${workspaceId}
     `;
     res.json({ url: data.url, name });
   } catch (err) {
     const errMsg = err.name === 'AbortError' ? 'Render service timed out.' : (err.message || 'Video render failed.');
-    await sql`UPDATE leads SET personalized_video_status = 'error', personalized_video_error = ${errMsg}, updated_at = now() WHERE id = ${id}`;
+    await sql`UPDATE leads SET personalized_video_status = 'error', personalized_video_error = ${errMsg}, updated_at = now() WHERE id = ${id} AND workspace_id = ${workspaceId}`;
     res.status(502).json({ error: errMsg });
   } finally {
     clearTimeout(timer);
@@ -970,14 +1091,15 @@ app.post('/api/leads/:id/render-video', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/leads/delete', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const { ids, all } = req.body;
   // RETURNING reflects the row *after* the update, so the video URLs have
   // to be read before it — otherwise nulling them out in the same statement
   // would mean we always "return" NULL and never know what to delete.
   const toDelete = all
-    ? await sql`SELECT id, personalized_video_url FROM leads WHERE deleted_at IS NULL`
+    ? await sql`SELECT id, personalized_video_url FROM leads WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL`
     : (Array.isArray(ids) && ids.length > 0
-        ? await sql`SELECT id, personalized_video_url FROM leads WHERE id = ANY(${ids}::uuid[]) AND deleted_at IS NULL`
+        ? await sql`SELECT id, personalized_video_url FROM leads WHERE workspace_id = ${workspaceId} AND id = ANY(${ids}::uuid[]) AND deleted_at IS NULL`
         : []);
   if (!all && toDelete.length === 0) return res.json({ ok: true, deletedIds: [] });
 
@@ -985,13 +1107,13 @@ app.post('/api/leads/delete', asyncRoute(async (req, res) => {
   if (all) {
     rows = await sql`
       UPDATE leads SET deleted_at = now(), personalized_video_url = NULL, personalized_video_status = NULL, personalized_video_name = NULL
-      WHERE deleted_at IS NULL RETURNING id
+      WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL RETURNING id
     `;
   } else {
     const idList = toDelete.map(r => r.id);
     rows = await sql`
       UPDATE leads SET deleted_at = now(), personalized_video_url = NULL, personalized_video_status = NULL, personalized_video_name = NULL
-      WHERE id = ANY(${idList}::uuid[]) AND deleted_at IS NULL RETURNING id
+      WHERE id = ANY(${idList}::uuid[]) AND workspace_id = ${workspaceId} AND deleted_at IS NULL RETURNING id
     `;
   }
   // Disqualified leads never got their video sent — no reason to keep it
@@ -1002,9 +1124,10 @@ app.post('/api/leads/delete', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/leads/restore', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const idList = Array.isArray(req.body.ids) ? req.body.ids : [];
   if (idList.length === 0) return res.json({ ok: true });
-  await sql`UPDATE leads SET deleted_at = NULL WHERE id = ANY(${idList}::uuid[])`;
+  await sql`UPDATE leads SET deleted_at = NULL WHERE id = ANY(${idList}::uuid[]) AND workspace_id = ${workspaceId}`;
   res.json({ ok: true });
 }));
 
@@ -1139,8 +1262,8 @@ function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount, rampDays) 
 // sequence_id — cheap to fetch entirely (a handful of rows per sequence)
 // rather than a per-account correlated query, and sorted ascending so
 // curveLimitForDay/curveBoundaries can just walk each list in order.
-async function getRampDaysBySequence() {
-  const rows = await sql`SELECT sequence_id, day_number, daily_limit FROM timing_sequence_ramp_days ORDER BY sequence_id, day_number ASC`;
+async function getRampDaysBySequence(workspaceId) {
+  const rows = await sql`SELECT sequence_id, day_number, daily_limit FROM timing_sequence_ramp_days WHERE workspace_id = ${workspaceId} ORDER BY sequence_id, day_number ASC`;
   const bySequence = {};
   rows.forEach(r => {
     if (!bySequence[r.sequence_id]) bySequence[r.sequence_id] = [];
@@ -1150,8 +1273,9 @@ async function getRampDaysBySequence() {
 }
 
 app.get('/api/accounts', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const today = todayStr();
-  const [dueHour, defaultMessageSeqId] = await Promise.all([getFollowupDueHour(), getDefaultMessageSequenceId()]);
+  const [dueHour, defaultMessageSeqId] = await Promise.all([getFollowupDueHour(workspaceId), getDefaultMessageSequenceId(workspaceId)]);
   // days_since_clock_start is computed here (not in JS) so "a day" ticks
   // over at the same Amsterdam morning boundary follow-ups use
   // (amsterdam_day_index()), not at the exact clock-time of the reference —
@@ -1164,13 +1288,13 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
     sql`
       SELECT *,
         (amsterdam_day_index(now(), ${dueHour}) - amsterdam_day_index(COALESCE(warmup_restarted_at, created_at), ${dueHour})) AS days_since_clock_start
-      FROM ig_accounts WHERE archived_at IS NULL ORDER BY created_at ASC
+      FROM ig_accounts WHERE workspace_id = ${workspaceId} AND archived_at IS NULL ORDER BY created_at ASC
     `,
-    getRampDaysBySequence()
+    getRampDaysBySequence(workspaceId)
   ]);
   const sentRows = await sql`
     SELECT account_id, count(*) FROM outreaches
-    WHERE status = 'sent' AND date = ${today} AND account_id IS NOT NULL
+    WHERE workspace_id = ${workspaceId} AND status = 'sent' AND date = ${today} AND account_id IS NOT NULL
     GROUP BY account_id
   `;
   // Phase-1 follow-ups are sent from the same account and count just as much
@@ -1180,7 +1304,7 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
   // phase-1 follow-up sends, merged here rather than in a shared table.
   const followupSentRows = await sql`
     SELECT account_id, count(*) FROM followup_sends
-    WHERE phase = 1 AND date = ${today} AND account_id IS NOT NULL
+    WHERE workspace_id = ${workspaceId} AND phase = 1 AND date = ${today} AND account_id IS NOT NULL
     GROUP BY account_id
   `;
   const sentByAccount = {};
@@ -1198,7 +1322,7 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
     JOIN message_sequence_followups msf
       ON msf.sequence_id = COALESCE(la.message_sequence_id, ${defaultMessageSeqId})
      AND msf.phase = 1 AND msf.step = l.phase_step + 1
-    WHERE l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
+    WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
       AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
     GROUP BY l.account_id
   `;
@@ -1228,12 +1352,12 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
       if (r.daily_limit === 0 && computedLimit > 0) {
         const zeroDayCount = firstNonzeroDay != null ? firstNonzeroDay - 1 : 0;
         await sql`
-          INSERT INTO reminders (id, text, due_at, lead_id)
-          VALUES (${crypto.randomUUID()}, ${`🔥 @${r.username} finished its ${zeroDayCount}-day warmup and is ready to start ramping up`}, now(), NULL)
+          INSERT INTO reminders (id, workspace_id, text, due_at, lead_id)
+          VALUES (${crypto.randomUUID()}, ${workspaceId}, ${`🔥 @${r.username} finished its ${zeroDayCount}-day warmup and is ready to start ramping up`}, now(), NULL)
         `;
         warmupJustEnded.push(r.id);
       }
-      await sql`UPDATE ig_accounts SET daily_limit = ${computedLimit} WHERE id = ${r.id}`;
+      await sql`UPDATE ig_accounts SET daily_limit = ${computedLimit} WHERE id = ${r.id} AND workspace_id = ${workspaceId}`;
       r.daily_limit = computedLimit;
     }
   }
@@ -1245,24 +1369,26 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/accounts/:id/skip-warmup', asyncRoute(async (req, res) => {
-  const [account] = await sql`SELECT username, timing_sequence_id FROM ig_accounts WHERE id = ${req.params.id} AND archived_at IS NULL`;
+  const workspaceId = await getWorkspaceId(req);
+  const [account] = await sql`SELECT username, timing_sequence_id FROM ig_accounts WHERE id = ${req.params.id} AND workspace_id = ${workspaceId} AND archived_at IS NULL`;
   if (!account) return res.status(404).json({ error: 'Account not found.' });
-  const rampDays = await sql`SELECT day_number, daily_limit FROM timing_sequence_ramp_days WHERE sequence_id = ${account.timing_sequence_id} ORDER BY day_number ASC`;
+  const rampDays = await sql`SELECT day_number, daily_limit FROM timing_sequence_ramp_days WHERE sequence_id = ${account.timing_sequence_id} AND workspace_id = ${workspaceId} ORDER BY day_number ASC`;
   const { firstNonzeroDay } = curveBoundaries(rampDays.map(r => ({ dayNumber: r.day_number, dailyLimit: r.daily_limit })));
   const startLimit = firstNonzeroDay != null ? rampDays.find(r => r.day_number === firstNonzeroDay).daily_limit : 0;
-  await sql`UPDATE ig_accounts SET warmup_skipped_at = now(), daily_limit = ${startLimit} WHERE id = ${req.params.id}`;
+  await sql`UPDATE ig_accounts SET warmup_skipped_at = now(), daily_limit = ${startLimit} WHERE id = ${req.params.id} AND workspace_id = ${workspaceId}`;
   await sql`
-    INSERT INTO reminders (id, text, due_at, lead_id)
-    VALUES (${crypto.randomUUID()}, ${`🔥 @${account.username}'s warmup was skipped and is ready to start ramping up`}, now(), NULL)
+    INSERT INTO reminders (id, workspace_id, text, due_at, lead_id)
+    VALUES (${crypto.randomUUID()}, ${workspaceId}, ${`🔥 @${account.username}'s warmup was skipped and is ready to start ramping up`}, now(), NULL)
   `;
   res.json({ ok: true });
 }));
 
 app.post('/api/accounts/:id/skip-rampup', asyncRoute(async (req, res) => {
-  const [account] = await sql`SELECT timing_sequence_id FROM ig_accounts WHERE id = ${req.params.id} AND archived_at IS NULL`;
+  const workspaceId = await getWorkspaceId(req);
+  const [account] = await sql`SELECT timing_sequence_id FROM ig_accounts WHERE id = ${req.params.id} AND workspace_id = ${workspaceId} AND archived_at IS NULL`;
   if (!account) return res.status(404).json({ error: 'Account not found.' });
-  const [plateau] = await sql`SELECT daily_limit FROM timing_sequence_ramp_days WHERE sequence_id = ${account.timing_sequence_id} ORDER BY day_number DESC LIMIT 1`;
-  await sql`UPDATE ig_accounts SET rampup_skipped_at = now(), daily_limit = ${plateau ? plateau.daily_limit : 0} WHERE id = ${req.params.id}`;
+  const [plateau] = await sql`SELECT daily_limit FROM timing_sequence_ramp_days WHERE sequence_id = ${account.timing_sequence_id} AND workspace_id = ${workspaceId} ORDER BY day_number DESC LIMIT 1`;
+  await sql`UPDATE ig_accounts SET rampup_skipped_at = now(), daily_limit = ${plateau ? plateau.daily_limit : 0} WHERE id = ${req.params.id} AND workspace_id = ${workspaceId}`;
   res.json({ ok: true });
 }));
 
@@ -1276,13 +1402,14 @@ app.post('/api/accounts/:id/skip-rampup', asyncRoute(async (req, res) => {
 // Clears both skip flags and zeroes the limit — a full do-over, matching a
 // brand-new account's starting state.
 app.post('/api/accounts/:id/restart-warmup', asyncRoute(async (req, res) => {
-  const [account] = await sql`SELECT username, timing_sequence_id FROM ig_accounts WHERE id = ${req.params.id} AND archived_at IS NULL`;
+  const workspaceId = await getWorkspaceId(req);
+  const [account] = await sql`SELECT username, timing_sequence_id FROM ig_accounts WHERE id = ${req.params.id} AND workspace_id = ${workspaceId} AND archived_at IS NULL`;
   if (!account) return res.status(404).json({ error: 'Account not found.' });
-  const [day1] = await sql`SELECT daily_limit FROM timing_sequence_ramp_days WHERE sequence_id = ${account.timing_sequence_id} AND day_number = 1`;
+  const [day1] = await sql`SELECT daily_limit FROM timing_sequence_ramp_days WHERE sequence_id = ${account.timing_sequence_id} AND workspace_id = ${workspaceId} AND day_number = 1`;
   await sql`
     UPDATE ig_accounts
     SET warmup_restarted_at = now(), warmup_skipped_at = NULL, rampup_skipped_at = NULL, daily_limit = ${day1 ? day1.daily_limit : 0}
-    WHERE id = ${req.params.id}
+    WHERE id = ${req.params.id} AND workspace_id = ${workspaceId}
   `;
   res.json({ ok: true });
 }));
@@ -1293,15 +1420,15 @@ app.post('/api/accounts/:id/restart-warmup', asyncRoute(async (req, res) => {
 // ramp_start the same way GET /api/accounts does (due_at_normalized, morning-
 // aligned) so this never drifts out of sync with what Settings shows as
 // "warming up".
-async function getWarmingUpAccounts() {
-  const dueHour = await getFollowupDueHour();
+async function getWarmingUpAccounts(workspaceId) {
+  const dueHour = await getFollowupDueHour(workspaceId);
   const [accounts, rampDaysBySequence] = await Promise.all([
     sql`
       SELECT id, username, warmup_skipped_at, rampup_skipped_at, timing_sequence_id,
         (amsterdam_day_index(now(), ${dueHour}) - amsterdam_day_index(COALESCE(warmup_restarted_at, created_at), ${dueHour})) AS days_since_clock_start
-      FROM ig_accounts WHERE archived_at IS NULL
+      FROM ig_accounts WHERE workspace_id = ${workspaceId} AND archived_at IS NULL
     `,
-    getRampDaysBySequence()
+    getRampDaysBySequence(workspaceId)
   ]);
   return accounts.filter(r => {
     if (r.warmup_skipped_at || r.rampup_skipped_at) return false;
@@ -1329,10 +1456,11 @@ function mapWarmupTaskRow(r) {
 }
 
 app.get('/api/warmup-tasks/:id', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const [row] = await sql`
     SELECT t.*, a.username AS account_username FROM account_warmup_tasks t
     JOIN ig_accounts a ON a.id = t.account_id
-    WHERE t.id = ${req.params.id}
+    WHERE t.id = ${req.params.id} AND t.workspace_id = ${workspaceId}
   `;
   if (!row) return res.status(404).json({ error: 'Task not found.' });
   // Lazy completion check — covers a session left running unattended past
@@ -1348,7 +1476,8 @@ app.get('/api/warmup-tasks/:id', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/warmup-tasks/:id/complete', asyncRoute(async (req, res) => {
-  const [row] = await sql`SELECT type FROM account_warmup_tasks WHERE id = ${req.params.id}`;
+  const workspaceId = await getWorkspaceId(req);
+  const [row] = await sql`SELECT type FROM account_warmup_tasks WHERE id = ${req.params.id} AND workspace_id = ${workspaceId}`;
   if (!row) return res.status(404).json({ error: 'Task not found.' });
   if (row.type !== 'post') return res.status(400).json({ error: "Only 'post' tasks can be completed directly." });
   await sql`UPDATE account_warmup_tasks SET completed_at = now() WHERE id = ${req.params.id}`;
@@ -1356,10 +1485,11 @@ app.post('/api/warmup-tasks/:id/complete', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/warmup-tasks/:id/start', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const [row] = await sql`
     SELECT t.*, a.username AS account_username FROM account_warmup_tasks t
     JOIN ig_accounts a ON a.id = t.account_id
-    WHERE t.id = ${req.params.id}
+    WHERE t.id = ${req.params.id} AND t.workspace_id = ${workspaceId}
   `;
   if (!row) return res.status(404).json({ error: 'Task not found.' });
   if (row.type !== 'engage') return res.status(400).json({ error: "Only 'engage' tasks can be started." });
@@ -1371,10 +1501,11 @@ app.post('/api/warmup-tasks/:id/start', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/warmup-tasks/:id/pause', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const [row] = await sql`
     SELECT t.*, a.username AS account_username FROM account_warmup_tasks t
     JOIN ig_accounts a ON a.id = t.account_id
-    WHERE t.id = ${req.params.id}
+    WHERE t.id = ${req.params.id} AND t.workspace_id = ${workspaceId}
   `;
   if (!row) return res.status(404).json({ error: 'Task not found.' });
   if (row.type !== 'engage') return res.status(400).json({ error: "Only 'engage' tasks can be paused." });
@@ -1413,6 +1544,7 @@ app.post('/api/accounts/upload-image', asyncRoute(async (req, res) => {
 const DEFAULT_TIMING_SEQUENCE_NAMES = { 40: 'Default — New', 60: 'Default — 1-6 months', 80: 'Default — 6+ months' };
 
 app.post('/api/accounts', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const username = String(req.body.username || '').trim().replace('@', '');
   const createdOn = req.body.createdOn;
   if (!username) return res.status(400).json({ error: 'Username is required.' });
@@ -1427,18 +1559,19 @@ app.post('/api/accounts', asyncRoute(async (req, res) => {
   // sequences).
   const tierCap = tierCapForAge(ageDaysFrom(createdOn));
   const [[defaultSeq], defaultMessageSeqId] = await Promise.all([
-    sql`SELECT id FROM timing_sequences WHERE name = ${DEFAULT_TIMING_SEQUENCE_NAMES[tierCap]} AND archived_at IS NULL`,
-    getDefaultMessageSequenceId()
+    sql`SELECT id FROM timing_sequences WHERE workspace_id = ${workspaceId} AND name = ${DEFAULT_TIMING_SEQUENCE_NAMES[tierCap]} AND archived_at IS NULL`,
+    getDefaultMessageSequenceId(workspaceId)
   ]);
   const id = crypto.randomUUID();
   await sql`
-    INSERT INTO ig_accounts (id, username, created_on, profile_image_url, daily_limit, timing_sequence_id, message_sequence_id)
-    VALUES (${id}, ${username}, ${createdOn}, ${req.body.profileImageUrl || null}, 0, ${defaultSeq ? defaultSeq.id : null}, ${defaultMessageSeqId})
+    INSERT INTO ig_accounts (id, workspace_id, username, created_on, profile_image_url, daily_limit, timing_sequence_id, message_sequence_id)
+    VALUES (${id}, ${workspaceId}, ${username}, ${createdOn}, ${req.body.profileImageUrl || null}, 0, ${defaultSeq ? defaultSeq.id : null}, ${defaultMessageSeqId})
   `;
   res.json({ ok: true, id });
 }));
 
 app.patch('/api/accounts/:id', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const { id } = req.params;
   const sets = []; const params = []; let i = 1;
   if (req.body.username !== undefined) { sets.push(`username = $${i++}`); params.push(String(req.body.username).trim().replace('@', '')); }
@@ -1447,12 +1580,14 @@ app.patch('/api/accounts/:id', asyncRoute(async (req, res) => {
   if (req.body.messageSequenceId !== undefined) { sets.push(`message_sequence_id = $${i++}`); params.push(req.body.messageSequenceId); }
   if (sets.length === 0) return res.json({ ok: true });
   params.push(id);
-  await sql.query(`UPDATE ig_accounts SET ${sets.join(', ')} WHERE id = $${i}`, params);
+  params.push(workspaceId);
+  await sql.query(`UPDATE ig_accounts SET ${sets.join(', ')} WHERE id = $${i} AND workspace_id = $${i + 1}`, params);
   res.json({ ok: true });
 }));
 
 app.delete('/api/accounts/:id', asyncRoute(async (req, res) => {
-  await sql`UPDATE ig_accounts SET archived_at = now() WHERE id = ${req.params.id}`;
+  const workspaceId = await getWorkspaceId(req);
+  await sql`UPDATE ig_accounts SET archived_at = now() WHERE id = ${req.params.id} AND workspace_id = ${workspaceId}`;
   res.json({ ok: true });
 }));
 
@@ -1464,11 +1599,12 @@ app.delete('/api/accounts/:id', asyncRoute(async (req, res) => {
 // Instagram-only, matching the rest of the account system.
 
 app.get('/api/timing-sequences', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const [sequences, rampDayRows, pacingBlockRows, accountRows] = await Promise.all([
-    sql`SELECT * FROM timing_sequences WHERE archived_at IS NULL ORDER BY created_at ASC`,
-    sql`SELECT * FROM timing_sequence_ramp_days ORDER BY sequence_id, day_number ASC`,
-    sql`SELECT * FROM timing_sequence_pacing_blocks ORDER BY sequence_id, position ASC`,
-    sql`SELECT id, username, timing_sequence_id FROM ig_accounts WHERE archived_at IS NULL AND timing_sequence_id IS NOT NULL`
+    sql`SELECT * FROM timing_sequences WHERE workspace_id = ${workspaceId} AND archived_at IS NULL ORDER BY created_at ASC`,
+    sql`SELECT * FROM timing_sequence_ramp_days WHERE workspace_id = ${workspaceId} ORDER BY sequence_id, day_number ASC`,
+    sql`SELECT * FROM timing_sequence_pacing_blocks WHERE workspace_id = ${workspaceId} ORDER BY sequence_id, position ASC`,
+    sql`SELECT id, username, timing_sequence_id FROM ig_accounts WHERE workspace_id = ${workspaceId} AND archived_at IS NULL AND timing_sequence_id IS NOT NULL`
   ]);
   res.json({
     sequences: sequences.map(s => ({
@@ -1490,32 +1626,34 @@ app.get('/api/timing-sequences', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/timing-sequences', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Name is required.' });
   const id = crypto.randomUUID();
   if (req.body.duplicateFrom) {
-    const [source] = await sql`SELECT guarantee_min_one_pause FROM timing_sequences WHERE id = ${req.body.duplicateFrom}`;
-    await sql`INSERT INTO timing_sequences (id, name, guarantee_min_one_pause) VALUES (${id}, ${name}, ${source ? source.guarantee_min_one_pause : false})`;
+    const [source] = await sql`SELECT guarantee_min_one_pause FROM timing_sequences WHERE id = ${req.body.duplicateFrom} AND workspace_id = ${workspaceId}`;
+    await sql`INSERT INTO timing_sequences (id, workspace_id, name, guarantee_min_one_pause) VALUES (${id}, ${workspaceId}, ${name}, ${source ? source.guarantee_min_one_pause : false})`;
     const [rampDays, pacingBlocks] = await Promise.all([
-      sql`SELECT day_number, daily_limit FROM timing_sequence_ramp_days WHERE sequence_id = ${req.body.duplicateFrom} ORDER BY day_number ASC`,
-      sql`SELECT position, block_type, min_value, max_value, label, message FROM timing_sequence_pacing_blocks WHERE sequence_id = ${req.body.duplicateFrom} ORDER BY position ASC`
+      sql`SELECT day_number, daily_limit FROM timing_sequence_ramp_days WHERE sequence_id = ${req.body.duplicateFrom} AND workspace_id = ${workspaceId} ORDER BY day_number ASC`,
+      sql`SELECT position, block_type, min_value, max_value, label, message FROM timing_sequence_pacing_blocks WHERE sequence_id = ${req.body.duplicateFrom} AND workspace_id = ${workspaceId} ORDER BY position ASC`
     ]);
     for (const r of rampDays) {
-      await sql`INSERT INTO timing_sequence_ramp_days (id, sequence_id, day_number, daily_limit) VALUES (${crypto.randomUUID()}, ${id}, ${r.day_number}, ${r.daily_limit})`;
+      await sql`INSERT INTO timing_sequence_ramp_days (id, workspace_id, sequence_id, day_number, daily_limit) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id}, ${r.day_number}, ${r.daily_limit})`;
     }
     for (const b of pacingBlocks) {
       await sql`
-        INSERT INTO timing_sequence_pacing_blocks (id, sequence_id, position, block_type, min_value, max_value, label, message)
-        VALUES (${crypto.randomUUID()}, ${id}, ${b.position}, ${b.block_type}, ${b.min_value}, ${b.max_value}, ${b.label}, ${b.message})
+        INSERT INTO timing_sequence_pacing_blocks (id, workspace_id, sequence_id, position, block_type, min_value, max_value, label, message)
+        VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id}, ${b.position}, ${b.block_type}, ${b.min_value}, ${b.max_value}, ${b.label}, ${b.message})
       `;
     }
   } else {
-    await sql`INSERT INTO timing_sequences (id, name) VALUES (${id}, ${name})`;
+    await sql`INSERT INTO timing_sequences (id, workspace_id, name) VALUES (${id}, ${workspaceId}, ${name})`;
   }
   res.json({ ok: true, id });
 }));
 
 app.patch('/api/timing-sequences/:id', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const sets = []; const params = []; let i = 1;
   if (req.body.name !== undefined) {
     const name = String(req.body.name).trim();
@@ -1525,16 +1663,18 @@ app.patch('/api/timing-sequences/:id', asyncRoute(async (req, res) => {
   if (req.body.guaranteeMinOnePause !== undefined) { sets.push(`guarantee_min_one_pause = $${i++}`); params.push(!!req.body.guaranteeMinOnePause); }
   if (sets.length === 0) return res.json({ ok: true });
   params.push(req.params.id);
-  await sql.query(`UPDATE timing_sequences SET ${sets.join(', ')} WHERE id = $${i}`, params);
+  params.push(workspaceId);
+  await sql.query(`UPDATE timing_sequences SET ${sets.join(', ')} WHERE id = $${i} AND workspace_id = $${i + 1}`, params);
   res.json({ ok: true });
 }));
 
 app.delete('/api/timing-sequences/:id', asyncRoute(async (req, res) => {
-  const [inUse] = await sql`SELECT count(*)::int AS count FROM ig_accounts WHERE timing_sequence_id = ${req.params.id} AND archived_at IS NULL`;
+  const workspaceId = await getWorkspaceId(req);
+  const [inUse] = await sql`SELECT count(*)::int AS count FROM ig_accounts WHERE timing_sequence_id = ${req.params.id} AND workspace_id = ${workspaceId} AND archived_at IS NULL`;
   if (inUse.count > 0) {
     return res.status(400).json({ error: `${inUse.count} account${inUse.count === 1 ? ' is' : 's are'} still using this sequence — reassign them first.` });
   }
-  await sql`UPDATE timing_sequences SET archived_at = now() WHERE id = ${req.params.id}`;
+  await sql`UPDATE timing_sequences SET archived_at = now() WHERE id = ${req.params.id} AND workspace_id = ${workspaceId}`;
   res.json({ ok: true });
 }));
 
@@ -1543,12 +1683,13 @@ app.delete('/api/timing-sequences/:id', asyncRoute(async (req, res) => {
 // every day after it; simplest to just send the whole recomputed list back
 // rather than track that cascade as individual per-row updates.
 app.put('/api/timing-sequences/:id/ramp-days', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const days = Array.isArray(req.body.days) ? req.body.days : [];
-  await sql`DELETE FROM timing_sequence_ramp_days WHERE sequence_id = ${req.params.id}`;
+  await sql`DELETE FROM timing_sequence_ramp_days WHERE sequence_id = ${req.params.id} AND workspace_id = ${workspaceId}`;
   for (const d of days) {
     const dayNumber = Math.max(1, Math.round(Number(d.dayNumber)) || 1);
     const dailyLimit = Math.max(0, Math.round(Number(d.dailyLimit)) || 0);
-    await sql`INSERT INTO timing_sequence_ramp_days (id, sequence_id, day_number, daily_limit) VALUES (${crypto.randomUUID()}, ${req.params.id}, ${dayNumber}, ${dailyLimit})`;
+    await sql`INSERT INTO timing_sequence_ramp_days (id, workspace_id, sequence_id, day_number, daily_limit) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${req.params.id}, ${dayNumber}, ${dailyLimit})`;
   }
   res.json({ ok: true });
 }));
@@ -1557,16 +1698,17 @@ app.put('/api/timing-sequences/:id/ramp-days', asyncRoute(async (req, res) => {
 // touches every block's position at once, so the client just sends the
 // full ordered list back on every change.
 app.put('/api/timing-sequences/:id/pacing-blocks', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const blocks = Array.isArray(req.body.blocks) ? req.body.blocks : [];
-  await sql`DELETE FROM timing_sequence_pacing_blocks WHERE sequence_id = ${req.params.id}`;
+  await sql`DELETE FROM timing_sequence_pacing_blocks WHERE sequence_id = ${req.params.id} AND workspace_id = ${workspaceId}`;
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i];
     const blockType = b.blockType === 'pause' ? 'pause' : 'send';
     const minValue = Math.max(0, Math.round(Number(b.minValue)) || 0);
     const maxValue = Math.max(minValue, Math.round(Number(b.maxValue)) || minValue);
     await sql`
-      INSERT INTO timing_sequence_pacing_blocks (id, sequence_id, position, block_type, min_value, max_value, label, message)
-      VALUES (${crypto.randomUUID()}, ${req.params.id}, ${i}, ${blockType}, ${minValue}, ${maxValue}, ${b.label || null}, ${b.message || null})
+      INSERT INTO timing_sequence_pacing_blocks (id, workspace_id, sequence_id, position, block_type, min_value, max_value, label, message)
+      VALUES (${crypto.randomUUID()}, ${workspaceId}, ${req.params.id}, ${i}, ${blockType}, ${minValue}, ${maxValue}, ${b.label || null}, ${b.message || null})
     `;
   }
   res.json({ ok: true });
@@ -1581,11 +1723,12 @@ app.put('/api/timing-sequences/:id/pacing-blocks', asyncRoute(async (req, res) =
 // completely separate single-template + global follow-up system untouched.
 
 app.get('/api/message-sequences', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const [sequences, openerRows, followupRows, accountRows] = await Promise.all([
-    sql`SELECT * FROM message_sequences WHERE archived_at IS NULL ORDER BY created_at ASC`,
-    sql`SELECT * FROM message_sequence_openers ORDER BY sequence_id, position ASC`,
-    sql`SELECT * FROM message_sequence_followups ORDER BY sequence_id, phase, step ASC`,
-    sql`SELECT id, username, message_sequence_id FROM ig_accounts WHERE archived_at IS NULL AND message_sequence_id IS NOT NULL`
+    sql`SELECT * FROM message_sequences WHERE workspace_id = ${workspaceId} AND archived_at IS NULL ORDER BY created_at ASC`,
+    sql`SELECT * FROM message_sequence_openers WHERE workspace_id = ${workspaceId} ORDER BY sequence_id, position ASC`,
+    sql`SELECT * FROM message_sequence_followups WHERE workspace_id = ${workspaceId} ORDER BY sequence_id, phase, step ASC`,
+    sql`SELECT id, username, message_sequence_id FROM ig_accounts WHERE workspace_id = ${workspaceId} AND archived_at IS NULL AND message_sequence_id IS NOT NULL`
   ]);
   res.json({
     sequences: sequences.map(s => ({
@@ -1609,34 +1752,36 @@ app.get('/api/message-sequences', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/message-sequences', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const name = String(req.body.name || '').trim();
   if (!name) return res.status(400).json({ error: 'Name is required.' });
   const id = crypto.randomUUID();
   if (req.body.duplicateFrom) {
-    const [source] = await sql`SELECT first_message_has_video FROM message_sequences WHERE id = ${req.body.duplicateFrom}`;
+    const [source] = await sql`SELECT first_message_has_video FROM message_sequences WHERE id = ${req.body.duplicateFrom} AND workspace_id = ${workspaceId}`;
     await sql`
-      INSERT INTO message_sequences (id, name, first_message_has_video)
-      VALUES (${id}, ${name}, ${source ? source.first_message_has_video : false})
+      INSERT INTO message_sequences (id, workspace_id, name, first_message_has_video)
+      VALUES (${id}, ${workspaceId}, ${name}, ${source ? source.first_message_has_video : false})
     `;
-    const openers = await sql`SELECT position, text FROM message_sequence_openers WHERE sequence_id = ${req.body.duplicateFrom} AND removed_at IS NULL ORDER BY position`;
+    const openers = await sql`SELECT position, text FROM message_sequence_openers WHERE sequence_id = ${req.body.duplicateFrom} AND workspace_id = ${workspaceId} AND removed_at IS NULL ORDER BY position`;
     for (const o of openers) {
-      await sql`INSERT INTO message_sequence_openers (id, sequence_id, position, text) VALUES (${crypto.randomUUID()}, ${id}, ${o.position}, ${o.text})`;
+      await sql`INSERT INTO message_sequence_openers (id, workspace_id, sequence_id, position, text) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id}, ${o.position}, ${o.text})`;
     }
-    const followups = await sql`SELECT phase, step, day_offset, type, message, media_note FROM message_sequence_followups WHERE sequence_id = ${req.body.duplicateFrom} ORDER BY phase, step`;
+    const followups = await sql`SELECT phase, step, day_offset, type, message, media_note FROM message_sequence_followups WHERE sequence_id = ${req.body.duplicateFrom} AND workspace_id = ${workspaceId} ORDER BY phase, step`;
     for (const f of followups) {
       await sql`
-        INSERT INTO message_sequence_followups (id, sequence_id, phase, step, day_offset, type, message, media_note)
-        VALUES (${crypto.randomUUID()}, ${id}, ${f.phase}, ${f.step}, ${f.day_offset}, ${f.type}, ${f.message}, ${f.media_note})
+        INSERT INTO message_sequence_followups (id, workspace_id, sequence_id, phase, step, day_offset, type, message, media_note)
+        VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id}, ${f.phase}, ${f.step}, ${f.day_offset}, ${f.type}, ${f.message}, ${f.media_note})
       `;
     }
   } else {
-    await sql`INSERT INTO message_sequences (id, name) VALUES (${id}, ${name})`;
-    await sql`INSERT INTO message_sequence_openers (id, sequence_id, position, text) VALUES (${crypto.randomUUID()}, ${id}, 0, '')`;
+    await sql`INSERT INTO message_sequences (id, workspace_id, name) VALUES (${id}, ${workspaceId}, ${name})`;
+    await sql`INSERT INTO message_sequence_openers (id, workspace_id, sequence_id, position, text) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id}, 0, '')`;
   }
   res.json({ ok: true, id });
 }));
 
 app.patch('/api/message-sequences/:id', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const sets = []; const params = []; let i = 1;
   if (req.body.name !== undefined) {
     const name = String(req.body.name).trim();
@@ -1646,7 +1791,8 @@ app.patch('/api/message-sequences/:id', asyncRoute(async (req, res) => {
   if (req.body.firstMessageHasVideo !== undefined) { sets.push(`first_message_has_video = $${i++}`); params.push(!!req.body.firstMessageHasVideo); }
   if (sets.length === 0) return res.json({ ok: true });
   params.push(req.params.id);
-  await sql.query(`UPDATE message_sequences SET ${sets.join(', ')} WHERE id = $${i}`, params);
+  params.push(workspaceId);
+  await sql.query(`UPDATE message_sequences SET ${sets.join(', ')} WHERE id = $${i} AND workspace_id = $${i + 1}`, params);
   res.json({ ok: true });
 }));
 
@@ -1660,9 +1806,10 @@ app.patch('/api/message-sequences/:id', asyncRoute(async (req, res) => {
 // deleted if no lead was ever assigned it, or soft-removed (removed_at) if
 // one was — a straight DELETE there would violate leads_opener_id_fkey.
 app.put('/api/message-sequences/:id/openers', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const incoming = Array.isArray(req.body.openers) ? req.body.openers.slice(0, 4) : [];
   if (incoming.length === 0) return res.status(400).json({ error: 'At least one opener variant is required.' });
-  const existing = await sql`SELECT id FROM message_sequence_openers WHERE sequence_id = ${req.params.id} AND removed_at IS NULL`;
+  const existing = await sql`SELECT id FROM message_sequence_openers WHERE sequence_id = ${req.params.id} AND workspace_id = ${workspaceId} AND removed_at IS NULL`;
   const existingIds = new Set(existing.map(r => r.id));
   const keptIds = new Set(incoming.map(o => o.id).filter(id => id && existingIds.has(id)));
   // Removed first, before any position is reassigned below — a kept row
@@ -1671,7 +1818,7 @@ app.put('/api/message-sequences/:id/openers', asyncRoute(async (req, res) => {
   // physically holds it.
   for (const id of existingIds) {
     if (keptIds.has(id)) continue;
-    const [inUse] = await sql`SELECT count(*)::int AS count FROM leads WHERE opener_id = ${id}`;
+    const [inUse] = await sql`SELECT count(*)::int AS count FROM leads WHERE opener_id = ${id} AND workspace_id = ${workspaceId}`;
     if (inUse.count > 0) {
       await sql`UPDATE message_sequence_openers SET removed_at = now() WHERE id = ${id}`;
     } else {
@@ -1683,22 +1830,23 @@ app.put('/api/message-sequences/:id/openers', asyncRoute(async (req, res) => {
     if (incoming[i].id && keptIds.has(incoming[i].id)) {
       await sql`UPDATE message_sequence_openers SET position = ${i}, text = ${text} WHERE id = ${incoming[i].id}`;
     } else {
-      await sql`INSERT INTO message_sequence_openers (id, sequence_id, position, text) VALUES (${crypto.randomUUID()}, ${req.params.id}, ${i}, ${text})`;
+      await sql`INSERT INTO message_sequence_openers (id, workspace_id, sequence_id, position, text) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${req.params.id}, ${i}, ${text})`;
     }
   }
   // Returned so the client can resync seq.openers with the real ids newly-
   // inserted variants got — without this, a variant added in one save has no
   // id to match on next save and would get inserted again as a duplicate.
-  const result = await sql`SELECT id, position, text FROM message_sequence_openers WHERE sequence_id = ${req.params.id} AND removed_at IS NULL ORDER BY position ASC`;
+  const result = await sql`SELECT id, position, text FROM message_sequence_openers WHERE sequence_id = ${req.params.id} AND workspace_id = ${workspaceId} AND removed_at IS NULL ORDER BY position ASC`;
   res.json({ ok: true, openers: result.map(r => ({ id: r.id, position: r.position, text: r.text })) });
 }));
 
 app.delete('/api/message-sequences/:id', asyncRoute(async (req, res) => {
-  const [inUse] = await sql`SELECT count(*)::int AS count FROM ig_accounts WHERE message_sequence_id = ${req.params.id} AND archived_at IS NULL`;
+  const workspaceId = await getWorkspaceId(req);
+  const [inUse] = await sql`SELECT count(*)::int AS count FROM ig_accounts WHERE message_sequence_id = ${req.params.id} AND workspace_id = ${workspaceId} AND archived_at IS NULL`;
   if (inUse.count > 0) {
     return res.status(400).json({ error: `${inUse.count} account${inUse.count === 1 ? ' is' : 's are'} still using this sequence — reassign them first.` });
   }
-  await sql`UPDATE message_sequences SET archived_at = now() WHERE id = ${req.params.id}`;
+  await sql`UPDATE message_sequences SET archived_at = now() WHERE id = ${req.params.id} AND workspace_id = ${workspaceId}`;
   res.json({ ok: true });
 }));
 
@@ -1708,17 +1856,18 @@ app.delete('/api/message-sequences/:id', asyncRoute(async (req, res) => {
 // phase's steps), and phases are independent step lists so a save to one
 // never touches the other two.
 app.put('/api/message-sequences/:id/followups/:phase', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const phase = Number(req.params.phase);
   if (![1, 2, 3].includes(phase)) return res.status(400).json({ error: 'phase must be 1, 2, or 3' });
   const steps = Array.isArray(req.body.steps) ? req.body.steps : [];
-  await sql`DELETE FROM message_sequence_followups WHERE sequence_id = ${req.params.id} AND phase = ${phase}`;
+  await sql`DELETE FROM message_sequence_followups WHERE sequence_id = ${req.params.id} AND workspace_id = ${workspaceId} AND phase = ${phase}`;
   for (let i = 0; i < steps.length; i++) {
     const s = steps[i];
     const dayOffset = Math.max(0, Math.round(Number(s.dayOffset)) || 0);
     const type = s.type || 'text';
     await sql`
-      INSERT INTO message_sequence_followups (id, sequence_id, phase, step, day_offset, type, message, media_note)
-      VALUES (${crypto.randomUUID()}, ${req.params.id}, ${phase}, ${i + 1}, ${dayOffset}, ${type}, ${s.message || null}, ${s.mediaNote || null})
+      INSERT INTO message_sequence_followups (id, workspace_id, sequence_id, phase, step, day_offset, type, message, media_note)
+      VALUES (${crypto.randomUUID()}, ${workspaceId}, ${req.params.id}, ${phase}, ${i + 1}, ${dayOffset}, ${type}, ${s.message || null}, ${s.mediaNote || null})
     `;
   }
   res.json({ ok: true });
@@ -1750,24 +1899,27 @@ function mapSavedSessionRow(r) {
 }
 
 app.post('/api/saved-sessions', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const { sessionKind, sessionMode, sessionTarget, sentCount, results, remainingProfiles, isDailyGoal, igCooldownUntil, igCooldownAccountId } = req.body;
   const remaining = Array.isArray(remainingProfiles) ? remainingProfiles : [];
   if (remaining.length === 0) return res.status(400).json({ error: 'Nothing to save — no remaining profiles.' });
   const id = crypto.randomUUID();
   await sql`
-    INSERT INTO saved_sessions (id, session_kind, session_mode, session_target, sent_count, results, remaining_profiles, is_daily_goal, ig_cooldown_until, ig_cooldown_account_id)
-    VALUES (${id}, ${sessionKind || 'ig_message'}, ${sessionMode || 'fixed'}, ${sessionTarget ?? null}, ${sentCount || 0}, ${JSON.stringify(Array.isArray(results) ? results : [])}, ${JSON.stringify(remaining)}, ${!!isDailyGoal}, ${igCooldownUntil || null}, ${igCooldownAccountId || null})
+    INSERT INTO saved_sessions (id, workspace_id, session_kind, session_mode, session_target, sent_count, results, remaining_profiles, is_daily_goal, ig_cooldown_until, ig_cooldown_account_id)
+    VALUES (${id}, ${workspaceId}, ${sessionKind || 'ig_message'}, ${sessionMode || 'fixed'}, ${sessionTarget ?? null}, ${sentCount || 0}, ${JSON.stringify(Array.isArray(results) ? results : [])}, ${JSON.stringify(remaining)}, ${!!isDailyGoal}, ${igCooldownUntil || null}, ${igCooldownAccountId || null})
   `;
   res.json({ ok: true, id });
 }));
 
 app.get('/api/saved-sessions', asyncRoute(async (req, res) => {
-  const rows = await sql`SELECT * FROM saved_sessions ORDER BY created_at DESC`;
+  const workspaceId = await getWorkspaceId(req);
+  const rows = await sql`SELECT * FROM saved_sessions WHERE workspace_id = ${workspaceId} ORDER BY created_at DESC`;
   res.json({ sessions: rows.map(mapSavedSessionRow) });
 }));
 
 app.delete('/api/saved-sessions/:id', asyncRoute(async (req, res) => {
-  await sql`DELETE FROM saved_sessions WHERE id = ${req.params.id}`;
+  const workspaceId = await getWorkspaceId(req);
+  await sql`DELETE FROM saved_sessions WHERE id = ${req.params.id} AND workspace_id = ${workspaceId}`;
   res.json({ ok: true });
 }));
 
@@ -1826,10 +1978,10 @@ function composeFollowupMessage(componentGroups, fallbackMessage, lead, calendar
   return renderFollowupMessage(text, lead, calendarLink);
 }
 
-async function getFollowupPartsByPhase(phase, platform) {
+async function getFollowupPartsByPhase(workspaceId, phase, platform) {
   const rows = await sql`
     SELECT step, part_order, text FROM followup_template_parts
-    WHERE phase = ${phase} AND platform = ${platform} ORDER BY step, part_order, sort_order
+    WHERE workspace_id = ${workspaceId} AND phase = ${phase} AND platform = ${platform} ORDER BY step, part_order, sort_order
   `;
   const byStep = {};
   rows.forEach(r => {
@@ -1840,13 +1992,13 @@ async function getFollowupPartsByPhase(phase, platform) {
   return byStep;
 }
 
-async function getCalendarLink() {
-  const rows = await sql`SELECT value FROM app_settings WHERE key = 'calendar_link'`;
+async function getCalendarLink(workspaceId) {
+  const rows = await sql`SELECT value FROM app_settings WHERE workspace_id = ${workspaceId} AND key = 'calendar_link'`;
   return rows.length ? rows[0].value : '';
 }
 
-async function getLinkedinConnectionDelayDays() {
-  const rows = await sql`SELECT value FROM app_settings WHERE key = 'linkedin_connection_delay_days'`;
+async function getLinkedinConnectionDelayDays(workspaceId) {
+  const rows = await sql`SELECT value FROM app_settings WHERE workspace_id = ${workspaceId} AND key = 'linkedin_connection_delay_days'`;
   const n = rows.length ? Number(rows[0].value) : NaN;
   return Number.isFinite(n) && n >= 0 ? n : 2;
 }
@@ -1855,8 +2007,8 @@ async function getLinkedinConnectionDelayDays() {
 // (see due_at_normalized() in the DB) — so a full day's follow-ups are all
 // visible together first thing, instead of trickling in at the exact hour
 // of the original send throughout the day.
-async function getFollowupDueHour() {
-  const rows = await sql`SELECT value FROM app_settings WHERE key = 'followup_due_hour'`;
+async function getFollowupDueHour(workspaceId) {
+  const rows = await sql`SELECT value FROM app_settings WHERE workspace_id = ${workspaceId} AND key = 'followup_due_hour'`;
   const n = rows.length ? Number(rows[0].value) : NaN;
   return Number.isFinite(n) && n >= 0 && n <= 23 ? n : 4;
 }
@@ -1866,8 +2018,8 @@ async function getFollowupDueHour() {
 // lead predating the account system, or an account whose sequence was
 // deleted out from under it, still needs somewhere to resolve to instead of
 // silently vanishing from due-queries).
-async function getDefaultMessageSequenceId() {
-  const [row] = await sql`SELECT id FROM message_sequences WHERE name = 'Default' AND archived_at IS NULL`;
+async function getDefaultMessageSequenceId(workspaceId) {
+  const [row] = await sql`SELECT id FROM message_sequences WHERE workspace_id = ${workspaceId} AND name = 'Default' AND archived_at IS NULL`;
   return row ? row.id : null;
 }
 
@@ -1884,24 +2036,25 @@ async function getDefaultMessageSequenceId() {
 // filtering each group's rows to due_at > dismissed_at rather than just
 // suppressing the group outright — so it reappears on its own once there's
 // actually new work, not just on some arbitrary timer.
-async function getNotificationDismissals() {
-  const rows = await sql`SELECT group_key, dismissed_at FROM notification_dismissals`;
+async function getNotificationDismissals(workspaceId) {
+  const rows = await sql`SELECT group_key, dismissed_at FROM notification_dismissals WHERE workspace_id = ${workspaceId}`;
   const map = {};
   rows.forEach(r => { map[r.group_key] = r.dismissed_at; });
   return map;
 }
 
 app.get('/api/notifications', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const [connectionDelayDays, dueHour, defaultMessageSeqId, dismissals, reminderRows] = await Promise.all([
-    getLinkedinConnectionDelayDays(),
-    getFollowupDueHour(),
-    getDefaultMessageSequenceId(),
-    getNotificationDismissals(),
+    getLinkedinConnectionDelayDays(workspaceId),
+    getFollowupDueHour(workspaceId),
+    getDefaultMessageSequenceId(workspaceId),
+    getNotificationDismissals(workspaceId),
     sql`
       SELECT r.id, r.text, r.due_at, r.lead_id, l.platform, l.username, l.full_name
       FROM reminders r
       LEFT JOIN leads l ON l.id = r.lead_id AND l.deleted_at IS NULL
-      WHERE r.due_at <= now()
+      WHERE r.workspace_id = ${workspaceId} AND r.due_at <= now()
       ORDER BY r.due_at ASC
     `
   ]);
@@ -1924,7 +2077,7 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
         ON msf.sequence_id = COALESCE(a.message_sequence_id, ${defaultMessageSeqId})
        AND msf.phase = CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END
        AND msf.step = l.phase_step + 1
-      WHERE l.deleted_at IS NULL AND l.platform = 'instagram'
+      WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = 'instagram'
         AND l.stage IN ('phase1', 'phase2', 'phase3')
         AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
     `,
@@ -1937,10 +2090,11 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
         due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) AS due_at
       FROM leads l
       JOIN followup_templates ft
-        ON ft.platform = 'linkedin'
+        ON ft.workspace_id = ${workspaceId}
+       AND ft.platform = 'linkedin'
        AND ft.phase = CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END
        AND ft.step = l.phase_step + 1
-      WHERE l.deleted_at IS NULL AND l.platform = 'linkedin'
+      WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = 'linkedin'
         AND l.stage IN ('phase1', 'phase2', 'phase3')
         AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
     `
@@ -1971,7 +2125,7 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
   const connectionRows = await sql`
     SELECT due_at_normalized(phase_started_at, ${connectionDelayDays}, ${dueHour}) AS due_at
     FROM leads
-    WHERE deleted_at IS NULL AND platform = 'linkedin' AND stage = 'engaged'
+    WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL AND platform = 'linkedin' AND stage = 'engaged'
       AND due_at_normalized(phase_started_at, ${connectionDelayDays}, ${dueHour}) <= now()
   `;
   const connKey = 'connections:linkedin';
@@ -2001,7 +2155,7 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
     SELECT s.id AS saved_session_id, s.ig_cooldown_until, s.ig_cooldown_account_id, a.username AS account_username
     FROM saved_sessions s
     LEFT JOIN ig_accounts a ON a.id = s.ig_cooldown_account_id
-    WHERE s.ig_cooldown_until IS NOT NULL
+    WHERE s.workspace_id = ${workspaceId} AND s.ig_cooldown_until IS NOT NULL
     ORDER BY s.ig_cooldown_until DESC
     LIMIT 1
   `;
@@ -2030,18 +2184,18 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
   // account still genuinely in its warmup window — created lazily here (the
   // first /api/notifications call of the day for that account) rather than
   // via a cron, same as everything else time-sensitive in this app.
-  const warmingUpAccounts = await getWarmingUpAccounts();
+  const warmingUpAccounts = await getWarmingUpAccounts(workspaceId);
   const today = todayStr();
   let warmupTaskNotifications = [];
   if (warmingUpAccounts.length > 0) {
     for (const a of warmingUpAccounts) {
       const engageTarget = Math.floor(Math.random() * 301) + 600; // 600-900s = 10-15 min
       await sql`
-        INSERT INTO account_warmup_tasks (id, account_id, date, type) VALUES (${crypto.randomUUID()}, ${a.id}, ${today}, 'post')
+        INSERT INTO account_warmup_tasks (id, workspace_id, account_id, date, type) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${a.id}, ${today}, 'post')
         ON CONFLICT (account_id, date, type) DO NOTHING
       `;
       await sql`
-        INSERT INTO account_warmup_tasks (id, account_id, date, type, target_seconds) VALUES (${crypto.randomUUID()}, ${a.id}, ${today}, 'engage', ${engageTarget})
+        INSERT INTO account_warmup_tasks (id, workspace_id, account_id, date, type, target_seconds) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${a.id}, ${today}, 'engage', ${engageTarget})
         ON CONFLICT (account_id, date, type) DO NOTHING
       `;
     }
@@ -2049,7 +2203,7 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
     const taskRows = await sql`
       SELECT t.*, a.username AS account_username FROM account_warmup_tasks t
       JOIN ig_accounts a ON a.id = t.account_id
-      WHERE t.date = ${today} AND t.completed_at IS NULL AND t.account_id = ANY(${warmingUpIds})
+      WHERE t.workspace_id = ${workspaceId} AND t.date = ${today} AND t.completed_at IS NULL AND t.account_id = ANY(${warmingUpIds})
       ORDER BY t.created_at ASC
     `;
     warmupTaskNotifications = taskRows.map(r => {
@@ -2081,11 +2235,12 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
 }));
 
 app.post('/api/notifications/dismiss', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const { groupKey } = req.body;
   if (!groupKey) return res.status(400).json({ error: 'groupKey is required' });
   await sql`
-    INSERT INTO notification_dismissals (group_key, dismissed_at) VALUES (${groupKey}, now())
-    ON CONFLICT (group_key) DO UPDATE SET dismissed_at = now()
+    INSERT INTO notification_dismissals (workspace_id, group_key, dismissed_at) VALUES (${workspaceId}, ${groupKey}, now())
+    ON CONFLICT (workspace_id, group_key) DO UPDATE SET dismissed_at = now()
   `;
   res.json({ ok: true });
 }));
@@ -2106,16 +2261,19 @@ function mapReminderRow(r) {
 }
 
 app.get('/api/reminders', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const rows = await sql`
     SELECT r.id, r.text, r.due_at, r.lead_id, r.created_at, l.platform, l.username, l.full_name
     FROM reminders r
     LEFT JOIN leads l ON l.id = r.lead_id AND l.deleted_at IS NULL
+    WHERE r.workspace_id = ${workspaceId}
     ORDER BY r.due_at ASC
   `;
   res.json({ reminders: rows.map(mapReminderRow) });
 }));
 
 app.post('/api/reminders', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const text = String(req.body.text || '').trim();
   const dueAt = req.body.dueAt ? new Date(req.body.dueAt) : null;
   if (!text) return res.status(400).json({ error: 'A reminder needs some text.' });
@@ -2123,28 +2281,30 @@ app.post('/api/reminders', asyncRoute(async (req, res) => {
   const leadId = req.body.leadId || null;
   const id = crypto.randomUUID();
   await sql`
-    INSERT INTO reminders (id, text, due_at, lead_id) VALUES (${id}, ${text}, ${dueAt.toISOString()}, ${leadId})
+    INSERT INTO reminders (id, workspace_id, text, due_at, lead_id) VALUES (${id}, ${workspaceId}, ${text}, ${dueAt.toISOString()}, ${leadId})
   `;
   res.json({ ok: true, id });
 }));
 
 app.delete('/api/reminders/:id', asyncRoute(async (req, res) => {
-  await sql`DELETE FROM reminders WHERE id = ${req.params.id}`;
+  const workspaceId = await getWorkspaceId(req);
+  await sql`DELETE FROM reminders WHERE id = ${req.params.id} AND workspace_id = ${workspaceId}`;
   res.json({ ok: true });
 }));
 
 // The due leads for one platform+phase, each with its exact next message pre-rendered.
 app.get('/api/followups/due', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const phase = Number(req.query.phase);
   const platform = req.query.platform === 'linkedin' ? 'linkedin' : 'instagram';
   const accountId = platform === 'instagram' && req.query.accountId ? req.query.accountId : null;
   if (![1, 2, 3].includes(phase)) return res.status(400).json({ error: 'phase must be 1, 2, or 3' });
   const stageVal = 'phase' + phase;
-  const calendarLink = await getCalendarLink();
+  const calendarLink = await getCalendarLink(workspaceId);
 
   let rows;
   if (platform === 'instagram') {
-    const [dueHour, defaultSeqId] = await Promise.all([getFollowupDueHour(), getDefaultMessageSequenceId()]);
+    const [dueHour, defaultSeqId] = await Promise.all([getFollowupDueHour(workspaceId), getDefaultMessageSequenceId(workspaceId)]);
     rows = await sql`
       SELECT l.id, l.username, l.profile_url, l.full_name, l.account_id, a.username AS account_username,
              msf.step, msf.type, msf.message, msf.media_note,
@@ -2154,7 +2314,7 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
       JOIN message_sequence_followups msf
         ON msf.sequence_id = COALESCE(a.message_sequence_id, ${defaultSeqId})
        AND msf.phase = ${phase} AND msf.step = l.phase_step + 1
-      WHERE l.deleted_at IS NULL
+      WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL
         AND l.platform = 'instagram'
         AND l.stage = ${stageVal}
         AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
@@ -2165,14 +2325,14 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
     // LinkedIn — untouched, still the one global followup_templates set with
     // its own wording-variation parts system (composeFollowupMessage/
     // getFollowupPartsByPhase), no account/sequence concept to resolve.
-    const [partsByStep, dueHour] = await Promise.all([getFollowupPartsByPhase(phase, platform), getFollowupDueHour()]);
+    const [partsByStep, dueHour] = await Promise.all([getFollowupPartsByPhase(workspaceId, phase, platform), getFollowupDueHour(workspaceId)]);
     const liRows = await sql`
       SELECT l.id, l.username, l.profile_url, l.full_name,
              ft.step, ft.type, ft.message, ft.media_note,
              due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) AS due_at
       FROM leads l
-      JOIN followup_templates ft ON ft.platform = 'linkedin' AND ft.phase = ${phase} AND ft.step = l.phase_step + 1
-      WHERE l.deleted_at IS NULL
+      JOIN followup_templates ft ON ft.workspace_id = ${workspaceId} AND ft.platform = 'linkedin' AND ft.phase = ${phase} AND ft.step = l.phase_step + 1
+      WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL
         AND l.platform = 'linkedin'
         AND l.stage = ${stageVal}
         AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
@@ -2209,11 +2369,12 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
 // marked "Engaged" — no message to compose, this just drives the simple
 // swipeable "Connected / Delete" session (see public/app.js).
 app.get('/api/linkedin/connections/due', asyncRoute(async (req, res) => {
-  const [connectionDelayDays, dueHour] = await Promise.all([getLinkedinConnectionDelayDays(), getFollowupDueHour()]);
+  const workspaceId = await getWorkspaceId(req);
+  const [connectionDelayDays, dueHour] = await Promise.all([getLinkedinConnectionDelayDays(workspaceId), getFollowupDueHour(workspaceId)]);
   const rows = await sql`
     SELECT id, full_name, profile_url, headline
     FROM leads
-    WHERE deleted_at IS NULL AND platform = 'linkedin' AND stage = 'engaged'
+    WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL AND platform = 'linkedin' AND stage = 'engaged'
       AND due_at_normalized(phase_started_at, ${connectionDelayDays}, ${dueHour}) <= now()
     ORDER BY phase_started_at ASC
   `;
@@ -2222,20 +2383,21 @@ app.get('/api/linkedin/connections/due', asyncRoute(async (req, res) => {
 
 // Logs the send (for analytics) and advances the lead to that step.
 app.post('/api/leads/:id/followup-sent', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const { id } = req.params;
   const phase = Number(req.body.phase);
   const step = Number(req.body.step);
   if (![1, 2, 3].includes(phase) || !step) {
     return res.status(400).json({ error: 'phase and step are required' });
   }
-  const [lead] = await sql`SELECT username, profile_url, account_id FROM leads WHERE id = ${id} AND deleted_at IS NULL`;
+  const [lead] = await sql`SELECT username, profile_url, account_id FROM leads WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
   if (!lead) return res.status(404).json({ error: 'Lead not found' });
 
   await sql`
-    INSERT INTO followup_sends (id, lead_id, username, profile_url, phase, step, message, date, account_id)
-    VALUES (${crypto.randomUUID()}, ${id}, ${lead.username}, ${lead.profile_url}, ${phase}, ${step}, ${req.body.message || ''}, ${todayStr()}, ${lead.account_id})
+    INSERT INTO followup_sends (id, workspace_id, lead_id, username, profile_url, phase, step, message, date, account_id)
+    VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id}, ${lead.username}, ${lead.profile_url}, ${phase}, ${step}, ${req.body.message || ''}, ${todayStr()}, ${lead.account_id})
   `;
-  await sql`UPDATE leads SET phase_step = ${step}, updated_at = now() WHERE id = ${id} AND deleted_at IS NULL`;
+  await sql`UPDATE leads SET phase_step = ${step}, updated_at = now() WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
 
   // Phase-1 follow-ups are sent from the same account as the original cold
   // message and count just as much toward its daily cap — surfaced here as a
@@ -2244,10 +2406,10 @@ app.post('/api/leads/:id/followup-sent', asyncRoute(async (req, res) => {
   let accountTodaySentCount = null, accountDailyLimit = null;
   if (phase === 1 && lead.account_id) {
     const today = todayStr();
-    const [account] = await sql`SELECT daily_limit FROM ig_accounts WHERE id = ${lead.account_id}`;
+    const [account] = await sql`SELECT daily_limit FROM ig_accounts WHERE id = ${lead.account_id} AND workspace_id = ${workspaceId}`;
     if (account) {
-      const [{ count: outreachCount }] = await sql`SELECT count(*)::int AS count FROM outreaches WHERE account_id = ${lead.account_id} AND status = 'sent' AND date = ${today}`;
-      const [{ count: followupCount }] = await sql`SELECT count(*)::int AS count FROM followup_sends WHERE account_id = ${lead.account_id} AND phase = 1 AND date = ${today}`;
+      const [{ count: outreachCount }] = await sql`SELECT count(*)::int AS count FROM outreaches WHERE account_id = ${lead.account_id} AND workspace_id = ${workspaceId} AND status = 'sent' AND date = ${today}`;
+      const [{ count: followupCount }] = await sql`SELECT count(*)::int AS count FROM followup_sends WHERE account_id = ${lead.account_id} AND workspace_id = ${workspaceId} AND phase = 1 AND date = ${today}`;
       accountTodaySentCount = outreachCount + followupCount;
       accountDailyLimit = account.daily_limit;
     }
@@ -2266,9 +2428,10 @@ app.post('/api/leads/:id/followup-sent', asyncRoute(async (req, res) => {
 // one row) and still needs it, loaded via loadTemplatesFromServer('linkedin')
 // — nothing about LinkedIn's template system is changing here.
 app.get('/api/settings/templates', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const platform = req.query.platform === 'linkedin' ? 'linkedin' : 'instagram';
-  const templates = await sql`SELECT id, label FROM message_templates WHERE platform = ${platform} ORDER BY sort_order`;
-  const parts = await sql`SELECT id, template_id, slot, text FROM message_template_parts ORDER BY template_id, slot, sort_order`;
+  const templates = await sql`SELECT id, label FROM message_templates WHERE workspace_id = ${workspaceId} AND platform = ${platform} ORDER BY sort_order`;
+  const parts = await sql`SELECT id, template_id, slot, text FROM message_template_parts WHERE workspace_id = ${workspaceId} ORDER BY template_id, slot, sort_order`;
   res.json({
     templates: templates.map(t => {
       const forTemplate = parts.filter(p => p.template_id === t.id);
@@ -2285,8 +2448,9 @@ app.get('/api/settings/templates', asyncRoute(async (req, res) => {
 // /api/message-sequences) — these two endpoints are LinkedIn-only going
 // forward, its own global followup_templates set unchanged.
 app.get('/api/settings/followups', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const platform = 'linkedin';
-  const rows = await sql`SELECT phase, step, day_offset, type, message, media_note FROM followup_templates WHERE platform = ${platform} ORDER BY phase, step`;
+  const rows = await sql`SELECT phase, step, day_offset, type, message, media_note FROM followup_templates WHERE workspace_id = ${workspaceId} AND platform = ${platform} ORDER BY phase, step`;
   res.json({
     followups: rows.map(r => ({
       phase: r.phase, step: r.step, dayOffset: r.day_offset,
@@ -2296,6 +2460,7 @@ app.get('/api/settings/followups', asyncRoute(async (req, res) => {
 }));
 
 app.put('/api/settings/followups/:phase/:step', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const phase = Number(req.params.phase);
   const step = Number(req.params.step);
   const platform = 'linkedin';
@@ -2313,65 +2478,67 @@ app.put('/api/settings/followups/:phase/:step', asyncRoute(async (req, res) => {
   if (mediaNote !== undefined) { sets.push(`media_note = $${i++}`); params.push(mediaNote); }
   if (sets.length === 0) return res.json({ ok: true });
   sets.push('updated_at = now()');
-  params.push(platform, phase, step);
-  await sql.query(`UPDATE followup_templates SET ${sets.join(', ')} WHERE platform = $${i++} AND phase = $${i++} AND step = $${i}`, params);
+  params.push(workspaceId, platform, phase, step);
+  await sql.query(`UPDATE followup_templates SET ${sets.join(', ')} WHERE workspace_id = $${i++} AND platform = $${i++} AND phase = $${i++} AND step = $${i}`, params);
   res.json({ ok: true });
 }));
 
 app.get('/api/settings/app', asyncRoute(async (req, res) => {
-  const rows = await sql`SELECT key, value FROM app_settings`;
+  const workspaceId = await getWorkspaceId(req);
+  const rows = await sql`SELECT key, value FROM app_settings WHERE workspace_id = ${workspaceId}`;
   const settings = {};
   rows.forEach(r => { settings[r.key] = r.value; });
   res.json({ settings });
 }));
 
 app.put('/api/settings/app', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
   const { calendarLink, viewsThreshold, linkedinConnectionDelayDays, followupDueHour, dailyGoalInstagram, dailyGoalInstagramSync, dailyGoalLinkedin } = req.body;
   if (calendarLink !== undefined) {
     await sql`
-      INSERT INTO app_settings (key, value) VALUES ('calendar_link', ${calendarLink})
-      ON CONFLICT (key) DO UPDATE SET value = ${calendarLink}
+      INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'calendar_link', ${calendarLink})
+      ON CONFLICT (workspace_id, key) DO UPDATE SET value =${calendarLink}
     `;
   }
   if (viewsThreshold !== undefined) {
     await sql`
-      INSERT INTO app_settings (key, value) VALUES ('views_threshold', ${String(viewsThreshold)})
-      ON CONFLICT (key) DO UPDATE SET value = ${String(viewsThreshold)}
+      INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'views_threshold', ${String(viewsThreshold)})
+      ON CONFLICT (workspace_id, key) DO UPDATE SET value =${String(viewsThreshold)}
     `;
   }
   if (linkedinConnectionDelayDays !== undefined) {
     const clamped = Math.max(0, Math.round(Number(linkedinConnectionDelayDays)) || 0);
     await sql`
-      INSERT INTO app_settings (key, value) VALUES ('linkedin_connection_delay_days', ${String(clamped)})
-      ON CONFLICT (key) DO UPDATE SET value = ${String(clamped)}
+      INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'linkedin_connection_delay_days', ${String(clamped)})
+      ON CONFLICT (workspace_id, key) DO UPDATE SET value =${String(clamped)}
     `;
   }
   if (followupDueHour !== undefined) {
     const clamped = Math.min(23, Math.max(0, Math.round(Number(followupDueHour)) || 0));
     await sql`
-      INSERT INTO app_settings (key, value) VALUES ('followup_due_hour', ${String(clamped)})
-      ON CONFLICT (key) DO UPDATE SET value = ${String(clamped)}
+      INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'followup_due_hour', ${String(clamped)})
+      ON CONFLICT (workspace_id, key) DO UPDATE SET value =${String(clamped)}
     `;
   }
   if (dailyGoalInstagram !== undefined) {
     const clamped = Math.max(0, Math.round(Number(dailyGoalInstagram)) || 0);
     await sql`
-      INSERT INTO app_settings (key, value) VALUES ('daily_goal_instagram', ${String(clamped)})
-      ON CONFLICT (key) DO UPDATE SET value = ${String(clamped)}
+      INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'daily_goal_instagram', ${String(clamped)})
+      ON CONFLICT (workspace_id, key) DO UPDATE SET value =${String(clamped)}
     `;
   }
   if (dailyGoalInstagramSync !== undefined) {
     const value = dailyGoalInstagramSync ? 'true' : 'false';
     await sql`
-      INSERT INTO app_settings (key, value) VALUES ('daily_goal_instagram_sync', ${value})
-      ON CONFLICT (key) DO UPDATE SET value = ${value}
+      INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'daily_goal_instagram_sync', ${value})
+      ON CONFLICT (workspace_id, key) DO UPDATE SET value =${value}
     `;
   }
   if (dailyGoalLinkedin !== undefined) {
     const clamped = Math.max(0, Math.round(Number(dailyGoalLinkedin)) || 0);
     await sql`
-      INSERT INTO app_settings (key, value) VALUES ('daily_goal_linkedin', ${String(clamped)})
-      ON CONFLICT (key) DO UPDATE SET value = ${String(clamped)}
+      INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'daily_goal_linkedin', ${String(clamped)})
+      ON CONFLICT (workspace_id, key) DO UPDATE SET value =${String(clamped)}
     `;
   }
   res.json({ ok: true });
