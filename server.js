@@ -249,35 +249,67 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   const dailyGoalLinkedin = Number(goalSettings.daily_goal_linkedin) || 0;
 
   // "Sync to Instagram combined accounts max sends" — instead of a manually
-  // typed number, the Instagram goal becomes the live combined ceiling
-  // across every connected account: each account's current daily_limit
-  // (already reflecting today's ramp-up step, if any — recomputed here live
-  // just like everywhere else in this app, not a stored snapshot that'd go
-  // stale as accounts ramp up) minus today's still-pending phase-1
+  // typed number, the Instagram goal becomes the combined ceiling across
+  // every connected account: each account's current daily_limit (reflecting
+  // today's ramp-up step, if any) minus today's still-pending phase-1
   // follow-ups for that account, since those draw from the same daily cap
   // and would otherwise silently blow past it (same accounting as
   // effectiveRemainingForNewSends in GET /api/accounts, just summed).
+  //
+  // Locked once per day (at the same due-hour boundary — 4am by default —
+  // follow-ups themselves use, via amsterdam_day_index), not recomputed on
+  // every request. Recomputing live subtracted *currently still-pending*
+  // follow-ups: as follow-ups actually got sent during the day, "still
+  // pending" shrank, so the computed goal silently grew mid-day — a
+  // daily-goal session that had already hit its target would suddenly show
+  // as short again with no new cold sends having happened. Every follow-up
+  // due today already counts as pending as soon as it's past today's
+  // due-hour (due_at_normalized always normalizes to that exact hour, never
+  // spreads later in the day), so whatever gets computed first after that
+  // boundary is already the correct, stable total for the rest of the day.
   if (dailyGoalInstagramSynced) {
     const [dueHour, defaultSeqId] = await Promise.all([getFollowupDueHour(), getDefaultMessageSequenceId()]);
-    const [{ total_limit, total_pending }] = await sql`
-      SELECT
-        COALESCE(SUM(a.daily_limit), 0) AS total_limit,
-        COALESCE(SUM(pending.cnt), 0) AS total_pending
-      FROM ig_accounts a
-      LEFT JOIN (
-        SELECT l.account_id, count(*) AS cnt
-        FROM leads l
-        JOIN ig_accounts la ON la.id = l.account_id
-        JOIN message_sequence_followups msf
-          ON msf.sequence_id = COALESCE(la.message_sequence_id, ${defaultSeqId})
-         AND msf.phase = 1 AND msf.step = l.phase_step + 1
-        WHERE l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
-          AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
-        GROUP BY l.account_id
-      ) pending ON pending.account_id = a.id
-      WHERE a.archived_at IS NULL
-    `;
-    dailyGoalInstagram = Math.max(0, Number(total_limit) - Number(total_pending));
+    // ::text — amsterdam_day_index() returns a Postgres `date`, which the
+    // driver hands back as a JS Date object; String()-ing that produces a
+    // verbose, environment-dependent locale string (and Vercel's UTC
+    // serverless runtime would stringify it differently than this app's
+    // other date/day-index math expects), not a stable comparison key.
+    const [{ day_index }] = await sql`SELECT amsterdam_day_index(now(), ${dueHour})::text AS day_index`;
+    const snapshotKey = day_index;
+    const snapshotRows = await sql`SELECT key, value FROM app_settings WHERE key IN ('daily_goal_instagram_snapshot_day', 'daily_goal_instagram_snapshot_value')`;
+    const snapshot = {};
+    snapshotRows.forEach(r => { snapshot[r.key] = r.value; });
+    if (snapshot.daily_goal_instagram_snapshot_day === snapshotKey && snapshot.daily_goal_instagram_snapshot_value !== undefined) {
+      dailyGoalInstagram = Number(snapshot.daily_goal_instagram_snapshot_value) || 0;
+    } else {
+      const [{ total_limit, total_pending }] = await sql`
+        SELECT
+          COALESCE(SUM(a.daily_limit), 0) AS total_limit,
+          COALESCE(SUM(pending.cnt), 0) AS total_pending
+        FROM ig_accounts a
+        LEFT JOIN (
+          SELECT l.account_id, count(*) AS cnt
+          FROM leads l
+          JOIN ig_accounts la ON la.id = l.account_id
+          JOIN message_sequence_followups msf
+            ON msf.sequence_id = COALESCE(la.message_sequence_id, ${defaultSeqId})
+           AND msf.phase = 1 AND msf.step = l.phase_step + 1
+          WHERE l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
+            AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
+          GROUP BY l.account_id
+        ) pending ON pending.account_id = a.id
+        WHERE a.archived_at IS NULL
+      `;
+      dailyGoalInstagram = Math.max(0, Number(total_limit) - Number(total_pending));
+      await sql`
+        INSERT INTO app_settings (key, value) VALUES ('daily_goal_instagram_snapshot_day', ${snapshotKey})
+        ON CONFLICT (key) DO UPDATE SET value = ${snapshotKey}
+      `;
+      await sql`
+        INSERT INTO app_settings (key, value) VALUES ('daily_goal_instagram_snapshot_value', ${String(dailyGoalInstagram)})
+        ON CONFLICT (key) DO UPDATE SET value = ${String(dailyGoalInstagram)}
+      `;
+    }
   }
 
   const igSentByDate = {};
