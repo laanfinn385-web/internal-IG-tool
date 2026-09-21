@@ -439,17 +439,21 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   // and would otherwise silently blow past it (same accounting as
   // effectiveRemainingForNewSends in GET /api/accounts, just summed).
   //
-  // Locked once per day (at the same due-hour boundary — 4am by default —
-  // follow-ups themselves use, via amsterdam_day_index), not recomputed on
-  // every request. Recomputing live subtracted *currently still-pending*
-  // follow-ups: as follow-ups actually got sent during the day, "still
-  // pending" shrank, so the computed goal silently grew mid-day — a
-  // daily-goal session that had already hit its target would suddenly show
-  // as short again with no new cold sends having happened. Every follow-up
-  // due today already counts as pending as soon as it's past today's
-  // due-hour (due_at_normalized always normalizes to that exact hour, never
-  // spreads later in the day), so whatever gets computed first after that
-  // boundary is already the correct, stable total for the rest of the day.
+  // Only the *pending* half is locked once per day (at the same due-hour
+  // boundary — 4am by default — follow-ups themselves use, via
+  // amsterdam_day_index) — total_limit is always recomputed live. Originally
+  // both were frozen together, but that meant a legitimate same-day change
+  // to an account's real capacity (fixing a misconfigured account, a
+  // ramp-up day advancing, warmup finishing) stayed invisible until the
+  // next day too — happened twice in testing before this split. Freezing
+  // just `pending` is enough on its own to fix the actual bug this was
+  // built for: every follow-up due today already counts as pending as soon
+  // as it's past today's due-hour (due_at_normalized always normalizes to
+  // that exact hour, never spreads later in the day), so pending only ever
+  // *shrinks* through the day as follow-ups get sent — recomputing it live
+  // was what let the goal silently grow mid-day with no new cold sends
+  // having happened. total_limit has no such one-directional pattern, so
+  // there's nothing to protect by freezing it too.
   if (dailyGoalInstagramSynced) {
     const [dueHour, defaultSeqId] = await Promise.all([getFollowupDueHour(workspaceId), getDefaultMessageSequenceId(workspaceId)]);
     // ::text — amsterdam_day_index() returns a Postgres `date`, which the
@@ -459,13 +463,9 @@ app.get('/api/home', asyncRoute(async (req, res) => {
     // other date/day-index math expects), not a stable comparison key.
     const [{ day_index }] = await sql`SELECT amsterdam_day_index(now(), ${dueHour})::text AS day_index`;
     const snapshotKey = day_index;
-    const snapshotRows = await sql`SELECT key, value FROM app_settings WHERE workspace_id = ${workspaceId} AND key IN ('daily_goal_instagram_snapshot_day', 'daily_goal_instagram_snapshot_value')`;
-    const snapshot = {};
-    snapshotRows.forEach(r => { snapshot[r.key] = r.value; });
-    if (snapshot.daily_goal_instagram_snapshot_day === snapshotKey && snapshot.daily_goal_instagram_snapshot_value !== undefined) {
-      dailyGoalInstagram = Number(snapshot.daily_goal_instagram_snapshot_value) || 0;
-    } else {
-      const [{ total_limit, total_pending }] = await sql`
+    const [snapshotRows, [{ total_limit, total_pending }]] = await Promise.all([
+      sql`SELECT key, value FROM app_settings WHERE workspace_id = ${workspaceId} AND key IN ('daily_goal_instagram_snapshot_day', 'daily_goal_instagram_snapshot_pending')`,
+      sql`
         SELECT
           COALESCE(SUM(a.daily_limit), 0) AS total_limit,
           COALESCE(SUM(pending.cnt), 0) AS total_pending
@@ -482,17 +482,25 @@ app.get('/api/home', asyncRoute(async (req, res) => {
           GROUP BY l.account_id
         ) pending ON pending.account_id = a.id
         WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL
-      `;
-      dailyGoalInstagram = Math.max(0, Number(total_limit) - Number(total_pending));
+      `
+    ]);
+    const snapshot = {};
+    snapshotRows.forEach(r => { snapshot[r.key] = r.value; });
+    let pendingForGoal;
+    if (snapshot.daily_goal_instagram_snapshot_day === snapshotKey && snapshot.daily_goal_instagram_snapshot_pending !== undefined) {
+      pendingForGoal = Number(snapshot.daily_goal_instagram_snapshot_pending) || 0;
+    } else {
+      pendingForGoal = Number(total_pending);
       await sql`
         INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'daily_goal_instagram_snapshot_day', ${snapshotKey})
         ON CONFLICT (workspace_id, key) DO UPDATE SET value = ${snapshotKey}
       `;
       await sql`
-        INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'daily_goal_instagram_snapshot_value', ${String(dailyGoalInstagram)})
-        ON CONFLICT (workspace_id, key) DO UPDATE SET value = ${String(dailyGoalInstagram)}
+        INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'daily_goal_instagram_snapshot_pending', ${String(pendingForGoal)})
+        ON CONFLICT (workspace_id, key) DO UPDATE SET value = ${String(pendingForGoal)}
       `;
     }
+    dailyGoalInstagram = Math.max(0, Number(total_limit) - pendingForGoal);
   }
 
   const igSentByDate = {};
