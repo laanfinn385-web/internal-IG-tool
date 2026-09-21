@@ -42,6 +42,79 @@ function mapWorkspaceRow(r) {
   };
 }
 
+// A brand-new profile starts with zero Timing/Messaging sequences — without
+// seeding it with the same generic defaults every workspace originally had,
+// POST /api/accounts (below) can never resolve a "Default — <tier>" timing
+// sequence for a freshly-added account, leaving it with timing_sequence_id
+// NULL: no ramp days to look up means curveLimitForDay always returns 0, so
+// the account reads as perpetually stuck at day 0 of warmup — and Skip
+// warmup "does nothing" for the same reason (it looks up the very same
+// nonexistent ramp days to decide what limit to skip to). These curves are
+// generic, vetted Instagram-warmup shapes (not tied to any one workspace's
+// own messaging), safe to reuse as every new profile's starting point,
+// exactly like "+ New sequence" already creates a blank starting point for
+// a manually-created one.
+const DEFAULT_TIMING_SEQUENCE_SEEDS = [
+  {
+    name: 'Default — New',
+    rampDays: [
+      { dayNumber: 1, dailyLimit: 0 }, { dayNumber: 14, dailyLimit: 5 }, { dayNumber: 16, dailyLimit: 10 },
+      { dayNumber: 18, dailyLimit: 20 }, { dayNumber: 20, dailyLimit: 30 }
+    ],
+    pacingBlocks: [
+      { blockType: 'send', minValue: 6, maxValue: 10, label: null, message: null },
+      { blockType: 'pause', minValue: 8, maxValue: 12, label: 'Scroll session', message: "Go scroll your feed, check a few stories, like a couple posts — anything that isn't sending another DM." }
+    ]
+  },
+  {
+    name: 'Default — 1-6 months',
+    rampDays: [
+      { dayNumber: 1, dailyLimit: 0 }, { dayNumber: 8, dailyLimit: 10 }, { dayNumber: 9, dailyLimit: 20 },
+      { dayNumber: 10, dailyLimit: 30 }, { dayNumber: 11, dailyLimit: 40 }, { dayNumber: 12, dailyLimit: 50 }, { dayNumber: 13, dailyLimit: 60 }
+    ],
+    pacingBlocks: [
+      { blockType: 'send', minValue: 8, maxValue: 15, label: null, message: null },
+      { blockType: 'pause', minValue: 8, maxValue: 12, label: 'Scroll session', message: "Go scroll your feed, check a few stories, like a couple posts — anything that isn't sending another DM." }
+    ]
+  },
+  {
+    name: 'Default — 6+ months',
+    rampDays: [
+      { dayNumber: 1, dailyLimit: 0 }, { dayNumber: 8, dailyLimit: 10 }, { dayNumber: 9, dailyLimit: 20 },
+      { dayNumber: 10, dailyLimit: 30 }, { dayNumber: 11, dailyLimit: 40 }, { dayNumber: 12, dailyLimit: 50 },
+      { dayNumber: 13, dailyLimit: 60 }, { dayNumber: 14, dailyLimit: 70 }, { dayNumber: 15, dailyLimit: 80 }
+    ],
+    pacingBlocks: [
+      { blockType: 'send', minValue: 8, maxValue: 15, label: null, message: null },
+      { blockType: 'pause', minValue: 8, maxValue: 12, label: 'Scroll session', message: "Go scroll your feed, check a few stories, like a couple posts — anything that isn't sending another DM." }
+    ]
+  }
+];
+
+async function seedDefaultSequencesForWorkspace(workspaceId) {
+  for (const seed of DEFAULT_TIMING_SEQUENCE_SEEDS) {
+    const seqId = crypto.randomUUID();
+    await sql`INSERT INTO timing_sequences (id, workspace_id, name) VALUES (${seqId}, ${workspaceId}, ${seed.name})`;
+    for (const d of seed.rampDays) {
+      await sql`INSERT INTO timing_sequence_ramp_days (id, workspace_id, sequence_id, day_number, daily_limit) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${seqId}, ${d.dayNumber}, ${d.dailyLimit})`;
+    }
+    for (let i = 0; i < seed.pacingBlocks.length; i++) {
+      const b = seed.pacingBlocks[i];
+      await sql`
+        INSERT INTO timing_sequence_pacing_blocks (id, workspace_id, sequence_id, position, block_type, min_value, max_value, label, message)
+        VALUES (${crypto.randomUUID()}, ${workspaceId}, ${seqId}, ${i}, ${b.blockType}, ${b.minValue}, ${b.maxValue}, ${b.label}, ${b.message})
+      `;
+    }
+  }
+  // A blank starting point — same shape POST /api/message-sequences already
+  // creates for a manually-added sequence — deliberately not copying any
+  // workspace's real opener/follow-up wording into a new profile, since
+  // that's business-specific copywriting, not generic boilerplate.
+  const msgSeqId = crypto.randomUUID();
+  await sql`INSERT INTO message_sequences (id, workspace_id, name) VALUES (${msgSeqId}, ${workspaceId}, 'Default')`;
+  await sql`INSERT INTO message_sequence_openers (id, workspace_id, sequence_id, position, text) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${msgSeqId}, 0, '')`;
+}
+
 // Routes registered here (rather than grouped with the rest of the API
 // further down) since they're the one thing that has to work before any
 // other endpoint's workspace scoping means anything — switching profiles
@@ -64,6 +137,7 @@ app.post('/api/workspaces', asyncRoute(async (req, res) => {
     INSERT INTO workspaces (id, name, picture_url, instagram_enabled, linkedin_enabled)
     VALUES (${id}, ${name}, ${req.body.pictureUrl || null}, ${instagramEnabled}, ${linkedinEnabled})
   `;
+  await seedDefaultSequencesForWorkspace(id);
   res.json({ ok: true, id });
 }));
 
