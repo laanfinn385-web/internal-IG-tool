@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=21">
+<link rel="stylesheet" href="style.css?v=22">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -838,6 +838,7 @@
         <div class="range-tabs" id="analytics-mode-tabs">
           <button type="button" class="range-tab active" data-mode="overview">Overview</button>
           <button type="button" class="range-tab" data-mode="openers">Opener A/B test</button>
+          <button type="button" class="range-tab" data-mode="accounts">Account performance</button>
         </div>
       </div>
 
@@ -910,6 +911,30 @@
           </div>
           <p class="muted hidden" id="analytics-openers-empty">No opener variants yet — add some from Settings → Messaging sequences.</p>
         </div>
+      </div>
+
+      <div id="analytics-accounts-section" class="hidden">
+        <p class="muted">Instagram only. Cumulative across each account's whole lifetime (not scoped to a date range) — ranked by Positive Reply Rate, compared against the average of the profile's other accounts.</p>
+        <p class="muted hidden" id="analytics-accounts-need-more">Add a second Instagram account to compare performance between accounts.</p>
+        <div class="card hidden" id="analytics-accounts-leaderboard-card">
+          <h3>Leaderboard</h3>
+          <div id="analytics-accounts-leaderboard"></div>
+        </div>
+        <div class="card hidden" id="analytics-accounts-table-card">
+          <div class="analytics-openers-table-wrap">
+            <table class="analytics-openers-table">
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Sends</th><th>Replies</th><th>Reply Rate</th>
+                  <th>Positive</th><th>PRR</th><th>Appts</th><th>ASR</th>
+                </tr>
+              </thead>
+              <tbody id="analytics-accounts-tbody"></tbody>
+            </table>
+          </div>
+        </div>
+        <p class="muted hidden" id="analytics-accounts-empty">No accounts with data yet.</p>
       </div>
     </section>
 
@@ -1194,9 +1219,9 @@
   </div>
 </div>
 
-<script src="templates.js?v=21"></script>
-<script src="app.js?v=21"></script>
-<script src="leads.js?v=21"></script>
-<script src="followups.js?v=21"></script>
+<script src="templates.js?v=22"></script>
+<script src="app.js?v=22"></script>
+<script src="leads.js?v=22"></script>
+<script src="followups.js?v=22"></script>
 </body>
 </html>

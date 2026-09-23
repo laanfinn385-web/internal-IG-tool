@@ -781,6 +781,72 @@ app.get('/api/analytics/openers', asyncRoute(async (req, res) => {
   res.json({ openers });
 }));
 
+// Per-account performance + a leaderboard — same all-time-cumulative
+// reasoning as the opener breakdown above (an account's track record isn't
+// a period-over-period thing), scoped to Instagram since accounts have no
+// LinkedIn equivalent. l.account_id being set is the same "was actually
+// sent to this account" signal GET /api/accounts' pending-followup query
+// and the opener breakdown already rely on.
+app.get('/api/analytics/accounts', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  const rows = await sql`
+    SELECT a.id, a.username, a.profile_image_url,
+      count(l.id) AS sends,
+      count(l.id) FILTER (WHERE l.ever_positive_reply) AS positive_replies,
+      count(l.id) FILTER (WHERE l.ever_call_booked) AS appointments_set,
+      count(l.id) FILTER (WHERE EXISTS (SELECT 1 FROM lead_events e WHERE e.lead_id = l.id AND e.event = 'dead')) AS dead_count
+    FROM ig_accounts a
+    LEFT JOIN leads l ON l.account_id = a.id AND l.deleted_at IS NULL
+    WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL
+    GROUP BY a.id, a.username, a.profile_image_url
+    ORDER BY a.created_at ASC
+  `;
+  const rate = (num, denom) => (denom > 0 ? Math.round((num / denom) * 1000) / 10 : null);
+  const accounts = rows.map(r => {
+    const sends = Number(r.sends);
+    const positiveReplies = Number(r.positive_replies);
+    const appointmentsSet = Number(r.appointments_set);
+    const replies = positiveReplies + Number(r.dead_count);
+    return {
+      id: r.id,
+      username: r.username,
+      profileImageUrl: r.profile_image_url,
+      sends,
+      replies,
+      replyRate: rate(replies, sends),
+      positiveReplies,
+      prr: rate(positiveReplies, sends),
+      appointmentsSet,
+      asr: rate(appointmentsSet, sends)
+    };
+  });
+
+  // Leaderboard delta — computed here rather than the client so there's one
+  // source of truth. Only accounts with real send volume are ranked or
+  // count toward the "everyone else" baseline; a brand-new account with no
+  // sends yet has nothing to compare, either as a candidate or a baseline
+  // (it would just silently pull every other account's average toward
+  // itself instead of meaningfully being "compared"). Expressed in
+  // percentage points, not a relative percentage — a relative "% better"
+  // against a baseline that happens to be 0 (entirely possible with only
+  // two young accounts) is undefined; a point difference between two
+  // already-percentage rates always means something.
+  const ranked = accounts.filter(a => a.sends > 0);
+  ranked.forEach(a => {
+    const others = ranked.filter(o => o.id !== a.id);
+    if (others.length === 0) {
+      a.vsOthersAvgPrr = null;
+      return;
+    }
+    const othersAvgPrr = others.reduce((sum, o) => sum + (o.prr ?? 0), 0) / others.length;
+    a.vsOthersAvgPrr = Math.round(((a.prr ?? 0) - othersAvgPrr) * 10) / 10;
+  });
+  ranked.sort((a, b) => (b.prr ?? -1) - (a.prr ?? -1));
+  const notEnoughData = accounts.filter(a => a.sends === 0);
+
+  res.json({ leaderboard: ranked, notEnoughData });
+}));
+
 // ---------- LEADS ----------
 
 // Wraps an async route handler so a thrown/rejected error becomes a JSON

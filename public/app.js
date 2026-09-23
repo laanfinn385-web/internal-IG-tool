@@ -3585,7 +3585,9 @@ $('#analytics-mode-tabs').addEventListener('click', (e) => {
   const mode = btn.dataset.mode;
   $('#analytics-overview-section').classList.toggle('hidden', mode !== 'overview');
   $('#analytics-openers-section').classList.toggle('hidden', mode !== 'openers');
+  $('#analytics-accounts-section').classList.toggle('hidden', mode !== 'accounts');
   if (mode === 'openers') loadAnalyticsOpeners();
+  if (mode === 'accounts') loadAnalyticsAccounts();
 });
 
 async function loadAnalyticsOpeners() {
@@ -3608,6 +3610,47 @@ async function loadAnalyticsOpeners() {
       </tr>`).join('');
   } catch (e) {
     alert(`Could not load opener performance: ${e.message}`);
+  }
+}
+
+async function loadAnalyticsAccounts() {
+  try {
+    const data = await fetchJson('/api/analytics/accounts');
+    const leaderboard = (data.leaderboard || []).slice().sort((a, b) => (b.prr ?? -1) - (a.prr ?? -1));
+    const notEnoughData = data.notEnoughData || [];
+    const totalAccounts = leaderboard.length + notEnoughData.length;
+
+    $('#analytics-accounts-empty').classList.toggle('hidden', totalAccounts > 0 && leaderboard.length > 0);
+    $('#analytics-accounts-need-more').classList.toggle('hidden', leaderboard.length !== 1);
+    $('#analytics-accounts-leaderboard-card').classList.toggle('hidden', leaderboard.length < 2);
+    $('#analytics-accounts-table-card').classList.toggle('hidden', leaderboard.length === 0);
+
+    $('#analytics-accounts-leaderboard').innerHTML = leaderboard.map(a => {
+      const delta = a.vsOthersAvgPrr;
+      const deltaClass = delta == null ? 'neutral' : delta > 0 ? 'positive' : delta < 0 ? 'negative' : 'neutral';
+      const deltaText = delta == null ? '–' : `${delta > 0 ? '+' : ''}${delta} pts`;
+      return `
+      <div class="analytics-leaderboard-row">
+        ${accountPhotoHtml(a)}
+        <div class="analytics-leaderboard-name">${escapeHtml(a.username)}</div>
+        <div class="analytics-leaderboard-prr">${a.prr != null ? a.prr + '%' : '–'} PRR</div>
+        <div class="overview-chart-delta ${deltaClass}">${deltaText}</div>
+      </div>`;
+    }).join('');
+
+    $('#analytics-accounts-tbody').innerHTML = leaderboard.map(a => `
+      <tr>
+        <td>${escapeHtml(a.username)}</td>
+        <td>${a.sends}</td>
+        <td>${a.replies}</td>
+        <td>${a.replyRate != null ? a.replyRate + '%' : '–'}</td>
+        <td>${a.positiveReplies}</td>
+        <td>${a.prr != null ? a.prr + '%' : '–'}</td>
+        <td>${a.appointmentsSet}</td>
+        <td>${a.asr != null ? a.asr + '%' : '–'}</td>
+      </tr>`).join('');
+  } catch (e) {
+    alert(`Could not load account performance: ${e.message}`);
   }
 }
 

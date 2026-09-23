@@ -391,6 +391,23 @@ input:focus, textarea:focus, select:focus {
 .overview-chart-delta.negative { color: var(--red-dark); background: rgba(255, 49, 49, 0.1); }
 .overview-chart-delta.neutral { color: var(--muted); background: var(--bg); }
 
+.analytics-leaderboard-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 4px;
+  border-bottom: 1px solid var(--border);
+}
+.analytics-leaderboard-row:last-child { border-bottom: none; }
+.analytics-leaderboard-row .account-photo,
+.analytics-leaderboard-row .account-photo-placeholder {
+  width: 40px;
+  height: 40px;
+  font-size: 1rem;
+}
+.analytics-leaderboard-name { font-weight: 700; flex: 1; min-width: 0; }
+.analytics-leaderboard-prr { font-size: 0.85rem; color: var(--muted); }
+
 .overview-donut-row { display: flex; align-items: center; gap: 18px; }
 .overview-donut-wrap { position: relative; width: 108px; height: 108px; flex-shrink: 0; }
 #pipeline-donut { width: 100%; height: 100%; }
