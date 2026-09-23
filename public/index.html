@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=24">
+<link rel="stylesheet" href="style.css?v=25">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -111,8 +111,11 @@
 
     <!-- HOME -->
     <section id="view-home" class="view">
-      <div class="row-between leads-header">
-        <h1 class="page-title">Overview</h1>
+      <div class="home-header">
+        <div class="home-header-text">
+          <div class="eyebrow" id="home-date">–</div>
+          <h1 class="home-greeting" id="home-greeting">Welcome back.</h1>
+        </div>
         <div class="range-tabs" id="home-platform-tabs">
           <button type="button" class="range-tab" data-platform="instagram">Instagram</button>
           <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
@@ -120,28 +123,88 @@
         </div>
       </div>
 
-      <div class="card daily-goal-card" id="daily-goal-card">
-        <div class="daily-goal-row">
-          <div class="daily-goal-main">
-            <div class="daily-goal-label-row">
-              <span class="daily-goal-title">🎯 Daily goal</span>
-              <span class="muted" id="daily-goal-text">–</span>
-            </div>
-            <div class="daily-goal-bar-track" id="daily-goal-bar-track">
-              <div class="daily-goal-bar-fill daily-goal-bar-instagram" id="daily-goal-bar-instagram"></div>
-              <div class="daily-goal-bar-fill daily-goal-bar-linkedin" id="daily-goal-bar-linkedin"></div>
+      <section class="home-hero-row">
+        <div class="home-goal-card" id="daily-goal-card">
+          <span class="home-goal-ghost" aria-hidden="true">Today</span>
+          <div class="home-goal-ring-wrap">
+            <svg class="home-goal-ring-svg" viewBox="0 0 360 360">
+              <circle cx="180" cy="180" r="150" class="home-goal-ring-track"></circle>
+              <circle cx="180" cy="180" r="150" class="home-goal-ring-fill" id="daily-goal-ring-fill" stroke-dasharray="942.5" stroke-dashoffset="942.5"></circle>
+            </svg>
+            <div class="home-goal-ring-center">
+              <span class="home-goal-ring-label" id="daily-goal-ring-label">Set a goal</span>
+              <span class="home-goal-ring-done" id="daily-goal-ring-done">0</span>
+              <span class="home-goal-ring-total" id="daily-goal-ring-total">of 0 sent</span>
             </div>
           </div>
-          <button id="daily-goal-session-btn" class="btn-primary">Start daily goal session →</button>
+          <div class="home-goal-stats" id="daily-goal-stats">
+            <div class="home-goal-stat" id="daily-goal-ig-stat"><span>Instagram</span><strong id="daily-goal-ig-text">0/0</strong></div>
+            <div class="home-goal-stat" id="daily-goal-li-stat"><span>LinkedIn</span><strong id="daily-goal-li-text">0/0</strong></div>
+          </div>
+          <div class="home-goal-streak" id="home-goal-streak">
+            <span id="streak-flame" class="streak-flame" title="Lights up once you hit today's daily goal">🔥</span>
+            <span><strong id="streak-value">–</strong> day streak</span>
+          </div>
+          <button id="daily-goal-session-btn" class="home-goal-btn">Start daily goal session →</button>
+          <p class="muted hidden" id="daily-goal-empty-state">No daily goal set yet — <a href="#" data-nav="settings" class="inline-link">set one in Settings</a> to track today's progress here.</p>
         </div>
-        <p class="muted hidden" id="daily-goal-empty-state">No daily goal set yet — <a href="#" data-nav="settings" class="inline-link">set one in Settings</a> to track today's progress here.</p>
-      </div>
 
-      <div class="overview-grid overview-grid-3">
-        <div class="overview-tile highlight">
-          <div class="overview-tile-label"><span id="streak-flame" class="streak-flame" title="Lights up once you hit today's daily goal">🔥</span> Day streak</div>
-          <div class="overview-tile-value" id="streak-value">–</div>
+        <div class="card home-session-card">
+          <h2>Start new session</h2>
+          <p class="muted">Pulls the next leads from your <a href="#" data-nav="leads" class="inline-link">Leads</a> list that haven't been contacted yet.</p>
+
+          <div class="range-tabs" id="home-session-platform-tabs">
+            <button type="button" class="range-tab active" data-session-platform="instagram">Instagram session</button>
+            <button type="button" class="range-tab" data-session-platform="linkedin">LinkedIn session</button>
+            <button type="button" class="range-tab" data-session-platform="combi">Combi session</button>
+          </div>
+
+          <div id="home-session-single">
+            <div class="session-size-row">
+              <div class="session-size-presets" id="session-size-presets">
+                <button type="button" class="preset-btn" data-size="10">10</button>
+                <button type="button" class="preset-btn active" data-size="15">15</button>
+                <button type="button" class="preset-btn" data-size="25">25</button>
+                <button type="button" class="preset-btn" data-size="50">50</button>
+                <button type="button" class="preset-btn" data-size="100">100</button>
+              </div>
+              <label class="session-size-custom">Leads
+                <input type="number" id="session-size-input" min="1" value="15">
+              </label>
+            </div>
+          </div>
+
+          <div id="home-session-combi" class="hidden">
+            <p class="muted">Goes through all Instagram leads first, then LinkedIn.</p>
+            <div class="combi-size-row">
+              <label>Instagram leads
+                <input type="number" id="combi-ig-size-input" min="1" value="15">
+              </label>
+              <label>LinkedIn leads
+                <input type="number" id="combi-li-size-input" min="1" value="15">
+              </label>
+            </div>
+          </div>
+
+          <div id="home-session-account-row" class="hidden">
+            <label>Instagram account
+              <select id="home-session-account-select"></select>
+            </label>
+            <p class="muted hidden" id="home-session-no-accounts">No Instagram accounts yet — <a href="#" data-nav="settings" class="inline-link">add one in Settings</a> first.</p>
+            <p class="hidden" id="home-session-account-error" style="color: var(--red); font-size: 0.85rem; margin-top: 6px;"></p>
+          </div>
+
+          <p class="muted" id="home-session-cooldown-notice" style="display:none;"></p>
+
+          <div class="row-between">
+            <span class="muted">&nbsp;</span>
+            <button id="start-session-btn" class="btn-primary">Start session →</button>
+          </div>
+          <div id="home-session-error" class="import-error hidden"></div>
         </div>
+      </section>
+
+      <div class="overview-grid overview-grid-2">
         <div class="overview-tile">
           <div class="overview-tile-label">📤 Reach-outs (7d)</div>
           <div class="overview-tile-value" id="week-value">–</div>
@@ -202,60 +265,6 @@
           <div class="overview-tile-label">📈 Connection accept rate</div>
           <div class="overview-tile-value" id="car-value">–</div>
         </div>
-      </div>
-
-      <div class="card">
-        <h2>Start new session</h2>
-        <p class="muted">Pulls the next leads from your <a href="#" data-nav="leads" class="inline-link">Leads</a> list that haven't been contacted yet.</p>
-
-        <div class="range-tabs" id="home-session-platform-tabs">
-          <button type="button" class="range-tab active" data-session-platform="instagram">Instagram session</button>
-          <button type="button" class="range-tab" data-session-platform="linkedin">LinkedIn session</button>
-          <button type="button" class="range-tab" data-session-platform="combi">Combi session</button>
-        </div>
-
-        <div id="home-session-single">
-          <div class="session-size-row">
-            <div class="session-size-presets" id="session-size-presets">
-              <button type="button" class="preset-btn" data-size="10">10</button>
-              <button type="button" class="preset-btn active" data-size="15">15</button>
-              <button type="button" class="preset-btn" data-size="25">25</button>
-              <button type="button" class="preset-btn" data-size="50">50</button>
-              <button type="button" class="preset-btn" data-size="100">100</button>
-            </div>
-            <label class="session-size-custom">Leads
-              <input type="number" id="session-size-input" min="1" value="15">
-            </label>
-          </div>
-        </div>
-
-        <div id="home-session-combi" class="hidden">
-          <p class="muted">Goes through all Instagram leads first, then LinkedIn.</p>
-          <div class="combi-size-row">
-            <label>Instagram leads
-              <input type="number" id="combi-ig-size-input" min="1" value="15">
-            </label>
-            <label>LinkedIn leads
-              <input type="number" id="combi-li-size-input" min="1" value="15">
-            </label>
-          </div>
-        </div>
-
-        <div id="home-session-account-row" class="hidden">
-          <label>Instagram account
-            <select id="home-session-account-select"></select>
-          </label>
-          <p class="muted hidden" id="home-session-no-accounts">No Instagram accounts yet — <a href="#" data-nav="settings" class="inline-link">add one in Settings</a> first.</p>
-          <p class="hidden" id="home-session-account-error" style="color: var(--red); font-size: 0.85rem; margin-top: 6px;"></p>
-        </div>
-
-        <p class="muted" id="home-session-cooldown-notice" style="display:none;"></p>
-
-        <div class="row-between">
-          <span class="muted">&nbsp;</span>
-          <button id="start-session-btn" class="btn-primary">Start session →</button>
-        </div>
-        <div id="home-session-error" class="import-error hidden"></div>
       </div>
     </section>
 
@@ -1244,7 +1253,7 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=24"></script>
+<script src="app.js?v=25"></script>
 <script src="leads.js?v=23"></script>
 <script src="followups.js?v=24"></script>
 </body>

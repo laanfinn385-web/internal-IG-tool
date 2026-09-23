@@ -675,7 +675,19 @@ $('#home-platform-tabs').addEventListener('click', (e) => {
   loadHome();
 });
 
+// Purely presentational, computed client-side from the visitor's own clock
+// — no server data needed, so it's set once per loadHome() call rather than
+// living in /api/home's response.
+function renderHomeGreeting() {
+  const now = new Date();
+  $('#home-date').textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const hour = now.getHours();
+  const greeting = hour < 5 ? 'Still up?' : hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
+  $('#home-greeting').textContent = greeting;
+}
+
 async function loadHome() {
+  renderHomeGreeting();
   try {
     const data = await fetchJson(`/api/home?platform=${homePlatformFilter}`);
     $('#streak-value').textContent = data.streak;
@@ -708,55 +720,51 @@ async function loadHome() {
 
 // ---------- Daily goal ----------
 let homeDailyGoalData = null;
+const DAILY_GOAL_RING_CIRCUMFERENCE = 2 * Math.PI * 150; // r=150, matches the SVG circle in index.html
 
 function renderDailyGoal(dailyGoal) {
   homeDailyGoalData = dailyGoal;
   const igGoal = dailyGoal.instagram;
   const liGoal = dailyGoal.linkedin;
   const totalGoal = igGoal + liGoal;
+  const card = $('#daily-goal-card');
   const emptyState = $('#daily-goal-empty-state');
   const btn = $('#daily-goal-session-btn');
+  const restEls = [$('.home-goal-ring-wrap'), $('#daily-goal-stats'), $('#home-goal-streak'), btn];
 
   if (totalGoal === 0) {
-    $('#daily-goal-bar-track').classList.add('hidden');
-    $('#daily-goal-text').classList.add('hidden');
-    btn.classList.add('hidden');
+    restEls.forEach(el => el && el.classList.add('hidden'));
     emptyState.classList.remove('hidden');
     return;
   }
-  $('#daily-goal-bar-track').classList.remove('hidden');
-  $('#daily-goal-text').classList.remove('hidden');
-  btn.classList.remove('hidden');
+  restEls.forEach(el => el && el.classList.remove('hidden'));
   emptyState.classList.add('hidden');
 
   const igDone = dailyGoal.todaySentInstagram;
   const liDone = dailyGoal.todayEngagedLinkedin;
-  // Each segment's width is that platform's own completion %, scaled by its
-  // share of the combined goal — so the two segments together always sum to
-  // "how much of the combined daily goal is done", not just their own.
-  const igPct = igGoal > 0 ? Math.min(100, (igDone / igGoal) * 100) : 0;
-  const liPct = liGoal > 0 ? Math.min(100, (liDone / liGoal) * 100) : 0;
-  const igShare = (igGoal / totalGoal) * 100;
-  const liShare = (liGoal / totalGoal) * 100;
-  $('#daily-goal-bar-instagram').style.width = `${(igShare * igPct) / 100}%`;
-  $('#daily-goal-bar-linkedin').style.width = `${(liShare * liPct) / 100}%`;
+  const totalDone = igDone + liDone;
+  const fraction = Math.min(1, totalGoal > 0 ? totalDone / totalGoal : 0);
+  $('#daily-goal-ring-fill').style.strokeDashoffset = `${DAILY_GOAL_RING_CIRCUMFERENCE * (1 - fraction)}`;
+  $('#daily-goal-ring-done').textContent = totalDone.toLocaleString('en-US');
+  $('#daily-goal-ring-total').textContent = `of ${totalGoal.toLocaleString('en-US')} sent`;
 
-  const textParts = [];
-  if (igGoal > 0) textParts.push(`${igDone}/${igGoal} Instagram${dailyGoal.instagramSynced ? ' (synced)' : ''}`);
-  if (liGoal > 0) textParts.push(`${liDone}/${liGoal} LinkedIn`);
-  $('#daily-goal-text').textContent = textParts.join(' · ');
+  $('#daily-goal-ig-stat').classList.toggle('hidden', igGoal === 0);
+  $('#daily-goal-ig-text').textContent = `${igDone}/${igGoal}${dailyGoal.instagramSynced ? ' (synced)' : ''}`;
+  $('#daily-goal-li-stat').classList.toggle('hidden', liGoal === 0);
+  $('#daily-goal-li-text').textContent = `${liDone}/${liGoal}`;
 
   const igRemaining = Math.max(0, igGoal - igDone);
   const liRemaining = Math.max(0, liGoal - liDone);
-  if (igRemaining === 0 && liRemaining === 0) {
+  const goalReached = igRemaining === 0 && liRemaining === 0;
+  card.classList.toggle('goal-reached', goalReached);
+  if (goalReached) {
+    $('#daily-goal-ring-label').textContent = 'Goal reached';
     btn.textContent = '🎉 Goal reached';
     btn.disabled = true;
-  } else if (dailyGoal.savedSession) {
-    btn.textContent = 'Continue daily goal session →';
-    btn.disabled = false;
   } else {
-    btn.textContent = 'Start daily goal session →';
+    $('#daily-goal-ring-label').textContent = 'On track';
     btn.disabled = false;
+    btn.textContent = dailyGoal.savedSession ? 'Continue daily goal session →' : 'Start daily goal session →';
   }
 }
 
