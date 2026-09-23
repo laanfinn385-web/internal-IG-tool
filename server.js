@@ -2080,14 +2080,19 @@ function firstName(fullName, username) {
 
 // Server-side twin of public/templates.js's resolveSpintax — same regex,
 // same reasoning (a group needs a '|' so {naam}/{link} placeholders, which
-// have none, are never mistaken for a one-option group; repeating the
-// replace resolves nesting from the inside out; capped so a malformed input
-// can't hang the request). Follow-up messages are composed here on the
-// server (not client-side like the opener), so this can't just reuse the
-// browser-loaded function — it needs its own copy.
+// have none, are never mistaken for a one-option group — though an option
+// may itself CONTAIN one of those placeholders, e.g.
+// "{Hoi {naam}!|Hey {naam}!}", since PLACEHOLDER matches that specific
+// no-pipe shape without swallowing the outer group's own braces; repeating
+// the replace resolves nesting from the inside out; capped so a malformed
+// input can't hang the request). Follow-up messages are composed here on
+// the server (not client-side like the opener), so this can't just reuse
+// the browser-loaded function — it needs its own copy.
 function resolveSpintax(str) {
   let result = String(str || '');
-  const groupPattern = /\{([^{}]*\|[^{}]*)\}/;
+  const PLACEHOLDER = '\\{[a-zA-Z0-9_]+\\}';
+  const OPTION = `(?:[^{}|]|${PLACEHOLDER})*`;
+  const groupPattern = new RegExp(`\\{(${OPTION}\\|${OPTION}(?:\\|${OPTION})*)\\}`);
   let match;
   let guard = 0;
   while ((match = groupPattern.exec(result)) && guard < 100) {

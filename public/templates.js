@@ -16,15 +16,20 @@ function renderTemplateString(str, placeholders) {
 
 // Spintax: {option1|option2|option3} picks one option at random. Requires a
 // '|' inside the braces so {naam}/{views}/{months} (no pipe) are never
-// mistaken for a one-option spintax group. Resolves innermost groups first
-// (a group's own contents can't contain a brace, by construction of the
+// mistaken for a one-option spintax group — but an option is itself allowed
+// to contain one of those placeholders (e.g. "{Hoi {naam}!|Hey {naam}!}"),
+// since PLACEHOLDER matches that specific no-pipe shape without swallowing
+// the outer group's own braces. Resolves innermost groups first (a group's
+// own contents can't contain any OTHER brace, by construction of the
 // regex), so repeating the replace naturally handles nesting like
 // "{Hey|Hi} {naam}, {have you seen|did you catch} my video?" from the
 // inside out. Capped at 100 passes so a malformed/pathological input (an
 // unmatched brace, say) can never hang the render loop.
 function resolveSpintax(str) {
   let result = String(str || '');
-  const groupPattern = /\{([^{}]*\|[^{}]*)\}/;
+  const PLACEHOLDER = '\\{[a-zA-Z0-9_]+\\}';
+  const OPTION = `(?:[^{}|]|${PLACEHOLDER})*`;
+  const groupPattern = new RegExp(`\\{(${OPTION}\\|${OPTION}(?:\\|${OPTION})*)\\}`);
   let match;
   let guard = 0;
   while ((match = groupPattern.exec(result)) && guard < 100) {
