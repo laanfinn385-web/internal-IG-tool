@@ -7,8 +7,8 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Crect width='36' height='36' rx='10' fill='%23430074'/%3E%3Ctext x='18' y='25' font-size='18' text-anchor='middle' fill='white' font-family='sans-serif'%3E%F0%9F%93%A9%3C/text%3E%3Ccircle cx='30' cy='7' r='4' fill='%23ff3131'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=23">
+<link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=24">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -35,16 +35,53 @@
           <button type="button" id="profile-switcher-new-btn" class="profile-switcher-new-btn">+ New profile</button>
         </div>
       </div>
-      <button id="sidebar-toggle" class="sidebar-toggle-btn" title="Collapse sidebar">◀</button>
+      <button id="sidebar-toggle" class="sidebar-toggle-btn" title="Collapse sidebar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+      </button>
     </div>
     <nav class="sidebar-nav">
-      <button class="navbtn active" data-nav="home"><span class="navbtn-icon">🏠</span><span class="navbtn-label">Home</span></button>
-      <button class="navbtn" data-nav="leads"><span class="navbtn-icon">👥</span><span class="navbtn-label">Leads</span></button>
-      <button class="navbtn" data-nav="analytics"><span class="navbtn-icon">📊</span><span class="navbtn-label">Analytics</span></button>
-      <button class="navbtn" data-nav="saved-sessions"><span class="navbtn-icon">💾</span><span class="navbtn-label">Saved Sessions</span></button>
+      <button class="navbtn active" data-nav="home" title="Home">
+        <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"></path></svg></span>
+        <span class="navbtn-label">Home</span>
+      </button>
+      <button class="navbtn" data-nav="leads" title="Leads">
+        <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg></span>
+        <span class="navbtn-label">Leads</span>
+      </button>
+      <button class="navbtn" data-nav="analytics" title="Analytics">
+        <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18M7 16v-4M12 16V8M17 16v-7"></path></svg></span>
+        <span class="navbtn-label">Analytics</span>
+      </button>
+      <button class="navbtn" data-nav="saved-sessions" title="Saved Sessions">
+        <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg></span>
+        <span class="navbtn-label">Saved Sessions</span>
+      </button>
     </nav>
     <div class="sidebar-bottom">
-      <button id="settings-btn" class="navbtn" title="Settings" data-nav="settings"><span class="navbtn-icon">⚙️</span><span class="navbtn-label">Settings</span></button>
+      <div id="sidebar-fu-card" class="sidebar-fu-card hidden">
+        <div class="sidebar-fu-card-title">
+          <strong id="sidebar-fu-card-title">Follow-ups waiting</strong>
+          <span id="sidebar-fu-card-sub">—</span>
+        </div>
+        <button type="button" id="sidebar-fu-card-btn" class="sidebar-fu-card-btn">Work through →</button>
+      </div>
+      <div class="notif-wrap">
+        <button id="notif-bell" class="notif-bell" title="Follow-up notifications">
+          <span class="notif-bell-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg></span>
+          <span class="notif-bell-label">Notifications</span>
+          <span class="notif-badge hidden" id="notif-badge">0</span>
+        </button>
+        <div id="notif-dropdown" class="notif-dropdown hidden">
+          <div class="notif-dropdown-header">Notifications</div>
+          <div id="notif-list"></div>
+          <div class="notif-empty hidden" id="notif-empty">You're all caught up 🎉</div>
+          <button type="button" id="notif-add-reminder-btn" class="notif-add-reminder-btn">+ Add reminder</button>
+        </div>
+      </div>
+      <button id="settings-btn" class="navbtn" title="Settings" data-nav="settings">
+        <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg></span>
+        <span class="navbtn-label">Settings</span>
+      </button>
     </div>
   </aside>
 
@@ -67,19 +104,6 @@
         <button id="new-profile-cancel-btn" class="btn-secondary">Cancel</button>
         <button id="new-profile-create-btn" class="btn-primary">Create profile →</button>
       </div>
-    </div>
-  </div>
-
-  <div class="notif-wrap">
-    <button id="notif-bell" class="icon-btn notif-bell" title="Follow-up notifications">
-      🔔
-      <span class="notif-badge hidden" id="notif-badge">0</span>
-    </button>
-    <div id="notif-dropdown" class="notif-dropdown hidden">
-      <div class="notif-dropdown-header">Notifications</div>
-      <div id="notif-list"></div>
-      <div class="notif-empty hidden" id="notif-empty">You're all caught up 🎉</div>
-      <button type="button" id="notif-add-reminder-btn" class="notif-add-reminder-btn">+ Add reminder</button>
     </div>
   </div>
 
@@ -1220,8 +1244,8 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=23"></script>
+<script src="app.js?v=24"></script>
 <script src="leads.js?v=23"></script>
-<script src="followups.js?v=23"></script>
+<script src="followups.js?v=24"></script>
 </body>
 </html>

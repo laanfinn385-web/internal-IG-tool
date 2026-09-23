@@ -176,7 +176,18 @@ function applyPlatformVisibility() {
   }
 }
 
+// position: fixed on #profile-switcher-dropdown (style.css) needs explicit
+// px coordinates — computed fresh on every open since the sidebar's own
+// width (and so the button's position) differs between expanded/collapsed.
+function positionProfileSwitcherDropdown() {
+  const btnBox = $('#profile-switcher-btn').getBoundingClientRect();
+  const dropdown = $('#profile-switcher-dropdown');
+  dropdown.style.left = `${btnBox.left}px`;
+  dropdown.style.top = `${btnBox.bottom + 6}px`;
+}
+
 function toggleProfileSwitcherDropdown(show) {
+  if (show) positionProfileSwitcherDropdown();
   $('#profile-switcher-dropdown').classList.toggle('hidden', !show);
 }
 

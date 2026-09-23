@@ -1,21 +1,34 @@
 :root {
-  --bg: #f6f4f1;
+  /* Redesign-v2 tokens (Outreach Tool v2, Claude Design import). Screens
+     not yet converted to the new markup still read these same variable
+     names, so they inherit the new palette immediately even before their
+     own stage lands — expected/fine on this branch. */
+  --bg: #F3F0EE;
   --card-bg: #ffffff;
-  --text: #1a0e28;
-  --muted: #766e82;
-  --border: #ece7e2;
+  --card-bg-alt: #FCFBFA;
+  --text: #141413;
+  --muted: #696969;
+  --border: #E8E2DA;
   --purple: #430074;
   --purple-light: #6f24b8;
   --purple-soft: #f2e8fb;
   --red: #ff3131;
   --red-dark: #e01e1e;
+  --warn: #9A3A0A;
+  --link: #3860BE;
   --accent: var(--purple);
   --accent-dark: #300054;
   --green: #1fb15c;
   --green-dark: #17954c;
-  --shadow: 0 4px 18px rgba(30, 20, 10, 0.06);
-  --shadow-lift: 0 10px 28px rgba(30, 20, 10, 0.1);
-  --font-display: 'Poppins', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
+  --shadow-lift: 0 24px 48px rgba(0, 0, 0, 0.08);
+  --shadow-modal: 0 70px 110px rgba(0, 0, 0, 0.25);
+  --r-sm: 20px;
+  --r-md: 24px;
+  --r-lg: 32px;
+  --r-xl: 40px;
+  --r-pill: 999px;
+  --font-display: 'Sofia Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 
   /* Pipeline-stage ramp — one hue (blue), monotonically darker per step, so
      stage order reads from lightness alone; validated as an ordinal set
@@ -50,13 +63,11 @@
 
 body {
   margin: 0;
-  background:
-    radial-gradient(circle at 100% 0%, rgba(67, 0, 116, 0.05), transparent 45%),
-    radial-gradient(circle at 0% 15%, rgba(255, 49, 49, 0.05), transparent 40%),
-    var(--bg);
-  background-attachment: fixed;
+  background: var(--bg);
   color: var(--text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: var(--font-display);
+  font-weight: 450;
+  -webkit-font-smoothing: antialiased;
 }
 
 #app { display: flex; min-height: 100vh; }
@@ -77,77 +88,92 @@ body {
   opacity: 0.55;
 }
 
-h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.01em; }
+h1, h2, h3 { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.01em; }
+
+/* Small uppercase label + purple dot, used above a page's/section's main
+   heading throughout the redesign (e.g. "HOME", "ANALYTICS"). */
+.eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.52px;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.eyebrow::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex: none;
+}
 
 /* ===== Sidebar ===== */
 
 .sidebar {
   flex-shrink: 0;
-  width: 250px;
-  background: var(--card-bg);
+  width: 268px;
+  background: var(--bg);
   border-right: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  padding: 18px 14px;
-  transition: width 0.18s ease;
+  gap: 20px;
+  padding: 24px 14px;
+  transition: width 240ms cubic-bezier(0.4, 0, 0.2, 1);
   position: sticky;
   top: 0;
   height: 100vh;
   overflow-y: auto;
 }
-.sidebar.collapsed { width: 76px; }
+.sidebar.collapsed { width: 84px; }
 
-.sidebar-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 22px; padding: 0 4px; position: relative; }
+.sidebar-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 6px; min-height: 36px; position: relative; }
 
 /* Profile switcher — replaces the old static "Outreach Tool / A&P Media"
-   brand block. #profile-switcher-avatar holds one .account-photo (36px,
-   sized below to match the old .brand-icon), reusing that class's existing
-   photo-or-initial-letter styling rather than inventing new visual language. */
+   brand block. #profile-switcher-avatar holds one .account-photo (34px),
+   reusing that class's existing photo-or-initial-letter styling rather
+   than inventing new visual language. */
 .profile-switcher { position: relative; min-width: 0; flex: 1; }
 .profile-switcher-btn {
   display: flex;
   align-items: center;
   gap: 10px;
   width: 100%;
-  background: none;
+  background: #fff;
   border: none;
-  padding: 4px;
-  border-radius: 10px;
+  border-radius: var(--r-pill);
+  padding: 5px 14px 5px 5px;
   cursor: pointer;
   overflow: hidden;
   min-width: 0;
   text-align: left;
-  transition: background 0.15s;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
+  transition: box-shadow 0.15s;
 }
-.profile-switcher-btn:hover { background: var(--purple-soft); }
+.profile-switcher-btn:hover { box-shadow: var(--shadow-lift); }
 .profile-switcher-btn .account-photo,
 .profile-switcher-btn .account-photo-placeholder {
-  width: 36px;
-  height: 36px;
-  border-radius: 11px;
-  font-size: 1.05rem;
-  box-shadow: 0 6px 14px rgba(67, 0, 116, 0.3);
+  width: 34px;
+  height: 34px;
+  font-size: 0.95rem;
+  border-radius: 50%;
 }
-.brand-text { display: flex; flex-direction: column; line-height: 1.15; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-family: var(--font-display); font-weight: 700; font-size: 1.02rem; color: var(--text); }
-.brand-sub {
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-weight: 500;
-  font-size: 0.66rem;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
+.brand-text { display: flex; flex-direction: column; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; font-size: 0.95rem; color: var(--text); }
+.brand-sub { font-weight: 450; font-size: 0.78rem; color: var(--muted); }
 .sidebar.collapsed .brand-text, .sidebar.collapsed .navbtn-label { display: none; }
-.sidebar.collapsed .profile-switcher-dropdown { left: 76px; top: 0; }
 
+/* position: fixed + JS-computed left/top (positionProfileSwitcherDropdown()
+   in app.js) — same overflow-clipping reasoning as .notif-dropdown above;
+   only actually overflows the sidebar's own box in the collapsed state,
+   but fixed positioning throughout keeps one code path for both. */
 .profile-switcher-dropdown {
-  position: absolute;
-  top: calc(100% + 6px);
-  left: 0;
+  position: fixed;
   width: 240px;
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-lift);
   padding: 8px;
   z-index: 50;
@@ -160,30 +186,31 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.01em; }
   width: 100%;
   background: none;
   border: none;
-  padding: 8px;
-  border-radius: 8px;
+  border-radius: var(--r-pill);
+  padding: 6px 12px 6px 6px;
   cursor: pointer;
   text-align: left;
   font-size: 0.88rem;
-  font-weight: 600;
+  font-weight: 500;
   color: var(--text);
 }
-.profile-switcher-item .account-photo, .profile-switcher-item .account-photo-placeholder { width: 28px; height: 28px; font-size: 0.8rem; }
-.profile-switcher-item:hover { background: var(--purple-soft); }
-.profile-switcher-item.active { background: var(--purple-soft); color: var(--accent); }
+.profile-switcher-item .account-photo, .profile-switcher-item .account-photo-placeholder { width: 28px; height: 28px; font-size: 0.8rem; border-radius: 50%; }
+.profile-switcher-item:hover { background: var(--bg); }
+.profile-switcher-item.active { background: var(--bg); color: var(--accent); }
 .profile-switcher-new-btn {
   width: 100%;
-  margin-top: 6px;
-  padding: 8px;
-  border: 1px dashed var(--border);
-  border-radius: 8px;
+  margin-top: 4px;
+  padding: 10px 14px;
+  border: none;
+  border-radius: var(--r-pill);
   background: none;
   color: var(--muted);
-  font-weight: 600;
+  font-weight: 450;
   font-size: 0.85rem;
+  text-align: left;
   cursor: pointer;
 }
-.profile-switcher-new-btn:hover { background: var(--purple-soft); color: var(--accent); border-color: transparent; }
+.profile-switcher-new-btn:hover { background: var(--bg); color: var(--text); }
 
 .sidebar-toggle-btn {
   flex-shrink: 0;
@@ -191,7 +218,7 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.01em; }
   border: none;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: 50%;
   color: var(--muted);
   cursor: pointer;
   display: flex;
@@ -199,32 +226,66 @@ h1, h2, h3 { font-family: var(--font-display); letter-spacing: -0.01em; }
   justify-content: center;
   transition: background 0.15s, color 0.15s, transform 0.18s;
 }
-.sidebar-toggle-btn:hover { background: var(--purple-soft); color: var(--accent); }
+.sidebar-toggle-btn:hover { background: var(--border); color: var(--text); }
 .sidebar.collapsed .sidebar-toggle-btn { transform: rotate(180deg); }
+.sidebar-toggle-btn svg { display: block; }
 
-.sidebar-nav { display: flex; flex-direction: column; gap: 3px; }
-.sidebar-bottom { margin-top: auto; padding-top: 10px; border-top: 1px solid var(--border); }
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; }
+.sidebar-bottom { margin-top: auto; display: flex; flex-direction: column; gap: 12px; }
 
 .navbtn {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
   background: none;
   border: none;
-  color: var(--muted);
-  font-size: 0.92rem;
-  font-weight: 600;
-  padding: 11px 12px;
-  border-radius: 10px;
+  color: var(--text);
+  font-size: 0.95rem;
+  font-weight: 450;
+  padding: 10px 14px;
+  border-radius: var(--r-pill);
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
-  transition: background 0.15s, color 0.15s;
+  text-align: left;
+  transition: background 240ms cubic-bezier(0.4, 0, 0.2, 1);
 }
-.navbtn-icon { font-size: 1.05rem; flex-shrink: 0; width: 20px; text-align: center; }
-.navbtn:hover { background: var(--purple-soft); color: var(--text); }
-.navbtn.active { background: linear-gradient(135deg, var(--purple), var(--purple-light)); color: white; box-shadow: 0 6px 14px rgba(67, 0, 116, 0.22); }
+.sidebar.collapsed .navbtn { justify-content: center; }
+.navbtn-icon { flex-shrink: 0; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
+.navbtn-icon svg { display: block; }
+.navbtn:hover { background: var(--card-bg-alt); }
+.navbtn.active { background: #fff; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04); font-weight: 500; }
+
+/* Follow-ups nudge card — shown in the sidebar bottom when at least one
+   follow-up/connection notification is currently due; count comes from the
+   same /api/notifications payload loadNotifications() (followups.js)
+   already fetches on every view change, no extra request. */
+.sidebar-fu-card {
+  background: var(--card-bg-alt);
+  border-radius: var(--r-lg);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.sidebar-fu-card-title { display: flex; flex-direction: column; gap: 2px; }
+.sidebar-fu-card-title strong { font-size: 15px; font-weight: 500; }
+.sidebar-fu-card-title span { font-size: 13px; color: var(--muted); }
+.sidebar-fu-card-btn {
+  align-self: flex-start;
+  background: var(--text);
+  color: var(--bg);
+  border: 1.5px solid var(--text);
+  border-radius: var(--r-sm);
+  padding: 6px 16px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.sidebar-fu-card-btn:hover { background: #262627; }
+.sidebar.collapsed .sidebar-fu-card { display: none; }
 
 .hidden { display: none !important; }
 
@@ -1457,7 +1518,6 @@ input:focus, textarea:focus, select:focus {
 #ig-cooldown-banner-skip-btn:hover { background: rgba(255, 255, 255, 0.3); }
 #ig-cooldown-banner-continue-btn { background: white; color: var(--accent); }
 #ig-cooldown-banner-continue-btn:hover { filter: brightness(0.95); }
-body.has-ig-cooldown-banner .notif-wrap { top: 58px; }
 body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 
 .cooldown-countdown {
@@ -1469,55 +1529,71 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
   color: var(--accent);
 }
 
-.notif-wrap { position: fixed; top: 20px; right: 24px; z-index: 120; transition: top 0.2s; }
+/* Notification bell — now a sidebar row (same shape/hover language as
+   .navbtn) instead of a fixed floating circle; its dropdown flies out to
+   the right of the sidebar rather than down from a top-right corner. */
+.notif-wrap { position: relative; width: 100%; }
 .notif-bell {
-  position: relative;
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-lift);
-  font-size: 1.05rem;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: none;
+  background: transparent;
+  border-radius: var(--r-pill);
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 0.95rem;
+  color: var(--text);
+  text-align: left;
 }
-.notif-bell:hover { background: var(--purple-soft); }
+.sidebar.collapsed .notif-bell { justify-content: center; }
+.notif-bell:hover { background: var(--card-bg-alt); }
+.notif-bell-icon { flex: none; width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; }
+.notif-bell-icon svg { display: block; }
+.notif-bell-label { flex: 1; text-align: left; }
+.sidebar.collapsed .notif-bell-label { display: none; }
 .notif-badge {
-  position: absolute;
-  top: -5px;
-  right: -5px;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 4px;
-  border-radius: 9px;
-  background: linear-gradient(135deg, var(--purple), var(--red));
-  color: white;
-  font-size: 0.68rem;
+  flex: none;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.72rem;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow: 0 0 0 2px var(--bg);
 }
+.sidebar.collapsed .notif-badge { position: absolute; top: 4px; right: 10px; min-width: 16px; height: 16px; font-size: 0.6rem; padding: 0 3px; }
+/* position: fixed (not absolute) + JS-computed left/top (see
+   positionNotifDropdown() in followups.js) — .sidebar has overflow-y:auto
+   to allow vertical scrolling with many nav items, which per spec forces
+   overflow-x to compute as 'auto' too, clipping any absolutely-positioned
+   descendant that tries to flow outside the sidebar's own horizontal
+   bounds (exactly what this rightward flyout needs to do). Fixed
+   positioning escapes that clipping entirely, and needs live coordinates
+   anyway since the sidebar's own width changes between expanded/collapsed. */
 .notif-dropdown {
-  position: absolute;
-  top: calc(100% + 10px);
-  right: 0;
-  width: 320px;
-  max-height: 400px;
+  position: fixed;
+  width: 340px;
+  max-height: 420px;
   overflow-y: auto;
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: var(--r-xl);
   box-shadow: var(--shadow-lift);
+  padding: 12px;
   z-index: 150;
 }
 .notif-dropdown-header {
-  padding: 14px 16px 8px;
-  font-weight: 700;
+  padding: 10px 10px 8px;
+  font-weight: 500;
   font-family: var(--font-display);
-  font-size: 0.92rem;
+  font-size: 0.95rem;
 }
-.notif-row { display: flex; align-items: stretch; border-top: 1px solid var(--border); }
+.notif-row { display: flex; align-items: stretch; gap: 4px; border-radius: var(--r-md); background: var(--bg); margin-bottom: 4px; }
 .notif-item {
   display: flex;
   align-items: flex-start;
@@ -1528,11 +1604,12 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
   text-align: left;
   background: none;
   border: none;
-  padding: 12px 16px;
+  border-radius: var(--r-md);
+  padding: 12px 14px;
   cursor: pointer;
   font-family: inherit;
 }
-.notif-item:hover { background: var(--purple-soft); }
+.notif-item:hover { background: var(--border); }
 .notif-item-main { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
 .notif-item-phase { font-weight: 700; font-size: 0.85rem; color: var(--accent); }
 .notif-item-count { font-size: 0.82rem; color: var(--text); }
@@ -1552,26 +1629,26 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 .notif-reminder-goto-btn:hover { text-decoration: underline; }
 .notif-item-delete {
   flex-shrink: 0;
-  width: 40px;
+  width: 36px;
   background: none;
   border: none;
-  border-left: 1px solid var(--border);
+  border-radius: 50%;
   cursor: pointer;
   font-size: 0.85rem;
   opacity: 0.55;
   transition: opacity 0.15s, background 0.15s;
+  margin: 6px 6px 6px 0;
 }
 .notif-item-delete:hover { opacity: 1; background: rgba(255, 49, 49, 0.1); }
-.notif-empty { padding: 20px 16px 22px; text-align: center; color: var(--muted); font-size: 0.85rem; }
+.notif-empty { padding: 8px 10px 12px; text-align: center; color: var(--muted); font-size: 0.85rem; }
 .notif-add-reminder-btn {
   display: block;
   width: 100%;
   border: none;
-  border-top: 1px solid var(--border);
   background: none;
-  padding: 12px 16px;
-  color: var(--accent);
-  font-weight: 700;
+  padding: 10px 10px 4px;
+  color: var(--muted);
+  font-weight: 450;
   font-size: 0.85rem;
   cursor: pointer;
   text-align: center;
