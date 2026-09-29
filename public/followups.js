@@ -311,7 +311,7 @@ function followupCardHtml(lead) {
   // itself needs to be clickable-to-open-DM too, or a message-less media
   // step renders with nothing to click anywhere on the card.
   const mediaLine = isMedia
-    ? `<button type="button" class="followup-media-note followup-open-dm" data-id="${lead.id}">🎬 Send a ${escapeHtml(lead.type)}: ${escapeHtml(lead.mediaNote || '')}</button>`
+    ? `<button type="button" class="followup-message followup-open-dm" data-id="${lead.id}">🎬 Send a ${escapeHtml(lead.type)}: ${escapeHtml(lead.mediaNote || '')}</button>`
     : '';
   const messageLine = lead.message
     ? `<button type="button" class="followup-message followup-open-dm" data-id="${lead.id}">${escapeHtml(lead.message)}</button>`
@@ -322,19 +322,22 @@ function followupCardHtml(lead) {
   const fallbackLine = (!mediaLine && !messageLine)
     ? `<button type="button" class="followup-message followup-open-dm" data-id="${lead.id}">Open DM →</button>`
     : '';
+  const name = leadDisplayName(lead);
   return `
-    <div class="card followup-card" data-id="${lead.id}">
+    <div class="followup-card" data-id="${lead.id}">
       <div class="followup-card-head">
-        <span class="followup-username">${escapeHtml(leadDisplayName(lead))}</span>
-        <span class="muted">Step ${lead.step}</span>
+        <span class="followup-avatar" style="background:${toneForId(lead.id)}">${escapeHtml(initialsFor(name))}</span>
+        <span class="followup-username">${escapeHtml(name)}</span>
+        <span class="followup-step-chip">Step ${lead.step}</span>
       </div>
       ${mediaLine}
       ${messageLine}
       ${fallbackLine}
+      <div class="followup-card-divider"></div>
       <div class="followup-card-actions">
-        <button type="button" class="btn-accept followup-sent-btn" data-id="${lead.id}">✓ Sent</button>
-        <button type="button" class="followup-in-conversation-btn" data-id="${lead.id}">💬 In conversation</button>
-        <button type="button" class="btn-reject followup-delete-btn" data-id="${lead.id}">✕ Delete lead</button>
+        <button type="button" class="btn-primary followup-sent-btn" data-id="${lead.id}">Sent</button>
+        <button type="button" class="btn-secondary followup-in-conversation-btn" data-id="${lead.id}">They replied</button>
+        <button type="button" class="followup-delete-btn" data-id="${lead.id}">Delete lead</button>
       </div>
     </div>`;
 }

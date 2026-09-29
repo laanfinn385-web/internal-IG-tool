@@ -127,6 +127,14 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 500; letter-spacing:
   top: 0;
   height: 100vh;
   overflow-y: auto;
+  /* position:sticky always creates a stacking context, which caps every
+     descendant's z-index (including position:fixed ones, like the notif/
+     profile-switcher dropdowns) at this element's own level — without an
+     explicit z-index here, that level is the implicit 0 auto siblings get,
+     so the whole sidebar (dropdowns included) painted BEHIND .main-wrap
+     (same level, later in DOM order) despite the dropdowns' own z-index:150.
+     Matches the source design's own <aside z-index:25>. */
+  z-index: 25;
 }
 .sidebar.collapsed { width: 84px; }
 
@@ -2194,59 +2202,53 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 
 /* ===== Follow-up session ===== */
 
-.followup-list { display: flex; flex-direction: column; gap: 12px; margin-top: 10px; }
-.followup-card { transition: transform 0.28s ease, opacity 0.28s ease, max-height 0.28s ease; max-height: 400px; overflow: hidden; }
-.followup-card.removing { transform: translateX(30px); opacity: 0; max-height: 0; padding: 0; margin: 0; border: none; }
-.followup-card-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-.followup-username { font-family: var(--font-display); font-weight: 700; }
-.followup-media-note {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: var(--purple-soft);
-  color: var(--accent);
-  border: none;
-  border-radius: 10px;
-  padding: 10px 12px;
-  font-size: 0.88rem;
-  font-family: inherit;
-  cursor: pointer;
-  margin-bottom: 10px;
-  transition: background 0.15s;
+.followup-list { display: flex; flex-direction: column; gap: 16px; margin-top: 10px; }
+.followup-card {
+  background: #fff;
+  border-radius: var(--r-xl);
+  padding: 28px 32px;
+  box-shadow: var(--shadow-lift);
+  transition: transform 0.28s ease, opacity 0.28s ease, max-height 0.28s ease;
+  max-height: 500px;
+  overflow: hidden;
 }
-.followup-media-note:hover { background: var(--purple-light); }
-.followup-media-note.copied::after { content: ' ✓ Opening DM…'; font-weight: 600; }
+.followup-card.removing { transform: translateX(30px); opacity: 0; max-height: 0; padding: 0; margin: 0; }
+.followup-card-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
+.followup-avatar { flex: none; width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; }
+.followup-username { flex: 1; font-size: 1.05rem; font-weight: 500; }
+.followup-step-chip { font-size: 0.8rem; background: var(--bg); border-radius: var(--r-pill); padding: 5px 12px; color: var(--muted); }
 .followup-message {
   display: block;
   width: 100%;
   text-align: left;
   background: var(--bg);
-  border: 1px dashed var(--border);
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-size: 0.92rem;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  padding: 16px 18px;
+  font-size: 0.98rem;
   line-height: 1.5;
   color: var(--text);
   cursor: pointer;
   font-family: inherit;
-  margin-bottom: 12px;
-  transition: border-color 0.15s, background 0.15s;
-}
-.followup-message:hover { border-color: var(--purple-light); background: var(--purple-soft); }
-.followup-message.copied { border-color: var(--green); background: rgba(31, 177, 92, 0.1); }
-.followup-message.copied::after { content: ' ✓ Copied — opening DM…'; color: var(--green); font-weight: 600; }
-.followup-card-actions { display: flex; gap: 10px; flex-wrap: wrap; }
-.followup-card-actions button { flex: 1; padding: 10px; font-size: 0.9rem; min-width: 120px; }
-.followup-in-conversation-btn {
-  background: rgba(219, 39, 119, 0.12);
-  color: var(--stage-in-conversation);
-  border: none;
-  border-radius: 999px;
-  font-weight: 600;
-  cursor: pointer;
+  margin-bottom: 14px;
   transition: background 0.15s;
 }
-.followup-in-conversation-btn:hover { background: rgba(219, 39, 119, 0.2); }
+.followup-message:hover { background: var(--card-bg-alt); }
+.followup-message.copied { background: rgba(31, 177, 92, 0.12); }
+.followup-message.copied::after { content: ' ✓ Copied — opening DM…'; color: var(--green-dark); font-weight: 600; }
+.followup-card-divider { height: 1px; background: var(--bg); margin-bottom: 14px; }
+.followup-card-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.followup-in-conversation-btn, .followup-delete-btn {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 9px 12px;
+  transition: color 0.15s;
+}
+.followup-in-conversation-btn:hover, .followup-delete-btn:hover { color: var(--text); }
+.followup-delete-btn:hover { color: var(--warn); }
 .followup-empty-state { text-align: center; padding: 40px 20px; }
 
 /* ===== Analytics funnel grid ===== */

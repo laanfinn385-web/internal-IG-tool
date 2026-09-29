@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=26">
+<link rel="stylesheet" href="style.css?v=27">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -994,16 +994,20 @@
 
     <!-- FOLLOW-UP SESSION -->
     <section id="view-followup" class="view hidden">
-      <div class="row-between">
-        <h1 id="followup-title" class="page-title">Follow-ups</h1>
+      <div class="row-between" style="align-items:flex-start;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="eyebrow">Follow-ups</div>
+          <h1 id="followup-title" style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Follow-ups</h1>
+          <p class="muted" id="followup-sub"></p>
+        </div>
         <button id="followup-back-btn" class="btn-secondary">← Back</button>
       </div>
-      <p class="muted" id="followup-sub"></p>
       <div id="followup-list" class="followup-list"></div>
-      <div id="followup-empty" class="card followup-empty-state hidden">
-        <div class="end-emoji">🎉</div>
+      <div id="followup-empty" class="interstitial hidden">
+        <span class="interstitial-ghost" aria-hidden="true">Done</span>
+        <div class="eyebrow">Follow-ups</div>
         <h2>All done!</h2>
-        <p class="muted">No more follow-ups due in this batch.</p>
+        <p>No more follow-ups due in this batch.</p>
         <button id="followup-done-btn" class="btn-primary">← Back to home</button>
       </div>
     </section>
@@ -1276,6 +1280,6 @@
 <script src="templates.js?v=23"></script>
 <script src="app.js?v=26"></script>
 <script src="leads.js?v=23"></script>
-<script src="followups.js?v=24"></script>
+<script src="followups.js?v=27"></script>
 </body>
 </html>
