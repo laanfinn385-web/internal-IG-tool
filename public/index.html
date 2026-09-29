@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=29">
+<link rel="stylesheet" href="style.css?v=30">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -637,8 +637,11 @@
 
     <!-- SAVED SESSIONS -->
     <section id="view-saved-sessions" class="view hidden">
-      <div class="row-between leads-header">
-        <h1>Saved Sessions</h1>
+      <div class="row-between leads-header" style="align-items:flex-end;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="eyebrow">Saved sessions</div>
+          <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Pick up where you left off.</h1>
+        </div>
         <div class="range-tabs" id="saved-sessions-type-tabs">
           <button type="button" class="range-tab active" data-type-filter="all">All</button>
           <button type="button" class="range-tab" data-type-filter="instagram">Instagram</button>
@@ -646,30 +649,30 @@
           <button type="button" class="range-tab" data-type-filter="combi">Combi</button>
         </div>
       </div>
-      <p class="muted" id="saved-sessions-empty">No saved sessions — use "Quit &amp; save" mid-session to pick one up later.</p>
+      <div class="interstitial hidden" id="saved-sessions-empty-card">
+        <span class="interstitial-ghost" aria-hidden="true">Saved</span>
+        <h2>No saved sessions.</h2>
+        <p id="saved-sessions-empty">Use "Quit &amp; save" mid-session to pick one up later.</p>
+      </div>
       <div id="saved-sessions-list" class="saved-sessions-list"></div>
     </section>
 
     <!-- SAVED SESSION DETAIL -->
     <section id="view-saved-session-detail" class="view hidden">
-      <div class="row-between leads-header">
-        <button id="saved-session-back-btn" class="icon-btn" title="Back to Saved Sessions">←</button>
-        <h1>Saved session</h1>
+      <button id="saved-session-back-btn" class="btn-ghost" style="align-self:flex-start;padding-left:0;">← All saved sessions</button>
+      <div class="row-between leads-header" style="align-items:flex-end;margin-top:10px;">
+        <div id="saved-session-summary"></div>
+        <div class="saved-session-detail-actions">
+          <button id="saved-session-delete-btn" class="btn-ghost" type="button" style="color:var(--warn);">Delete</button>
+          <div id="saved-session-combi-actions" class="hidden" style="display:flex;gap:8px;">
+            <button id="saved-session-continue-ig-btn" class="btn-secondary">Only Instagram</button>
+            <button id="saved-session-continue-li-btn" class="btn-secondary">Only LinkedIn</button>
+          </div>
+          <button id="saved-session-continue-btn" class="btn-primary">Continue this session →</button>
+        </div>
       </div>
-      <div class="card" id="saved-session-summary"></div>
-      <div class="card">
-        <h3>Remaining leads</h3>
-        <ul class="result-list" id="saved-session-remaining-list"></ul>
-      </div>
-      <div class="saved-session-detail-actions">
-        <button id="saved-session-continue-btn" class="btn-primary">Continue this session →</button>
-        <button id="saved-session-delete-btn" class="btn-quit-save" type="button">🗑 Delete this saved session</button>
-      </div>
-      <!-- Combi sessions only — split the two portions apart instead of
-           resuming both at once. -->
-      <div class="saved-session-detail-actions hidden" id="saved-session-combi-actions">
-        <button id="saved-session-continue-ig-btn" class="btn-secondary">Continue with only IG leads →</button>
-        <button id="saved-session-continue-li-btn" class="btn-secondary">Continue with only LinkedIn leads →</button>
+      <div class="card" id="saved-session-remaining-card">
+        <ul class="saved-session-lead-list" id="saved-session-remaining-list"></ul>
       </div>
     </section>
 
@@ -1292,7 +1295,7 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=29"></script>
+<script src="app.js?v=30"></script>
 <script src="leads.js?v=28"></script>
 <script src="followups.js?v=27"></script>
 </body>

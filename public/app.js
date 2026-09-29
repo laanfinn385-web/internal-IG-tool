@@ -3364,6 +3364,7 @@ $('#saved-sessions-type-tabs').addEventListener('click', (e) => {
 function renderSavedSessionsList() {
   const list = $('#saved-sessions-list');
   const empty = $('#saved-sessions-empty');
+  const emptyCard = $('#saved-sessions-empty-card');
   const filtered = savedSessionsState.typeFilter === 'all'
     ? savedSessionsState.sessions
     : savedSessionsState.sessions.filter(s => savedSessionTypeCategory(s) === savedSessionsState.typeFilter);
@@ -3371,29 +3372,40 @@ function renderSavedSessionsList() {
   if (filtered.length === 0) {
     list.innerHTML = '';
     empty.textContent = savedSessionsState.sessions.length === 0
-      ? 'No saved sessions — use "Quit & save" mid-session to pick one up later.'
+      ? 'Use "Quit & save" mid-session to pick one up later.'
       : 'No saved sessions match this filter.';
-    empty.classList.remove('hidden');
+    emptyCard.classList.remove('hidden');
     return;
   }
-  empty.classList.add('hidden');
+  emptyCard.classList.add('hidden');
   // username/fullName are freely-editable, possibly CSV-imported text —
   // escaped here like everywhere else this app renders lead-supplied text.
-  list.innerHTML = filtered.map(s => `
+  list.innerHTML = filtered.map(s => {
+    const total = s.results.length + s.remainingProfiles.length;
+    const pct = total > 0 ? Math.round((s.results.length / total) * 100) : 0;
+    const faces = s.remainingProfiles.slice(0, 4).map(p => {
+      const name = leadDisplayName(p);
+      return `<span class="saved-session-face" style="background:${toneForId(p.leadId || name)}">${escapeHtml(initialsFor(p.fullName || p.username))}</span>`;
+    }).join('');
+    const moreCount = s.remainingProfiles.length - 4;
+    const more = moreCount > 0 ? `<span class="saved-session-face saved-session-face-more">+${moreCount}</span>` : '';
+    return `
     <div class="saved-session-card" data-id="${s.id}">
-      <div class="saved-session-main">
-        <div class="saved-session-date-row">
-          <span class="saved-session-type-badge saved-session-type-${savedSessionTypeCategory(s)}">${escapeHtml(savedSessionTypeLabel(s))}</span>
-          <span class="saved-session-date">${escapeHtml(timeAgo(s.createdAt))}</span>
+      <div class="saved-session-card-top">
+        <div class="saved-session-main">
+          <span class="saved-session-summary">${escapeHtml(savedSessionSummary(s))}</span>
+          <span class="muted">${escapeHtml(timeAgo(s.createdAt))}</span>
         </div>
-        <div class="saved-session-summary">${escapeHtml(savedSessionSummary(s))}</div>
+        <span class="saved-session-type-badge saved-session-type-${savedSessionTypeCategory(s)}">${escapeHtml(savedSessionTypeLabel(s))}</span>
       </div>
+      <div class="saved-session-faces">${faces}${more}</div>
+      <div class="saved-session-progress-track"><div class="saved-session-progress-fill" style="width:${pct}%"></div></div>
       <div class="saved-session-card-actions">
         <button type="button" class="saved-session-continue-btn" data-id="${s.id}">Continue →</button>
-        <button type="button" class="saved-session-delete-btn" data-id="${s.id}" title="Delete this saved session">🗑</button>
+        <button type="button" class="saved-session-view-btn" data-id="${s.id}">View leads</button>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 // Deleting a saved session only discards the saved copy of the queue — the
@@ -3423,12 +3435,8 @@ $('#saved-sessions-list').addEventListener('click', (e) => {
     if (session) resumeSavedSession(session);
     return;
   }
-  const deleteBtn = e.target.closest('.saved-session-delete-btn');
-  if (deleteBtn) {
-    e.stopPropagation();
-    deleteSavedSession(deleteBtn.dataset.id);
-    return;
-  }
+  // "View leads" has no handler of its own — it (and clicking anywhere
+  // else on the card) falls through to the same open-detail action below.
   const card = e.target.closest('.saved-session-card');
   if (card) showSavedSessionDetail(card.dataset.id);
 });
@@ -3438,14 +3446,24 @@ function showSavedSessionDetail(id) {
   if (!session) return;
   savedSessionsState.viewingId = id;
   $('#saved-session-summary').innerHTML = `
-    <span class="saved-session-type-badge saved-session-type-${savedSessionTypeCategory(session)}">${escapeHtml(savedSessionTypeLabel(session))}</span>
-    <h3>${escapeHtml(timeAgo(session.createdAt))}</h3>
-    <p class="muted">${escapeHtml(savedSessionSummary(session))}</p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">${escapeHtml(savedSessionTypeLabel(session))} session</h1>
+      <p class="muted" style="margin:0;">${escapeHtml(timeAgo(session.createdAt))} · ${escapeHtml(savedSessionSummary(session))}</p>
+    </div>
   `;
   const list = $('#saved-session-remaining-list');
   list.innerHTML = session.remainingProfiles.length
-    ? session.remainingProfiles.map(p => `<li><strong>${escapeHtml(leadDisplayName(p))}</strong></li>`).join('')
-    : '<li class="muted">None</li>';
+    ? session.remainingProfiles.map(p => {
+        const name = leadDisplayName(p);
+        return `
+        <li class="saved-session-lead-row">
+          <span class="saved-session-face" style="background:${toneForId(p.leadId || name)}">${escapeHtml(initialsFor(p.fullName || p.username))}</span>
+          <span class="saved-session-lead-name">${escapeHtml(name)}</span>
+          <span class="muted">${p.platform === 'linkedin' ? 'LinkedIn' : 'Instagram'}</span>
+          <span class="saved-session-lead-followers">${p.followers ? Number(p.followers).toLocaleString('en-US') : ''}</span>
+        </li>`;
+      }).join('')
+    : '<li class="muted saved-session-lead-row">None</li>';
   $('#saved-session-combi-actions').classList.toggle('hidden', session.sessionKind !== 'combi');
   showView('saved-session-detail');
 }
