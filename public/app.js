@@ -168,8 +168,8 @@ function applyPlatformVisibility() {
   // sequences) vs LinkedIn's own separate follow-up template system.
   if (!igOn) {
     $('#settings-accounts-card').classList.add('hidden');
-    $('#settings-timing-sequences-card').classList.add('hidden');
-    $('#settings-message-sequences-card').classList.add('hidden');
+    $('#open-timing-sequences-btn').classList.add('hidden');
+    $('#open-message-sequences-btn').classList.add('hidden');
   }
   if (!liOn) {
     $('#settings-linkedin-followups-card').classList.add('hidden');

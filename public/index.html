@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=30">
+<link rel="stylesheet" href="style.css?v=31">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -510,7 +510,7 @@
             <label class="session-stat"><span>Avg. views</span><input type="number" id="f-avgviews" min="0" placeholder="0"></label>
           </div>
 
-          <label class="session-toggle-row">
+          <label class="toggle-row">
             <span class="toggle-switch">
               <input type="checkbox" id="f-can-receive" checked>
               <span class="toggle-switch-track"></span>
@@ -1031,7 +1031,10 @@
 
     <!-- SETTINGS -->
     <section id="view-settings" class="view hidden">
-      <h1 class="page-title">Settings</h1>
+      <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:18px;">
+        <div class="eyebrow">Settings</div>
+        <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Settings</h1>
+      </div>
 
       <div class="card" id="settings-profile-card">
         <h3>Profile</h3>
@@ -1048,8 +1051,10 @@
             <p class="muted hidden" id="profile-settings-image-status"></p>
           </div>
         </div>
-        <label class="radio-label"><input type="checkbox" id="profile-settings-instagram"> Instagram</label>
-        <label class="radio-label"><input type="checkbox" id="profile-settings-linkedin"> LinkedIn</label>
+        <div style="display:flex;gap:28px;flex-wrap:wrap;">
+          <label class="toggle-row"><span class="toggle-switch"><input type="checkbox" id="profile-settings-instagram"><span class="toggle-switch-track"></span></span> Instagram</label>
+          <label class="toggle-row"><span class="toggle-switch"><input type="checkbox" id="profile-settings-linkedin"><span class="toggle-switch-track"></span></span> LinkedIn</label>
+        </div>
         <p class="hidden" id="profile-settings-error" style="color: var(--red); font-size: 0.85rem;"></p>
         <div class="row-between">
           <button id="profile-settings-archive-btn" class="btn-secondary" type="button" style="color: var(--red-dark);">Archive this profile</button>
@@ -1064,11 +1069,12 @@
         <button id="accounts-add-btn" class="btn-secondary">+ Add account</button>
       </div>
 
-      <div class="card" id="settings-timing-sequences-card">
-        <h3>⏱️ Timing sequences</h3>
-        <p class="muted" style="margin-top:-8px;">Named, reusable presets for how an account ramps up its daily send limit and paces itself in-session — since Instagram's rules shift, edit these instead of digging through code. Assign one to each account above.</p>
-        <button type="button" id="open-timing-sequences-btn" class="btn-secondary">Open Timing sequences →</button>
-      </div>
+      <button type="button" id="open-timing-sequences-btn" class="settings-seq-nav-card settings-seq-nav-light">
+        <span class="settings-seq-nav-kicker">Timing</span>
+        <span class="settings-seq-nav-title">Timing sequences</span>
+        <p class="settings-seq-nav-sub">Named, reusable presets for how an account ramps up its daily send limit and paces itself in-session — since Instagram's rules shift, edit these instead of digging through code. Assign one to each account above.</p>
+        <span class="settings-seq-nav-link">Edit ramp &amp; pacing →</span>
+      </button>
 
       <!-- Add account modal -->
       <div id="add-account-modal" class="modal-overlay hidden">
@@ -1103,8 +1109,8 @@
             <input type="number" id="settings-daily-goal-linkedin" min="0" step="1">
           </label>
         </div>
-        <label class="radio-label">
-          <input type="checkbox" id="settings-daily-goal-instagram-sync">
+        <label class="toggle-row" style="background:var(--card-bg-alt);border-radius:var(--r-md);padding:14px 18px;">
+          <span class="toggle-switch"><input type="checkbox" id="settings-daily-goal-instagram-sync"><span class="toggle-switch-track"></span></span>
           Sync to Instagram combined accounts max sends
         </label>
         <p class="muted" style="margin-top:-8px;" id="settings-daily-goal-sync-note">When on, the Instagram goal above is ignored — it's set automatically to the combined daily limit across every connected account, minus today's pending phase-1 follow-ups, and updates itself as accounts ramp up.</p>
@@ -1172,11 +1178,12 @@
         <button id="settings-general-save" class="btn-secondary">Save</button>
       </div>
 
-      <div class="card" id="settings-message-sequences-card">
-        <h3>💬 Messaging sequences</h3>
-        <p class="muted" style="margin-top:-8px;">Named, reusable presets for Instagram's first message and phase1/2/3 follow-up steps — since your messaging keeps changing, edit these instead of digging through code. Assign one to each account above.</p>
-        <button type="button" id="open-message-sequences-btn" class="btn-secondary">Open Messaging sequences →</button>
-      </div>
+      <button type="button" id="open-message-sequences-btn" class="settings-seq-nav-card settings-seq-nav-dark">
+        <span class="settings-seq-nav-kicker">Messaging</span>
+        <span class="settings-seq-nav-title">Messaging sequences</span>
+        <p class="settings-seq-nav-sub">Named, reusable presets for Instagram's first message and phase1/2/3 follow-up steps — since your messaging keeps changing, edit these instead of digging through code. Assign one to each account above.</p>
+        <span class="settings-seq-nav-link">Edit openers &amp; follow-ups →</span>
+      </button>
 
       <div class="card" id="settings-linkedin-followups-card">
         <h3>Follow-up sequence (LinkedIn)</h3>
@@ -1194,9 +1201,12 @@
     <!-- TIMING SEQUENCES — named, reusable ramp-curve + in-session pacing
          presets, assignable per Instagram account. -->
     <section id="view-timing-sequences" class="view hidden">
-      <div class="row-between leads-header">
-        <h1 class="page-title">Timing sequences</h1>
-        <button type="button" id="timing-seq-back-btn" class="btn-secondary">← Back to Settings</button>
+      <div class="row-between leads-header" style="align-items:flex-end;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="eyebrow">Timing sequences</div>
+          <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Timing sequences</h1>
+        </div>
+        <button type="button" id="timing-seq-back-btn" class="btn-ghost">← Back to Settings</button>
       </div>
 
       <div class="card">
@@ -1225,8 +1235,8 @@
           <button type="button" id="timing-pacing-add-send-btn" class="btn-secondary">+ Add send block</button>
           <button type="button" id="timing-pacing-add-pause-btn" class="btn-secondary">+ Add pause block</button>
         </div>
-        <label class="radio-label" style="margin-top:14px;">
-          <input type="checkbox" id="timing-guarantee-pause-checkbox">
+        <label class="toggle-row" style="margin-top:14px;">
+          <span class="toggle-switch"><input type="checkbox" id="timing-guarantee-pause-checkbox"><span class="toggle-switch-track"></span></span>
           Always include at least one scroll break
         </label>
         <p class="muted" style="margin-top:-4px;">For a session whose volume is too low to ever naturally hit the send-block threshold above (e.g. warming up, or a small daily goal) — forces one pause in right before the session ends, so you're never just opening Instagram to send and immediately closing it again. Only applies to a session where at least one message was actually sent.</p>
@@ -1236,9 +1246,12 @@
     <!-- MESSAGING SEQUENCES — named, reusable first-message + phase1/2/3
          follow-up-step presets, assignable per Instagram account. -->
     <section id="view-message-sequences" class="view hidden">
-      <div class="row-between leads-header">
-        <h1 class="page-title">Messaging sequences</h1>
-        <button type="button" id="message-seq-back-btn" class="btn-secondary">← Back to Settings</button>
+      <div class="row-between leads-header" style="align-items:flex-end;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="eyebrow">Messaging sequences</div>
+          <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Messaging sequences</h1>
+        </div>
+        <button type="button" id="message-seq-back-btn" class="btn-ghost">← Back to Settings</button>
       </div>
 
       <div class="card">
@@ -1264,8 +1277,8 @@
         </p>
         <div id="message-seq-openers-list" class="timing-ramp-days-list"></div>
         <button type="button" id="message-seq-opener-add-btn" class="btn-secondary">+ Add variant</button>
-        <label class="radio-label" style="margin-top:12px;">
-          <input type="checkbox" id="message-seq-first-video">
+        <label class="toggle-row" style="margin-top:12px;">
+          <span class="toggle-switch"><input type="checkbox" id="message-seq-first-video"><span class="toggle-switch-track"></span></span>
           Send with a personalized video
         </label>
         <button type="button" id="message-seq-first-save-btn" class="btn-secondary">Save video setting</button>
@@ -1295,7 +1308,7 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=30"></script>
+<script src="app.js?v=31"></script>
 <script src="leads.js?v=28"></script>
 <script src="followups.js?v=27"></script>
 </body>
