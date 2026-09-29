@@ -30,29 +30,37 @@
   --r-pill: 999px;
   --font-display: 'Sofia Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
 
-  /* Pipeline-stage ramp — one hue (blue), monotonically darker per step, so
-     stage order reads from lightness alone; validated as an ordinal set
-     (node scripts/validate_palette.js --ordinal). 'dead' sits outside the
-     progression (an exit, not a rank) and uses the brand red instead —
-     validated as a safe adjacent pair against the ramp's darkest step. */
-  --stage-new: #86b6ef;
-  --stage-phase1: #5598e7;
-  --stage-phase2: #2a78d6;
-  --stage-phase3: #1c5cab;
-  --stage-call-booked: #104281;
+  /* Pipeline-stage ramp — redesign-v2's own warm-neutral palette (matching
+     the source design's stage convention: New/Messaged/Replied/Interested/
+     Booked, in that lightness order), adapted to keep the real app's finer
+     phase1/2/3 distinction the design itself doesn't have to make (it only
+     shows one generic "Messaged" bucket). Monotonically darker per step so
+     stage order still reads from lightness alone, purple only entering at
+     phase3 (closest to "Replied") and near-black at the terminal
+     call-booked step (matches the design's "Booked" = --text exactly).
+     'dead' sits outside the progression (an exit, not a rank) and keeps
+     the brand red — that's a real "went wrong" signal the design's own
+     palette has no equivalent for, so it isn't drawn from it. */
+  --stage-new: #D1CDC7;
+  --stage-phase1: #A39C8E;
+  --stage-phase2: #696969;
+  --stage-phase3: #430074;
+  --stage-call-booked: #141413;
   --stage-dead: var(--red);
   /* Also outside the progression — an exclusion, not a rank or a rejection,
-     so neither the blue ramp nor 'dead' red fits. Neutral grey. */
-  --stage-cant-message: #71717a;
-  /* A positive-reply state like call-booked's green, but not yet converted
-     to a booked call — distinct warm tone rather than reusing green or the
-     blue ramp (phase2 already uses amber). */
-  --stage-in-conversation: #db2777;
-  /* LinkedIn-only pre-phase1 stages — teal/violet, deliberately outside the
-     Instagram phase ramp (blue/amber/cyan) since they're a different funnel
-     stage entirely, not an Instagram phase equivalent. */
-  --stage-engaged: #0d9488;
-  --stage-connection-sent: #7c3aed;
+     so neither the ramp nor 'dead' red fits. Matches the design's own
+     "Not qualified / Can't message" treatment (its lightest neutral). */
+  --stage-cant-message: #E8E2DA;
+  /* A positive-reply state like call-booked's terminal step, but not yet
+     converted — the design's own "Interested" tone (warm rust, its warn
+     color), distinct from the neutral ramp and from call-booked's black. */
+  --stage-in-conversation: #9A3A0A;
+  /* LinkedIn-only pre-phase1 stages — the design's own "Engaged"/
+     "Connected" tones, deliberately outside the Instagram phase ramp since
+     they're a different funnel stage entirely, not an Instagram phase
+     equivalent. */
+  --stage-engaged: #696969;
+  --stage-connection-sent: #262627;
 }
 
 /* Deliberately no dark-mode media query — this app should always render the
@@ -374,6 +382,17 @@ input:focus, textarea:focus, select:focus {
   transition: background 0.15s, color 0.15s;
 }
 .btn-secondary:hover { background: var(--text); color: var(--bg); }
+
+.btn-ghost {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  padding: 9px 12px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+.btn-ghost:hover { color: var(--text); }
 
 .stats-row { display: flex; gap: 14px; margin: 20px 0; }
 .stat-card {
@@ -1067,7 +1086,7 @@ kbd {
 /* ===== Leads page ===== */
 
 .leads-header { margin-bottom: 18px; align-items: flex-start; }
-.leads-header h1 { margin: 0; }
+.leads-header h1 { margin: 0; font-size: 2.6rem; line-height: 1.05; letter-spacing: -0.02em; font-weight: 500; }
 .leads-header .muted { margin: 2px 0 0; }
 .leads-header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 .leads-toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -1075,79 +1094,78 @@ kbd {
 .leads-search-row { margin-bottom: 14px; }
 .leads-search-input {
   width: 100%;
-  padding: 12px 16px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  padding: 12px 18px;
+  border: 1px solid rgba(20, 20, 19, 0.15);
+  border-radius: var(--r-pill);
   background: var(--card-bg);
   color: var(--text);
   font-size: 0.95rem;
-  box-shadow: var(--shadow);
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s;
 }
 .leads-search-input:focus {
   outline: none;
-  border-color: var(--purple-light);
-  box-shadow: 0 0 0 3px rgba(111, 36, 184, 0.16);
+  border-color: var(--text);
 }
 .leads-empty-search { padding: 40px 20px; text-align: center; color: var(--muted); }
-.btn-danger-outline { color: var(--red); border-color: rgba(255, 49, 49, 0.35); }
-.btn-danger-outline:hover { background: rgba(255, 49, 49, 0.1); }
+.btn-danger-outline { color: var(--warn); border-color: var(--warn); }
+.btn-danger-outline:hover { background: var(--warn); color: #fff; }
 
 /* Dropzone */
 .dropzone {
-  border: 2px dashed var(--border);
-  border-radius: 18px;
-  background: var(--card-bg);
+  border: 1.5px dashed rgba(20, 20, 19, 0.3);
+  border-radius: var(--r-lg);
+  background: var(--card-bg-alt);
   padding: 60px 20px;
   text-align: center;
   transition: border-color 0.15s, background 0.15s;
   cursor: pointer;
 }
 .dropzone:hover, .dropzone.drag-over {
-  border-color: var(--purple-light);
-  background: var(--purple-soft);
+  border-color: var(--text);
+  background: #fff;
 }
 .dropzone-icon { font-size: 3rem; margin-bottom: 6px; }
-.dropzone h2 { margin: 4px 0 6px; }
+.dropzone h2 { margin: 4px 0 6px; font-weight: 500; }
 .dropzone p { max-width: 440px; margin: 0 auto 20px; }
 
 /* Table */
 .leads-table {
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  box-shadow: var(--shadow);
+  border: none;
+  border-radius: var(--r-lg);
+  padding: 8px;
   overflow: hidden;
 }
 .leads-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
-  transition: transform 0.28s ease, opacity 0.28s ease, max-height 0.28s ease, padding 0.28s ease;
+  padding: 10px 14px;
+  border-radius: var(--r-pill);
+  transition: transform 0.28s ease, opacity 0.28s ease, max-height 0.28s ease, padding 0.28s ease, background 0.15s;
   max-height: 200px;
   overflow: hidden;
 }
-.leads-row:last-child { border-bottom: none; }
 .leads-row-head {
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.04em;
   color: var(--muted);
-  background: var(--purple-soft);
+  background: transparent;
+  border-bottom: 1px solid var(--bg);
+  border-radius: 0;
   /* Overrides .leads-row's overflow:hidden (there for the delete swipe
      animation on data rows) so the stage-filter dropdown isn't clipped
      right at the header's own edge. */
   overflow: visible;
 }
-.leads-row-body:hover { background: var(--purple-soft); }
-.leads-row-body.call-booked { background: rgba(31, 177, 92, 0.1); }
-.leads-row-body.call-booked:hover { background: rgba(31, 177, 92, 0.18); }
+.leads-row-body:hover { background: var(--card-bg-alt); }
+.leads-row-body.call-booked { background: rgba(31, 177, 92, 0.08); }
+.leads-row-body.call-booked:hover { background: rgba(31, 177, 92, 0.15); }
 .leads-row-body.dead { opacity: 0.55; }
 .leads-row-body.cant-message { opacity: 0.55; }
-.leads-row-body.selected { background: var(--purple-soft); }
+.leads-row-body.selected { background: var(--card-bg-alt); }
 .leads-row.removing {
   transform: translateX(40px);
   opacity: 0;
@@ -1162,21 +1180,21 @@ kbd {
 .lc-check input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 20px;
+  height: 20px;
   margin: 0;
   border: 1.5px solid var(--border);
-  border-radius: 6px;
+  border-radius: 50%;
   background: var(--card-bg);
   cursor: pointer;
   position: relative;
   flex-shrink: 0;
-  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  transition: background 0.15s, border-color 0.15s;
 }
-.lc-check input[type="checkbox"]:hover { border-color: var(--purple-light); transform: translateY(-1px); }
+.lc-check input[type="checkbox"]:hover { border-color: var(--text); }
 .lc-check input[type="checkbox"]:checked {
-  background: linear-gradient(135deg, var(--purple), var(--purple-light));
-  border-color: transparent;
+  background: var(--text);
+  border-color: var(--text);
 }
 .lc-check input[type="checkbox"]:checked::after {
   content: '';
@@ -1191,13 +1209,14 @@ kbd {
 }
 .lc-check input[type="checkbox"]:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(111, 36, 184, 0.22);
+  box-shadow: 0 0 0 3px rgba(67, 0, 116, 0.18);
 }
-.lc-num { width: 44px; flex-shrink: 0; color: var(--muted); font-size: 0.85rem; }
+.lc-num { width: 44px; flex-shrink: 0; color: var(--muted); font-size: 0.85rem; font-variant-numeric: tabular-nums; }
 .lc-url { flex: 2; min-width: 0; }
-.lc-username { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; }
+.lc-username { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
+.lc-avatar { flex: none; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
 .lc-expand { width: 32px; flex-shrink: 0; justify-content: center; }
-.lc-stage { width: 140px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.lc-stage { width: 150px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
 
 .stage-filter-btn {
   position: relative;
@@ -1212,7 +1231,7 @@ kbd {
   transition: background 0.15s, color 0.15s;
 }
 .stage-filter-btn:hover { background: var(--border); color: var(--text); }
-.stage-filter-btn.active { color: var(--accent); background: var(--purple-soft); }
+.stage-filter-btn.active { color: var(--accent); background: var(--card-bg-alt); }
 .stage-filter-badge {
   position: absolute;
   top: -4px;
@@ -1221,7 +1240,7 @@ kbd {
   height: 14px;
   padding: 0 3px;
   border-radius: 7px;
-  background: linear-gradient(135deg, var(--purple), var(--red));
+  background: var(--text);
   color: white;
   font-size: 0.6rem;
   font-weight: 700;
@@ -1238,8 +1257,8 @@ kbd {
   position: fixed;
   width: 190px;
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 12px;
+  border: none;
+  border-radius: var(--r-lg);
   box-shadow: var(--shadow-lift);
   padding: 8px;
   z-index: 150;
@@ -1252,24 +1271,24 @@ kbd {
   align-items: center;
   gap: 8px;
   padding: 7px 8px;
-  border-radius: 8px;
+  border-radius: var(--r-pill);
   font-size: 0.85rem;
   color: var(--text);
   cursor: pointer;
   margin-bottom: 0;
 }
-.stage-filter-option:hover { background: var(--purple-soft); }
+.stage-filter-option:hover { background: var(--card-bg-alt); }
 .stage-filter-option input { width: auto; margin: 0; flex-shrink: 0; }
 .stage-filter-clear-btn {
   width: 100%;
   margin-top: 6px;
   padding: 8px;
   background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  border: none;
+  border-radius: var(--r-pill);
   color: var(--muted);
   font-size: 0.82rem;
-  font-weight: 600;
+  font-weight: 500;
   cursor: pointer;
 }
 .stage-filter-clear-btn:hover { background: var(--border); color: var(--text); }
@@ -1295,31 +1314,29 @@ kbd {
   border: 1px solid transparent;
   background: transparent;
   padding: 6px 8px;
-  border-radius: 7px;
-  font-size: 0.88rem;
+  border-radius: var(--r-pill);
+  font-size: 0.9rem;
+  font-weight: 500;
   color: var(--text);
   text-overflow: ellipsis;
 }
-.lc-username input:hover { border-color: var(--border); background: var(--bg); }
+.lc-username input:hover { background: var(--card-bg-alt); }
 .lc-username input:focus {
   outline: none;
-  border-color: var(--purple-light);
-  background: var(--bg);
-  box-shadow: 0 0 0 3px rgba(111, 36, 184, 0.16);
+  background: var(--card-bg-alt);
 }
 
 .url-view { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 6px 8px; }
 .url-link {
-  color: var(--text);
+  color: var(--muted);
   text-decoration: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.8rem;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
 }
-.url-link:hover { color: var(--accent); text-decoration: underline; }
+.url-link:hover { color: var(--link); text-decoration: underline; }
 .url-link-empty { font-size: 0.85rem; }
 .url-edit-btn {
   background: none;
@@ -1336,14 +1353,12 @@ kbd {
 .url-edit-btn:hover { opacity: 1; background: var(--border); }
 .url-edit-input {
   width: 100%;
-  border: 1px solid var(--purple-light);
+  border: 1px solid var(--text);
   background: var(--bg);
   padding: 6px 8px;
-  border-radius: 7px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  border-radius: var(--r-pill);
   font-size: 0.8rem;
   color: var(--text);
-  box-shadow: 0 0 0 3px rgba(111, 36, 184, 0.16);
 }
 .url-edit-input:focus { outline: none; }
 
@@ -1353,7 +1368,7 @@ kbd {
   cursor: pointer;
   width: 30px;
   height: 30px;
-  border-radius: 8px;
+  border-radius: 50%;
   font-size: 0.95rem;
   color: var(--muted);
   display: flex;
@@ -1363,8 +1378,14 @@ kbd {
 }
 .expand-btn:hover { background: var(--border); color: var(--text); }
 .expand-btn.expanded { color: var(--accent); transform: rotate(90deg); }
-.trash-btn:hover { background: rgba(255, 49, 49, 0.12); color: var(--red); }
+.trash-btn:hover { background: rgba(154, 58, 10, 0.12); color: var(--warn); }
 
+/* Stage badge palette — pale tint background + a readable, darker-if-needed
+   text color drawn from the same --stage-* ramp Home's pipeline donut uses
+   (app.js's STAGE_ORDER), so a stage always means the same color everywhere.
+   The dropdown chevron is one neutral grey for all variants (rather than a
+   separate hand-tinted SVG per stage) — simpler and reads fine against any
+   of the pale backgrounds below. */
 .stage-badge {
   appearance: none;
   -webkit-appearance: none;
@@ -1375,8 +1396,8 @@ kbd {
   font-size: 0.76rem;
   font-family: inherit;
   font-weight: 600;
-  background-color: var(--purple-soft);
-  color: var(--accent);
+  background-color: var(--card-bg-alt);
+  color: var(--muted);
   cursor: pointer;
   /* A closed <select>'s rendered width can be driven by its widest <option>
      in some browsers, not just the selected value — without a hard cap here,
@@ -1390,64 +1411,29 @@ kbd {
   white-space: nowrap;
   box-sizing: border-box;
   margin: 0;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%23430074' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%23696969' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 9px center;
   background-size: 8px 5px;
   transition: background-color 0.15s, box-shadow 0.15s;
 }
 .stage-badge:hover { box-shadow: 0 0 0 2px var(--border); }
-.stage-badge:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(111, 36, 184, 0.25); }
-.stage-badge.phase1 {
-  background-color: rgba(79, 70, 229, 0.12);
-  color: #4f46e5;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%234f46e5' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-}
-.stage-badge.phase2 {
-  background-color: rgba(217, 119, 6, 0.14);
-  color: #d97706;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%23d97706' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-}
-.stage-badge.phase3 {
-  background-color: rgba(8, 145, 178, 0.14);
-  color: #0891b2;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%230891b2' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-}
-.stage-badge.call-booked {
-  background-color: rgba(31, 177, 92, 0.15);
-  color: var(--green);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%2317954c' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-}
-.stage-badge.in-conversation {
-  background-color: rgba(219, 39, 119, 0.13);
-  color: var(--stage-in-conversation);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%23db2777' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-}
-.stage-badge.dead {
-  background-color: rgba(255, 49, 49, 0.12);
-  color: var(--red);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%23e01e1e' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-}
-.stage-badge.cant-message {
-  background-color: rgba(113, 113, 122, 0.14);
-  color: var(--stage-cant-message);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%2371717a' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-}
-.stage-badge.engaged {
-  background-color: rgba(13, 148, 136, 0.13);
-  color: var(--stage-engaged);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%230d9488' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-}
-.stage-badge.connection-sent {
-  background-color: rgba(124, 58, 237, 0.13);
-  color: var(--stage-connection-sent);
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 5'%3E%3Cpath d='M1 1l3 3 3-3' fill='none' stroke='%237c3aed' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-}
+.stage-badge:focus-visible { outline: none; box-shadow: 0 0 0 3px rgba(67, 0, 116, 0.2); }
+.stage-badge.phase1 { background-color: rgba(163, 156, 142, 0.2); color: #7a7364; }
+.stage-badge.phase2 { background-color: rgba(105, 105, 105, 0.14); color: #696969; }
+.stage-badge.phase3 { background-color: rgba(67, 0, 116, 0.1); color: var(--purple); }
+.stage-badge.call-booked { background-color: rgba(20, 20, 19, 0.08); color: var(--text); }
+.stage-badge.in-conversation { background-color: rgba(154, 58, 10, 0.12); color: var(--warn); }
+.stage-badge.dead { background-color: rgba(255, 49, 49, 0.12); color: var(--red); }
+.stage-badge.cant-message { background-color: rgba(232, 226, 218, 0.6); color: #8f8879; }
+.stage-badge.engaged { background-color: rgba(105, 105, 105, 0.14); color: #696969; }
+.stage-badge.connection-sent { background-color: rgba(38, 38, 39, 0.1); color: #262627; }
 
 .lead-detail {
   padding: 14px 16px 18px 70px;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--card-bg-alt);
+  border-radius: var(--r-md);
+  margin: 2px 0 8px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px 16px;
@@ -1633,25 +1619,28 @@ kbd {
 }
 
 .leads-selection-bar {
+  position: sticky;
+  top: 16px;
+  z-index: 6;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  background: var(--purple-soft);
-  border: 1px solid var(--purple-light);
-  border-radius: 14px;
-  padding: 12px 16px;
+  background: var(--text);
+  border: none;
+  border-radius: var(--r-pill);
+  padding: 8px 8px 8px 24px;
   margin-bottom: 14px;
-  font-weight: 600;
-  color: var(--accent);
+  font-weight: 500;
+  color: var(--bg);
+  box-shadow: var(--shadow-lift);
 }
-.leads-selection-btns { display: flex; gap: 10px; }
+.leads-selection-btns { display: flex; gap: 8px; }
 
 .leads-pagination {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 16px;
-  border-top: 1px solid var(--border);
+  padding: 12px 8px 4px;
 }
 .leads-pagination-btns { display: flex; gap: 8px; }
 .leads-pagination-btns button:disabled { opacity: 0.4; cursor: not-allowed; }

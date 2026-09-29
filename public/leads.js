@@ -251,6 +251,7 @@ function leadRowHtml(lead, index) {
       <div class="lc lc-num">${index + 1}</div>
       <div class="lc lc-url">${urlCellHtml(lead)}</div>
       <div class="lc lc-username">
+        <span class="lc-avatar" style="background:${toneForId(lead.id)}">${escapeHtml(initialsFor(lead.fullName || lead.username))}</span>
         ${nameField}
         ${hasNote ? '<span class="note-dot" title="Has a note"></span>' : ''}
         ${hasReminder ? '<span class="reminder-dot" title="Has a reminder"></span>' : ''}

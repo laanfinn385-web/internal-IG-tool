@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=27">
+<link rel="stylesheet" href="style.css?v=28">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -676,8 +676,9 @@
     <!-- LEADS -->
     <section id="view-leads" class="view hidden">
       <div class="row-between leads-header">
-        <div>
-          <h1 class="page-title">Leads</h1>
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="eyebrow">Leads</div>
+          <h1>Leads</h1>
           <p class="muted" id="leads-total-count"></p>
         </div>
         <div class="leads-header-right">
@@ -687,9 +688,9 @@
             <button type="button" class="range-tab active" data-platform="all">All</button>
           </div>
           <div class="leads-toolbar" id="leads-toolbar-actions">
-            <button id="leads-add-btn" class="btn-secondary">+ Add lead</button>
+            <button id="leads-delete-btn" class="btn-ghost">🗑 Delete leads</button>
             <button id="leads-import-btn" class="btn-secondary">⬆ Import CSV</button>
-            <button id="leads-delete-btn" class="btn-secondary btn-danger-outline">🗑 Delete leads</button>
+            <button id="leads-add-btn" class="btn-primary">+ Add lead</button>
           </div>
         </div>
       </div>
@@ -709,9 +710,9 @@
       <div id="leads-selection-bar" class="leads-selection-bar hidden">
         <span id="leads-selection-count"></span>
         <div class="leads-selection-btns">
-          <button id="leads-selection-start" class="btn-primary">Start session →</button>
-          <button id="leads-selection-delete" class="btn-secondary btn-danger-outline">🗑 Delete selected</button>
-          <button id="leads-selection-clear" class="btn-secondary">Clear</button>
+          <button id="leads-selection-clear" class="session-mark-btn">Clear</button>
+          <button id="leads-selection-delete" class="session-mark-btn">🗑 Delete selected</button>
+          <button id="leads-selection-start" class="session-mark-btn-primary">Start session →</button>
         </div>
       </div>
 
@@ -1279,7 +1280,7 @@
 
 <script src="templates.js?v=23"></script>
 <script src="app.js?v=26"></script>
-<script src="leads.js?v=23"></script>
+<script src="leads.js?v=28"></script>
 <script src="followups.js?v=27"></script>
 </body>
 </html>
