@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=25">
+<link rel="stylesheet" href="style.css?v=26">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -282,14 +282,15 @@
 
     <!-- COMBI INTERSTITIAL -->
     <section id="view-combi-interstitial" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji">✅</div>
+      <div class="interstitial">
+        <span class="interstitial-ghost" aria-hidden="true">Done</span>
+        <div class="eyebrow">Instagram complete</div>
         <h1>Finished all Instagram leads</h1>
-        <p class="end-sub" id="combi-interstitial-summary"></p>
-      </div>
-      <div class="decision-row">
-        <button id="combi-save-li-btn" class="btn-secondary">💾 Save LinkedIn leads for later</button>
-        <button id="combi-continue-li-btn" class="btn-primary">Move on to LinkedIn leads →</button>
+        <p id="combi-interstitial-summary"></p>
+        <div class="interstitial-actions">
+          <button id="combi-save-li-btn" class="btn-secondary">💾 Save LinkedIn leads for later</button>
+          <button id="combi-continue-li-btn" class="btn-primary">Move on to LinkedIn leads →</button>
+        </div>
       </div>
     </section>
 
@@ -303,15 +304,15 @@
          reactive "daily limit reached mid-session" screen below) — you're
          choosing deliberately, not reacting to a surprise limit. -->
     <section id="view-ig-account-picker" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji" id="ig-account-picker-emoji">🎯</div>
+      <div class="interstitial">
+        <span class="interstitial-ghost" aria-hidden="true">Choose</span>
+        <div class="eyebrow" id="ig-account-picker-emoji">Instagram</div>
         <h1 id="ig-account-picker-title">Choose an account to start with</h1>
-        <p class="end-sub hidden" id="ig-account-picker-banner"></p>
-      </div>
-      <div class="daily-goal-account-picker-list" id="ig-account-picker-list"></div>
-      <div class="row-between" style="margin-top:16px;">
-        <span class="muted">&nbsp;</span>
-        <button id="ig-account-picker-home-btn" class="btn-secondary">Not now — back to Home</button>
+        <p class="hidden" id="ig-account-picker-banner"></p>
+        <div class="daily-goal-account-picker-list" id="ig-account-picker-list"></div>
+        <div class="interstitial-actions">
+          <button id="ig-account-picker-home-btn" class="btn-secondary">Not now — back to Home</button>
+        </div>
       </div>
     </section>
 
@@ -319,10 +320,11 @@
          (starts the 2-hour switch cooldown) or, mid-combi, skip straight to
          the LinkedIn portion instead (unaffected by the Instagram limit). -->
     <section id="view-ig-account-limit" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji">⏸️</div>
+      <div class="interstitial">
+        <span class="interstitial-ghost" aria-hidden="true">Paused</span>
+        <div class="eyebrow">Instagram</div>
         <h1 id="ig-limit-title">Daily limit reached</h1>
-        <p class="end-sub" id="ig-limit-summary"></p>
+        <p id="ig-limit-summary"></p>
       </div>
 
       <div class="card" id="ig-limit-picker-card">
@@ -339,11 +341,18 @@
         <button id="ig-limit-continue-li-btn" class="btn-secondary hidden" type="button">Continue to LinkedIn leads →</button>
       </div>
 
-      <div class="card hidden" id="ig-limit-cooldown-card">
-        <h2>Switching accounts</h2>
-        <p class="muted">Instagram can flag back-to-back account switching as automated. Waiting a couple hours keeps this looking human.</p>
-        <div class="cooldown-countdown" id="ig-limit-countdown"></div>
-        <div class="modal-actions" style="justify-content:flex-start; gap:12px;">
+      <div class="interstitial hidden" id="ig-limit-cooldown-card">
+        <span class="interstitial-ghost" aria-hidden="true">Wait</span>
+        <div class="eyebrow">Switching accounts</div>
+        <h2>Instagram can flag rapid switching</h2>
+        <p>Waiting a couple hours keeps this looking human.</p>
+        <div class="interstitial-ring-wrap">
+          <svg class="interstitial-ring-svg" viewBox="0 0 176 176">
+            <circle cx="88" cy="88" r="80" class="interstitial-ring-track"></circle>
+          </svg>
+          <div class="cooldown-countdown" id="ig-limit-countdown"></div>
+        </div>
+        <div class="interstitial-actions">
           <button id="ig-limit-home-btn" class="btn-secondary">← Go back to home</button>
           <button id="ig-limit-skip-btn" class="btn-secondary">Skip timer</button>
         </div>
@@ -354,15 +363,19 @@
          button (that would defeat the point); "Go back to home" is still
          available as a genuine exit. -->
     <section id="view-send-pacing-break" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji">⏸️</div>
+      <div class="interstitial">
+        <span class="interstitial-ghost" aria-hidden="true">Pause</span>
+        <div class="eyebrow">Pacing break</div>
         <h1 id="pacing-break-title">Take a quick break</h1>
-        <p class="end-sub">Real people don't send DMs back-to-back for hours.</p>
-      </div>
-      <div class="card">
+        <p>Real people don't send DMs back-to-back for hours.</p>
         <p class="muted" id="pacing-break-status"></p>
-        <div class="cooldown-countdown" id="pacing-break-countdown"></div>
-        <div class="modal-actions" style="justify-content:flex-start; gap:12px;">
+        <div class="interstitial-ring-wrap">
+          <svg class="interstitial-ring-svg" viewBox="0 0 176 176">
+            <circle cx="88" cy="88" r="80" class="interstitial-ring-track"></circle>
+          </svg>
+          <div class="cooldown-countdown" id="pacing-break-countdown"></div>
+        </div>
+        <div class="interstitial-actions">
           <button id="pacing-break-home-btn" class="btn-secondary">← Go back to home</button>
           <button id="pacing-break-continue-btn" class="btn-primary hidden">Continue session →</button>
         </div>
@@ -373,15 +386,19 @@
          still in warmup. No skip button: only actually letting the timer run
          (paused or not) counts. -->
     <section id="view-warmup-engage" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji">📱</div>
-        <h1 id="warmup-engage-title">Scroll & engage</h1>
-        <p class="end-sub">Genuinely scroll your feed, watch some stories, like a few posts — real activity, not the tool running in the background.</p>
-      </div>
-      <div class="card">
-        <div class="cooldown-countdown" id="warmup-engage-countdown"></div>
+      <div class="interstitial">
+        <span class="interstitial-ghost" aria-hidden="true">Scroll</span>
+        <div class="eyebrow">Warmup</div>
+        <h1 id="warmup-engage-title">Scroll &amp; engage</h1>
+        <p>Genuinely scroll your feed, watch some stories, like a few posts — real activity, not the tool running in the background.</p>
+        <div class="interstitial-ring-wrap">
+          <svg class="interstitial-ring-svg" viewBox="0 0 176 176">
+            <circle cx="88" cy="88" r="80" class="interstitial-ring-track"></circle>
+          </svg>
+          <div class="cooldown-countdown" id="warmup-engage-countdown"></div>
+        </div>
         <p class="muted hidden" id="warmup-engage-done">🎉 Session complete for today — nice work.</p>
-        <div class="modal-actions" style="justify-content:flex-start; gap:12px;">
+        <div class="interstitial-actions">
           <button id="warmup-engage-home-btn" class="btn-secondary">← Go back to home</button>
           <button id="warmup-engage-start-btn" class="btn-primary hidden">Start scrolling session →</button>
           <button id="warmup-engage-pause-btn" class="btn-secondary hidden">⏸ Pause</button>
@@ -392,56 +409,68 @@
     <!-- SIMPLE SESSION (LinkedIn engagement / connection-request sessions —
          just a name, a clickable profile link, and two buttons) -->
     <section id="view-simple-session" class="view hidden">
-      <div class="progress-wrap">
-        <div class="progress-main">
-          <div class="progress-label"><span id="simple-progress-current">1</span> / <span id="simple-progress-total">15</span></div>
-          <div class="progress-bar"><div class="progress-fill" id="simple-progress-fill"></div></div>
+      <div class="session-header">
+        <div class="eyebrow" id="simple-session-title">LinkedIn session</div>
+        <div class="session-progress">
+          <div class="session-progress-track"><div class="progress-fill" id="simple-progress-fill"></div></div>
+          <span class="session-progress-label"><span id="simple-progress-current">1</span> / <span id="simple-progress-total">15</span></span>
         </div>
-        <button id="simple-switch-accounts-btn" class="btn-switch-accounts hidden" type="button" title="Switch to an Instagram account">🔀 Switch accounts</button>
-        <button id="simple-quit-save-btn" class="btn-quit-save" type="button" title="Save the rest of this session for later">⏸ Quit &amp; save</button>
+        <div class="session-header-actions">
+          <button id="simple-switch-accounts-btn" class="session-pill-btn hidden" type="button" title="Switch to an Instagram account">Switch accounts</button>
+          <button id="simple-quit-save-btn" class="session-pill-btn session-pill-btn-dark" type="button" title="Save the rest of this session for later">Quit &amp; save</button>
+        </div>
       </div>
 
-      <div class="card simple-session-card">
-        <h2 id="simple-session-title">LinkedIn session</h2>
-        <div class="simple-session-name" id="simple-session-fullname">–</div>
-        <a id="simple-session-link" href="#" target="li_preview" rel="noopener" class="profile-link-btn">Open profile on LinkedIn ↗</a>
-      </div>
-
-      <div class="decision-row">
-        <button id="simple-negative-btn" class="btn-reject">✕ Not qualified</button>
-        <button id="simple-positive-btn" class="btn-accept">✓ Engaged</button>
+      <div class="session-li-split">
+        <div class="session-li-card">
+          <h2 class="session-li-name" id="simple-session-fullname">–</h2>
+          <span class="session-li-headline hidden" id="simple-session-headline"></span>
+          <p class="session-li-bio hidden" id="simple-session-bio"></p>
+          <a id="simple-session-link" href="#" target="li_preview" rel="noopener" class="btn-secondary">Open profile on LinkedIn ↗</a>
+        </div>
+        <div class="session-li-engage">
+          <span class="session-li-engage-label">Decide</span>
+          <div class="session-li-engage-actions">
+            <button id="simple-negative-btn" class="session-li-btn">Not qualified <kbd>N</kbd></button>
+            <button id="simple-positive-btn" class="session-li-btn-primary">Engaged <kbd>E</kbd></button>
+          </div>
+        </div>
       </div>
     </section>
 
     <!-- SIMPLE SESSION END SCREEN -->
     <section id="view-simple-end" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji">🎉</div>
-        <h1>Well done!</h1>
-        <p class="end-sub" id="simple-end-summary-line"></p>
-      </div>
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="stat-value" id="simple-end-positive-count">0</div>
-          <div class="stat-label" id="simple-end-positive-label">engaged</div>
+      <div class="done-hero">
+        <svg class="done-hero-curve" viewBox="0 0 1000 300" preserveAspectRatio="none"><path d="M -20 260 C 200 20, 780 -30, 1020 180" fill="none" stroke="#430074" stroke-width="1.25"></path></svg>
+        <div class="eyebrow">Session complete</div>
+        <h1>Well done.</h1>
+        <p class="muted" id="simple-end-summary-line"></p>
+        <div class="done-stats-row">
+          <div class="done-stat-circle">
+            <div class="stat-value" id="simple-end-positive-count">0</div>
+            <div class="stat-label" id="simple-end-positive-label">engaged</div>
+          </div>
+          <div class="done-stat-circle">
+            <div class="stat-value" id="simple-end-negative-count">0</div>
+            <div class="stat-label" id="simple-end-negative-label">not qualified</div>
+          </div>
         </div>
-        <div class="stat-card">
-          <div class="stat-value" id="simple-end-negative-count">0</div>
-          <div class="stat-label" id="simple-end-negative-label">not qualified</div>
-        </div>
+        <button id="simple-end-back-btn" class="btn-primary">← Back to home</button>
       </div>
-      <button id="simple-end-back-btn" class="btn-primary">← Back to home</button>
     </section>
 
     <!-- DASHBOARD -->
     <section id="view-dashboard" class="view hidden">
-      <div class="progress-wrap">
-        <div class="progress-main">
-          <div class="progress-label"><span id="progress-current">1</span> / <span id="progress-total">15</span></div>
-          <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="session-header">
+        <div class="eyebrow">Session</div>
+        <div class="session-progress">
+          <div class="session-progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+          <span class="session-progress-label"><span id="progress-current">1</span> / <span id="progress-total">15</span></span>
         </div>
-        <button id="switch-accounts-btn" class="btn-switch-accounts hidden" type="button" title="Switch to a different account, or to LinkedIn">🔀 Switch accounts</button>
-        <button id="quit-save-btn" class="btn-quit-save" type="button" title="Save the rest of this session for later">⏸ Quit &amp; save</button>
+        <div class="session-header-actions">
+          <button id="switch-accounts-btn" class="session-pill-btn hidden" type="button" title="Switch to a different account, or to LinkedIn">Switch account</button>
+          <button id="quit-save-btn" class="session-pill-btn session-pill-btn-dark" type="button" title="Save the rest of this session for later">Quit &amp; save</button>
+        </div>
       </div>
 
       <div class="video-batch-row">
@@ -449,90 +478,82 @@
         <span class="muted" id="video-batch-status"></span>
       </div>
 
-      <div class="dash-nav">
-        <button id="prev-btn" class="icon-btn" title="Previous profile">←</button>
-        <a id="profile-link" href="#" target="ig_preview" rel="noopener" class="profile-link-btn">Open profile on Instagram ↗</a>
-        <button id="next-btn" class="icon-btn" title="Next profile">→</button>
-      </div>
-
-      <div class="dashboard-grid">
-
-        <div class="card profile-card">
-          <h2>Profile</h2>
-          <label>Full name
-            <input type="text" id="f-fullname" placeholder="E.g. John Smith">
-          </label>
-          <label id="f-username-row">Username
-            <input type="text" id="f-username" placeholder="username">
-          </label>
-          <label id="f-headline-row" class="hidden">Headline
-            <input type="text" id="f-headline" placeholder="E.g. Fitness Coach at Acme">
-          </label>
-          <label><span id="f-bio-label">Bio</span>
-            <textarea id="f-bio" rows="3" placeholder="Bio text..."></textarea>
-          </label>
-        </div>
-
-        <div class="card stats-card">
-          <h2>Stats</h2>
-          <label>Number of followers
-            <input type="number" id="f-followers" min="0" placeholder="E.g. 3200">
-          </label>
-          <label>Last post — how many weeks ago?
-            <input type="number" id="f-lastpost" min="0" step="0.5" placeholder="E.g. 2">
-          </label>
-          <label>Avg. posts per week (this month)
-            <input type="number" id="f-postsperweek" min="0" step="0.1" placeholder="E.g. 1.5">
-          </label>
-          <label>Avg. views (optional)
-            <input type="number" id="f-avgviews" min="0" placeholder="E.g. 800">
-          </label>
-        </div>
-
-        <div class="card message-card">
-          <h2>Message</h2>
-          <label>Message (editable)
-            <textarea id="f-message" rows="7"></textarea>
-          </label>
-          <div class="message-actions">
-            <button id="copy-btn" class="btn-secondary">📋 Copy message</button>
-            <a id="dm-link" href="#" target="_blank" rel="noopener" class="btn-secondary">💬 Open Instagram DM ↗</a>
+      <div class="session-split">
+        <div class="session-lead-card">
+          <div class="session-lead-nav">
+            <button id="prev-btn" class="session-icon-btn" title="Previous profile">←</button>
+            <a id="profile-link" href="#" target="ig_preview" rel="noopener" class="session-profile-link">Open profile on Instagram ↗</a>
+            <button id="next-btn" class="session-icon-btn" title="Next profile">→</button>
           </div>
-        </div>
 
-        <div class="card video-card">
-          <h2>Personalized video</h2>
-          <label>Name shown in video
-            <input type="text" id="f-video-name" placeholder="E.g. Brad">
-          </label>
-          <div class="video-status muted" id="video-status">Not generated yet.</div>
-          <video id="video-preview" controls playsinline class="video-preview hidden"></video>
-          <div class="video-actions">
-            <button id="video-generate-btn" class="btn-secondary" type="button">🎬 Generate video</button>
-            <a id="video-download-link" href="#" download class="btn-secondary hidden">⬇ Download video</a>
+          <div class="session-lead-head">
+            <div class="session-lead-avatar" id="dashboard-avatar">?</div>
+            <div class="session-lead-identity">
+              <input type="text" id="f-fullname" class="session-name-input" placeholder="Full name">
+              <div id="f-username-row" class="session-username-row">
+                <span class="session-at">@</span><input type="text" id="f-username" class="session-username-input" placeholder="username">
+              </div>
+              <div id="f-headline-row" class="hidden">
+                <input type="text" id="f-headline" class="session-headline-input" placeholder="Headline">
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div class="card status-card">
-          <h2>Lead status</h2>
-          <label class="toggle-switch-row">
+          <label class="session-field-label"><span id="f-bio-label">Bio</span>
+            <textarea id="f-bio" rows="3" class="session-bio-input" placeholder="Bio text..."></textarea>
+          </label>
+
+          <div class="session-stat-grid stats-card">
+            <label class="session-stat"><span>Followers</span><input type="number" id="f-followers" min="0" placeholder="0"></label>
+            <label class="session-stat"><span>Last post (wks ago)</span><input type="number" id="f-lastpost" min="0" step="0.5" placeholder="0"></label>
+            <label class="session-stat"><span>Posts/week</span><input type="number" id="f-postsperweek" min="0" step="0.1" placeholder="0"></label>
+            <label class="session-stat"><span>Avg. views</span><input type="number" id="f-avgviews" min="0" placeholder="0"></label>
+          </div>
+
+          <label class="session-toggle-row">
             <span class="toggle-switch">
               <input type="checkbox" id="f-can-receive" checked>
               <span class="toggle-switch-track"></span>
             </span>
             <span>Can receive messages</span>
           </label>
-          <label>Notes
-            <textarea id="f-session-notes" rows="3" class="auto-resize" placeholder="Anything worth remembering about this lead..."></textarea>
+
+          <label class="session-field-label">Notes
+            <textarea id="f-session-notes" rows="3" class="auto-resize session-notes-input" placeholder="Anything worth remembering about this lead..."></textarea>
           </label>
         </div>
 
-      </div>
+        <div class="session-action-col">
+          <div class="session-message-card">
+            <div class="eyebrow">Opening message</div>
+            <textarea id="f-message" class="session-message-input" rows="7"></textarea>
+            <div class="session-message-actions">
+              <button id="copy-btn" class="btn-primary">Copy message</button>
+              <a id="dm-link" href="#" target="_blank" rel="noopener" class="btn-secondary">Open Instagram DM ↗</a>
+            </div>
+          </div>
 
-      <div class="decision-row">
-        <button id="reject-btn" class="btn-reject">✕ Not qualified</button>
-        <button id="accept-btn" class="btn-accept">✓ Sent</button>
-        <button id="next-unreachable-btn" class="btn-next-grey hidden">Next <span aria-hidden="true">→</span></button>
+          <div class="session-video-card video-card">
+            <div class="session-video-row">
+              <label class="session-video-name-label">Name shown in video
+                <input type="text" id="f-video-name" placeholder="E.g. Brad">
+              </label>
+              <button id="video-generate-btn" class="btn-secondary" type="button">🎬 Generate video</button>
+            </div>
+            <div class="video-status muted" id="video-status">Not generated yet.</div>
+            <video id="video-preview" controls playsinline class="video-preview hidden"></video>
+            <a id="video-download-link" href="#" download class="btn-secondary hidden">⬇ Download video</a>
+          </div>
+
+          <div class="session-mark-panel">
+            <span class="session-mark-label">Mark this lead</span>
+            <div class="session-mark-grid">
+              <button id="reject-btn" class="session-mark-btn">Not qualified <kbd>N</kbd></button>
+              <button id="next-unreachable-btn" class="session-mark-btn hidden">Next <span aria-hidden="true">→</span></button>
+            </div>
+            <button id="accept-btn" class="session-mark-btn-primary">Sent — next lead → <kbd>S</kbd></button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -577,24 +598,24 @@
 
     <!-- END SCREEN -->
     <section id="view-end" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji">🎉</div>
-        <h1>Well done!</h1>
-        <p class="end-sub" id="end-summary-line"></p>
-      </div>
-
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="stat-value" id="end-sent-count">0</div>
-          <div class="stat-label">messages sent</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="end-rejected-count">0</div>
-          <div class="stat-label">not qualified</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="end-cant-message-count">0</div>
-          <div class="stat-label">can't receive messages</div>
+      <div class="done-hero">
+        <svg class="done-hero-curve" viewBox="0 0 1000 300" preserveAspectRatio="none"><path d="M -20 260 C 200 20, 780 -30, 1020 180" fill="none" stroke="#430074" stroke-width="1.25"></path></svg>
+        <div class="eyebrow">Session complete</div>
+        <h1>Well done.</h1>
+        <p class="muted" id="end-summary-line"></p>
+        <div class="done-stats-row">
+          <div class="done-stat-circle">
+            <div class="stat-value" id="end-sent-count">0</div>
+            <div class="stat-label">messages sent</div>
+          </div>
+          <div class="done-stat-circle">
+            <div class="stat-value" id="end-rejected-count">0</div>
+            <div class="stat-label">not qualified</div>
+          </div>
+          <div class="done-stat-circle">
+            <div class="stat-value" id="end-cant-message-count">0</div>
+            <div class="stat-label">can't receive messages</div>
+          </div>
         </div>
       </div>
 
@@ -1253,7 +1274,7 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=25"></script>
+<script src="app.js?v=26"></script>
 <script src="leads.js?v=23"></script>
 <script src="followups.js?v=24"></script>
 </body>

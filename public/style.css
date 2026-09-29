@@ -336,38 +336,36 @@ input:focus, textarea:focus, select:focus {
 .row-between { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
 
 .btn-primary {
-  background: linear-gradient(135deg, var(--purple), var(--purple-light));
-  color: white;
-  border: none;
-  padding: 12px 22px;
-  border-radius: 999px;
+  background: var(--text);
+  color: var(--bg);
+  border: 1.5px solid var(--text);
+  padding: 11px 22px;
+  border-radius: var(--r-sm);
   font-size: 0.95rem;
-  font-weight: 700;
-  font-family: var(--font-display);
+  font-weight: 500;
   cursor: pointer;
-  box-shadow: 0 6px 16px rgba(67, 0, 116, 0.28);
-  transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
+  transition: background 0.15s;
 }
-.btn-primary:hover { filter: brightness(1.08); transform: translateY(-1px); box-shadow: 0 8px 20px rgba(67, 0, 116, 0.34); }
-.btn-primary:active { transform: translateY(0) scale(0.98); }
-.btn-primary:disabled { opacity: 0.6; cursor: default; filter: none; transform: none; box-shadow: none; }
+.btn-primary:hover { background: #262627; }
+.btn-primary:active { transform: scale(0.98); }
+.btn-primary:disabled { opacity: 0.6; cursor: default; transform: none; }
 
 .btn-secondary {
-  background: var(--bg);
-  border: 1px solid var(--border);
+  background: #fff;
+  border: 1.5px solid var(--text);
   color: var(--text);
-  padding: 10px 16px;
-  border-radius: 999px;
+  padding: 9px 16px;
+  border-radius: var(--r-sm);
   cursor: pointer;
   font-size: 0.88rem;
-  font-weight: 600;
+  font-weight: 450;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  transition: background 0.15s, transform 0.15s;
+  transition: background 0.15s, color 0.15s;
 }
-.btn-secondary:hover { background: var(--purple-soft); transform: translateY(-1px); }
+.btn-secondary:hover { background: var(--text); color: var(--bg); }
 
 .stats-row { display: flex; gap: 14px; margin: 20px 0; }
 .stat-card {
@@ -556,38 +554,29 @@ input:focus, textarea:focus, select:focus {
 .combi-size-row { display: flex; gap: 16px; margin: 10px 0 4px; }
 .combi-size-row label { flex: 1; }
 
-/* Dashboard */
-.progress-wrap { margin: 16px 0 10px; display: flex; align-items: center; gap: 14px; }
-.progress-main { flex: 1; min-width: 0; }
-.btn-quit-save {
-  flex-shrink: 0;
-  padding: 9px 16px;
-  border: 1px solid rgba(255, 49, 49, 0.35);
-  border-radius: 999px;
-  background: rgba(255, 49, 49, 0.08);
-  color: var(--red-dark);
-  font-weight: 600;
-  font-size: 0.82rem;
+/* ===== Session (IG split-layout dashboard + LinkedIn simple session) ===== */
+
+.session-header { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin: 14px 0 20px; }
+.session-progress { flex: 1; min-width: 180px; display: flex; align-items: center; gap: 14px; }
+.session-progress-track { flex: 1; height: 6px; border-radius: var(--r-pill); background: var(--border); overflow: hidden; }
+.session-progress-label { font-size: 0.9rem; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.session-header-actions { display: flex; gap: 6px; }
+.session-pill-btn {
+  background: transparent;
+  border: 1.5px solid rgba(20, 20, 19, 0.2);
+  border-radius: var(--r-sm);
+  padding: 6px 14px;
+  font-size: 0.85rem;
   cursor: pointer;
-  transition: background 0.15s, transform 0.15s;
-}
-.btn-quit-save:hover { background: rgba(255, 49, 49, 0.16); transform: translateY(-1px); }
-.btn-switch-accounts {
-  flex-shrink: 0;
-  padding: 9px 16px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  background: var(--bg);
   color: var(--text);
-  font-weight: 600;
-  font-size: 0.82rem;
-  cursor: pointer;
-  transition: background 0.15s, transform 0.15s;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
-.btn-switch-accounts:hover { background: var(--purple-soft); transform: translateY(-1px); }
-.progress-label { font-size: 0.85rem; color: var(--muted); margin-bottom: 6px; font-weight: 600; }
-.progress-bar { height: 9px; background: var(--border); border-radius: 5px; overflow: hidden; }
-.progress-fill { height: 100%; background: linear-gradient(90deg, var(--purple), var(--purple-light)); transition: width 0.3s; }
+.session-pill-btn:hover { border-color: var(--text); }
+.session-pill-btn-dark { border-color: var(--text); }
+.session-pill-btn-dark:hover { background: var(--text); color: var(--bg); }
+/* .progress-fill is reused inside .session-progress-track (id-driven width%,
+   set by app.js — same element/logic as before, just restyled). */
+.progress-fill { height: 100%; background: var(--text); border-radius: var(--r-pill); transition: width 0.3s; }
 
 .video-preload-wrap {
   max-width: 360px;
@@ -598,154 +587,151 @@ input:focus, textarea:focus, select:focus {
   align-items: center;
   gap: 14px;
 }
-.video-preload-wrap h2 { margin: 0; font-size: 1.15rem; }
-.video-preload-wrap .progress-bar { width: 100%; height: 10px; }
+.video-preload-wrap h2 { margin: 0; font-size: 1.15rem; font-weight: 500; }
+.video-preload-wrap .progress-bar { width: 100%; height: 10px; background: var(--border); border-radius: var(--r-pill); overflow: hidden; }
 .video-preload-spinner {
   width: 40px;
   height: 40px;
   border-radius: 50%;
   border: 4px solid var(--border);
-  border-top-color: var(--purple);
+  border-top-color: var(--text);
   animation: video-preload-spin 0.8s linear infinite;
 }
 @keyframes video-preload-spin { to { transform: rotate(360deg); } }
-#preload-skip-btn { margin-top: 8px; }
 
-.dash-nav {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin: 14px 0 18px;
-}
+/* Icon button — still used by Saved Sessions' back arrow. */
 .icon-btn {
   background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  border: none;
+  border-radius: 50%;
   width: 40px;
   height: 40px;
   font-size: 1.1rem;
   cursor: pointer;
-  transition: background 0.15s, transform 0.15s;
+  box-shadow: var(--shadow);
+  transition: background 0.15s;
 }
-.icon-btn:hover:not(:disabled) { background: var(--purple-soft); transform: translateY(-1px); }
+.icon-btn:hover:not(:disabled) { background: var(--card-bg-alt); }
 .icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }
-.profile-link-btn {
+
+/* Quit & delete actions — still used by Saved Sessions. */
+.btn-quit-save {
+  flex-shrink: 0;
+  padding: 9px 16px;
+  border: 1.5px solid var(--warn);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--warn);
+  font-weight: 500;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-quit-save:hover { background: var(--warn); color: #fff; }
+.btn-reject {
+  padding: 10px 20px;
+  border: 1.5px solid var(--warn);
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--warn);
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.btn-reject:hover { background: var(--warn); color: #fff; }
+
+.video-batch-row { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
+
+.session-split { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
+
+.session-lead-card {
+  flex: 5 1 340px;
+  min-width: 0;
+  background: var(--card-bg-alt);
+  border-radius: var(--r-xl);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.session-lead-nav { display: flex; align-items: center; gap: 10px; }
+.session-icon-btn {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: none;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.95rem;
+  transition: background 0.15s;
+}
+.session-icon-btn:hover:not(:disabled) { background: var(--border); }
+.session-icon-btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.session-profile-link {
   flex: 1;
   text-align: center;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 10px;
+  background: #fff;
+  border-radius: var(--r-pill);
+  padding: 8px;
   text-decoration: none;
   color: var(--text);
-  font-weight: 600;
-  font-size: 0.9rem;
-  transition: background 0.15s, transform 0.15s;
-}
-.profile-link-btn:hover { background: var(--purple-soft); transform: translateY(-1px); }
-
-.dashboard-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-.message-card { grid-column: 1 / -1; }
-
-/* Simple session (LinkedIn engagement/connection) — just a name and a link,
-   so it gets a single centered card instead of the dense dashboard-grid. */
-.simple-session-card {
-  text-align: center;
-  padding: 48px 24px;
-  max-width: 480px;
-  margin-left: auto;
-  margin-right: auto;
-}
-.simple-session-card h2 { color: var(--muted); font-size: 0.95rem; margin-bottom: 18px; }
-.simple-session-name { font-size: 1.6rem; font-weight: 800; font-family: var(--font-display); margin-bottom: 20px; }
-.simple-session-card .profile-link-btn { display: inline-block; padding: 12px 22px; }
-
-/* Clearance so the sticky decision-row (an always-visible action bar)
-   never visually covers the bottom of the message card above it. */
-.dashboard-grid { margin-bottom: 130px; }
-
-.suggestion-reason { margin: -6px 0 12px; }
-.suggestion-reason:not(:empty) {
-  background: var(--purple-soft);
-  color: var(--purple);
-  border-radius: 8px;
-  padding: 8px 10px;
   font-weight: 500;
+  font-size: 0.88rem;
+  transition: background 0.15s;
 }
-.message-actions { display: flex; gap: 10px; margin-top: 10px; }
-
-.video-card { grid-column: 1 / -1; }
-.video-status { margin: -6px 0 12px; }
-.video-status.is-error { color: var(--red-dark); font-weight: 500; }
-.video-preview {
-  width: 100%;
-  max-width: 320px;
-  border-radius: 12px;
-  border: 1px solid var(--border);
-  margin-bottom: 12px;
-  display: block;
-}
-.video-actions { display: flex; gap: 10px; }
-
-.video-batch-row { display: flex; align-items: center; gap: 12px; margin: 0 0 10px; }
-
-.decision-row {
-  display: flex;
-  gap: 14px;
-  margin-top: 8px;
-  position: sticky;
-  bottom: 16px;
-}
-.btn-accept, .btn-reject {
-  flex: 1;
-  padding: 16px;
-  border: none;
-  border-radius: 13px;
-  font-size: 1rem;
-  font-weight: 700;
-  font-family: var(--font-display);
-  cursor: pointer;
-  color: white;
-  box-shadow: var(--shadow-lift);
-  transition: transform 0.15s, filter 0.15s;
-}
-.btn-accept:hover, .btn-reject:hover { filter: brightness(1.08); transform: translateY(-1px); }
-.btn-accept:active, .btn-reject:active { transform: translateY(0) scale(0.98); }
-.btn-accept:disabled, .btn-reject:disabled { opacity: 0.5; cursor: default; filter: none; transform: none; }
-.btn-accept { background: linear-gradient(135deg, var(--green), var(--green-dark)); }
-.btn-reject { background: linear-gradient(135deg, var(--red), var(--red-dark)); }
-.btn-next-grey {
-  flex: 1;
-  padding: 16px;
-  border: none;
-  border-radius: 13px;
-  font-size: 1rem;
-  font-weight: 700;
-  font-family: var(--font-display);
-  cursor: pointer;
-  color: var(--text);
+.session-profile-link:hover { background: var(--border); text-decoration: none; }
+.session-lead-head { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; }
+.session-lead-avatar {
+  flex: none;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
   background: var(--border);
-  box-shadow: var(--shadow-lift);
-  transition: transform 0.15s, filter 0.15s;
-}
-.btn-next-grey:hover { filter: brightness(0.95); transform: translateY(-1px); }
-.btn-next-grey:active { transform: translateY(0) scale(0.98); }
-
-/* Session status card: "can receive messages" toggle + notes, in the dashboard */
-.status-card { grid-column: 1 / -1; }
-.toggle-switch-row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  cursor: pointer;
-  margin-bottom: 14px;
-  font-weight: 600;
-  font-size: 0.92rem;
+  justify-content: center;
+  font-size: 30px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
 }
+.session-lead-identity { flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 4px; }
+.session-name-input, .session-username-input, .session-headline-input {
+  border: none;
+  background: transparent;
+  padding: 2px 0;
+  outline: none;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+.session-name-input:hover, .session-username-input:hover, .session-headline-input:hover,
+.session-name-input:focus, .session-username-input:focus, .session-headline-input:focus { background: rgba(255, 255, 255, 0.6); }
+.session-name-input { font-size: 22px; font-weight: 500; letter-spacing: -0.02em; width: 100%; }
+.session-username-row { display: flex; align-items: center; color: var(--muted); font-size: 0.9rem; }
+.session-at { padding-right: 1px; }
+.session-username-input { color: var(--muted); font-size: 0.9rem; flex: 1; }
+.session-headline-input { font-size: 0.92rem; font-weight: 500; width: 100%; }
+
+.session-field-label { display: flex; flex-direction: column; gap: 6px; font-size: 0.78rem; font-weight: 500; color: var(--muted); }
+.session-bio-input, .session-notes-input {
+  border: 1px solid rgba(20, 20, 19, 0.12);
+  background: #fff;
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+}
+
+.session-stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border-radius: var(--r-md); overflow: hidden; }
+.session-stat { background: #fff; padding: 12px 16px; display: flex; flex-direction: column; gap: 3px; }
+.session-stat span { font-size: 0.74rem; color: var(--muted); }
+.session-stat input { border: none; background: transparent; padding: 0; font-size: 1.05rem; font-weight: 500; outline: none; border-radius: 4px; }
+.session-stat input:hover, .session-stat input:focus { background: var(--card-bg-alt); }
+
+.session-toggle-row { display: flex; align-items: center; gap: 12px; cursor: pointer; font-size: 0.9rem; }
 .toggle-switch { position: relative; width: 40px; height: 24px; flex-shrink: 0; }
 .toggle-switch input {
   position: absolute;
@@ -776,6 +762,149 @@ input:focus, textarea:focus, select:focus {
 }
 .toggle-switch input:checked ~ .toggle-switch-track { background: var(--green); }
 .toggle-switch input:checked ~ .toggle-switch-track::before { transform: translateX(16px); }
+
+.session-action-col { flex: 7 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
+.session-message-card {
+  background: #fff;
+  border-radius: var(--r-xl);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: var(--shadow-lift);
+}
+.session-message-input {
+  border: 1px solid transparent;
+  background: var(--bg);
+  border-radius: var(--r-md);
+  padding: 18px 20px;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  resize: vertical;
+  outline: none;
+  font-family: inherit;
+}
+.session-message-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+
+.session-video-card { background: #fff; border-radius: var(--r-lg); padding: 20px 24px; display: flex; flex-direction: column; gap: 10px; }
+.session-video-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
+.session-video-name-label { flex: 1; min-width: 140px; display: flex; flex-direction: column; gap: 6px; font-size: 0.78rem; font-weight: 500; color: var(--muted); }
+.video-status { font-size: 0.85rem; }
+.video-status.is-error { color: var(--red-dark); font-weight: 500; }
+.video-preview { width: 100%; max-width: 280px; border-radius: var(--r-md); margin-top: 4px; display: block; }
+
+.session-mark-panel {
+  background: var(--text);
+  color: var(--bg);
+  border-radius: var(--r-xl);
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.session-mark-label { font-size: 0.88rem; color: #D1CDC7; padding: 0 6px; }
+.session-mark-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.session-mark-btn {
+  background: transparent;
+  color: var(--bg);
+  border: 1.5px solid rgba(243, 240, 238, 0.35);
+  border-radius: var(--r-sm);
+  padding: 12px 16px;
+  font-size: 0.92rem;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  transition: border-color 0.15s;
+}
+.session-mark-btn:hover { border-color: var(--bg); }
+.session-mark-btn-primary {
+  background: var(--bg);
+  color: var(--text);
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 15px 20px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.15s;
+}
+.session-mark-btn-primary:hover { background: #fff; }
+.session-mark-btn-primary:active, .session-mark-btn:active { transform: scale(0.98); }
+
+kbd {
+  font-size: 0.7rem;
+  font-family: inherit;
+  border: 1px solid currentColor;
+  opacity: 0.6;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+/* LinkedIn simple session (engagement/connection) */
+.session-li-split { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.session-li-card {
+  flex: 7 1 420px;
+  min-width: 0;
+  background: var(--card-bg-alt);
+  border-radius: var(--r-xl);
+  padding: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.session-li-name { margin: 0; font-size: 1.7rem; line-height: 1.15; letter-spacing: -0.02em; font-weight: 500; }
+.session-li-headline { font-size: 0.95rem; font-weight: 500; margin-top: -8px; }
+.session-li-bio { margin: 0; font-size: 0.95rem; line-height: 1.5; color: #262627; max-width: 620px; }
+.session-li-card .btn-secondary { align-self: flex-start; }
+.session-li-engage {
+  flex: 5 1 320px;
+  min-width: 0;
+  background: var(--text);
+  color: var(--bg);
+  border-radius: var(--r-xl);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+.session-li-engage-label { font-size: 0.88rem; color: #D1CDC7; }
+.session-li-engage-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.session-li-engage-actions .session-li-btn,
+.session-li-engage-actions .session-li-btn-primary { flex: 1 1 130px; }
+.session-li-btn {
+  background: transparent;
+  color: var(--bg);
+  border: 1.5px solid rgba(243, 240, 238, 0.35);
+  border-radius: var(--r-sm);
+  padding: 13px 16px;
+  font-size: 0.92rem;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: border-color 0.15s;
+}
+.session-li-btn:hover { border-color: var(--bg); }
+.session-li-btn-primary {
+  background: var(--bg);
+  color: var(--text);
+  border: none;
+  border-radius: var(--r-sm);
+  padding: 13px 18px;
+  font-size: 1rem;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  transition: background 0.15s;
+}
+.session-li-btn-primary:hover { background: #fff; }
 
 /* End screen */
 .end-hero {
@@ -1563,12 +1692,96 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 
 .cooldown-countdown {
   font-size: 2.4rem;
-  font-weight: 800;
-  font-family: var(--font-display);
+  font-weight: 500;
   text-align: center;
   margin: 16px 0;
-  color: var(--accent);
+  color: var(--text);
 }
+
+/* ===== Interstitial screens (pacing break, warmup, account picker/limit,
+   video preload, combi interstitial) — one shared big-card treatment:
+   ghost watermark word behind the content, small eyebrow label, big
+   headline, optional countdown ring reusing the same stroke-dashoffset
+   approach as the Home goal ring. ===== */
+.interstitial {
+  position: relative;
+  overflow: hidden;
+  background: var(--card-bg-alt);
+  border-radius: var(--r-xl);
+  padding: 72px 40px 64px;
+  min-height: 420px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 22px;
+  margin-bottom: 18px;
+}
+.interstitial-ghost {
+  position: absolute;
+  top: 8px;
+  left: 0;
+  right: 0;
+  font-size: clamp(72px, 14vw, 200px);
+  line-height: 1;
+  font-weight: 500;
+  letter-spacing: -0.05em;
+  color: var(--border);
+  pointer-events: none;
+  user-select: none;
+  z-index: 0;
+}
+.interstitial > * { position: relative; z-index: 1; }
+.interstitial h1, .interstitial h2 {
+  margin: 0;
+  font-size: 40px;
+  line-height: 1.08;
+  letter-spacing: -0.02em;
+  font-weight: 500;
+  max-width: 680px;
+  text-wrap: balance;
+}
+.interstitial p { margin: 0; font-size: 17px; line-height: 1.5; color: #262627; max-width: 520px; }
+.interstitial-ring-wrap { position: relative; width: 176px; height: 176px; }
+.interstitial-ring-svg { width: 100%; height: 100%; transform: rotate(-90deg); }
+.interstitial-ring-track { fill: #fff; stroke: var(--border); stroke-width: 6; }
+.interstitial-ring-fill { fill: none; stroke: var(--text); stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 1s linear; }
+.interstitial .cooldown-countdown { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; margin: 0; font-size: 36px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.interstitial-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+.interstitial .btn-primary, .interstitial .btn-secondary { border-radius: var(--r-sm); }
+
+/* ===== Session-complete screens (view-end, view-simple-end) ===== */
+.done-hero {
+  position: relative;
+  overflow: hidden;
+  background: var(--card-bg-alt);
+  border-radius: var(--r-xl);
+  padding: 64px 40px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 24px;
+  margin-bottom: 18px;
+}
+.done-hero-curve { position: absolute; left: 0; top: 30px; width: 100%; height: 220px; pointer-events: none; z-index: 0; }
+.done-hero > * { position: relative; z-index: 1; }
+.done-hero h1 { margin: 0; font-size: 56px; line-height: 1; letter-spacing: -0.02em; font-weight: 500; }
+.done-stats-row { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+.done-stat-circle {
+  width: 148px;
+  height: 148px;
+  border-radius: 50%;
+  background: #fff;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+.done-stat-circle .stat-value { font-size: 44px; line-height: 1; letter-spacing: -0.02em; font-weight: 500; }
+.done-stat-circle .stat-label { font-size: 13px; color: var(--muted); max-width: 100px; margin-top: 2px; }
 
 /* Notification bell — now a sidebar row (same shape/hover language as
    .navbtn) instead of a fixed floating circle; its dropdown flies out to

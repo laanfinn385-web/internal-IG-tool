@@ -346,6 +346,25 @@ function clearSession() {
 function $(sel) { return document.querySelector(sel); }
 function $all(sel) { return Array.from(document.querySelectorAll(sel)); }
 
+// ---------- Shared lead/account avatar tone (redesign-v2) ----------
+// A deterministic hash → one of a fixed warm-beige palette, so the same
+// lead/account always gets the same color without storing one — reused
+// everywhere a circular initials avatar shows up (session, leads, saved
+// sessions, follow-ups). Same palette/algorithm as the source Claude
+// Design file's own TONES/hash(), for visual consistency with it.
+const AVATAR_TONES = ['#E8E2DA', '#E9DACB', '#EFDDD0', '#DED6CD', '#E6DCD2', '#F0E3D6'];
+function hashStr(str) {
+  let h = 7;
+  for (let i = 0; i < (str || '').length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function toneForId(id) { return AVATAR_TONES[hashStr(id) % AVATAR_TONES.length]; }
+function initialsFor(name) {
+  const words = (name || '?').trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  return ((words[0][0] || '') + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase();
+}
+
 // ---------- Shared platform helpers ----------
 // LinkedIn leads have no username (there's no equivalent handle concept) and
 // no public DM deep-link scheme the way ig.me/m/ exists for Instagram — these
@@ -835,12 +854,12 @@ function showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable
   const title = $('#ig-account-picker-title');
   const emoji = $('#ig-account-picker-emoji');
   if (isHandoff) {
-    emoji.textContent = '✅';
+    emoji.textContent = 'Switching accounts';
     title.textContent = 'Switching accounts';
     banner.textContent = `Finished with @${state.igAccountUsername || 'that account'} for today — ${state.sentCount} sent. ${igRemaining} more needed to hit today's Instagram goal.`;
     banner.classList.remove('hidden');
   } else {
-    emoji.textContent = '🎯';
+    emoji.textContent = 'Instagram';
     title.textContent = 'Choose an account to start with';
     banner.classList.add('hidden');
   }
@@ -1403,6 +1422,9 @@ function renderProfile() {
 
   $('#profile-link').href = p.profileUrl;
   $('#profile-link').textContent = isLinkedin ? 'Open profile on LinkedIn ↗' : 'Open profile on Instagram ↗';
+  const avatar = $('#dashboard-avatar');
+  avatar.textContent = initialsFor(p.fullName || p.username);
+  avatar.style.background = toneForId(p.leadId || p.username || '');
   $('#f-fullname').value = p.fullName;
   $('#f-username').value = p.username || '';
   $('#f-headline').value = p.headline || '';
@@ -2201,6 +2223,29 @@ $('#accept-btn').addEventListener('click', () => decide('sent'));
 $('#reject-btn').addEventListener('click', () => decide('not_qualified'));
 $('#next-unreachable-btn').addEventListener('click', () => decide('cant_message'));
 
+// Keyboard shortcuts for the two live-session screens — new in the redesign
+// (the buttons now show their key as a small badge, so they need to
+// actually work). Only fires against whichever of the two decision buttons
+// is currently visible, so it respects the existing canReceiveMessages
+// gating (view-dashboard shows either [Not qualified, Sent] or
+// [Next→/can't message], never a mix) rather than reimplementing it.
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target && /TEXTAREA|INPUT|SELECT/.test(e.target.tagName)) return;
+  const activeView = document.querySelector('.view:not(.hidden)');
+  if (!activeView) return;
+  const k = e.key.toLowerCase();
+  if (activeView.id === 'view-dashboard') {
+    if (k === 's' && !$('#accept-btn').classList.contains('hidden')) decide('sent');
+    else if (k === 'n' && !$('#reject-btn').classList.contains('hidden')) decide('not_qualified');
+    else if (k === 'x' && !$('#next-unreachable-btn').classList.contains('hidden')) decide('cant_message');
+  } else if (activeView.id === 'view-simple-session') {
+    const cfg = currentSimpleConfig();
+    if (k === cfg.positiveKey) decideSimple(true);
+    else if (k === cfg.negativeKey) decideSimple(false);
+  }
+});
+
 // ---------- END SCREEN ----------
 function showEndScreen(opts = {}) {
   const sent = state.results.filter(r => r.status === 'sent');
@@ -2857,8 +2902,8 @@ $('#quit-save-btn').addEventListener('click', async () => {
 // negative button is always a soft-delete, same "not qualified" semantics
 // the message-session dashboard already uses.
 const SIMPLE_SESSION_CONFIG = {
-  li_engagement: { title: 'Engagement session', positiveLabel: '✓ Engaged', negativeLabel: '✕ Not qualified', positiveStage: 'engaged' },
-  li_connection: { title: 'Connection session', positiveLabel: '✓ Connected', negativeLabel: '✕ Delete', positiveStage: 'connection_sent' }
+  li_engagement: { title: 'Engagement session', positiveLabel: 'Engaged', positiveKey: 'e', negativeLabel: 'Not qualified', negativeKey: 'n', positiveStage: 'engaged' },
+  li_connection: { title: 'Connection session', positiveLabel: 'Connected', positiveKey: 'c', negativeLabel: 'Delete', negativeKey: 'n', positiveStage: 'connection_sent' }
 };
 
 function currentSimpleConfigFor(kind) {
@@ -2891,8 +2936,12 @@ function renderSimpleSessionProfile() {
   $('#simple-session-title').textContent = cfg.title;
   $('#simple-session-fullname').textContent = p.fullName || 'Unknown';
   $('#simple-session-link').href = p.profileUrl || '#';
-  $('#simple-positive-btn').textContent = cfg.positiveLabel;
-  $('#simple-negative-btn').textContent = cfg.negativeLabel;
+  $('#simple-session-headline').textContent = p.headline || '';
+  $('#simple-session-headline').classList.toggle('hidden', !p.headline);
+  $('#simple-session-bio').textContent = p.bio || '';
+  $('#simple-session-bio').classList.toggle('hidden', !p.bio);
+  $('#simple-positive-btn').innerHTML = `${escapeHtml(cfg.positiveLabel)} <kbd>${cfg.positiveKey.toUpperCase()}</kbd>`;
+  $('#simple-negative-btn').innerHTML = `${escapeHtml(cfg.negativeLabel)} <kbd>${cfg.negativeKey.toUpperCase()}</kbd>`;
   updateSwitchAccountsButtonVisibility();
 }
 
