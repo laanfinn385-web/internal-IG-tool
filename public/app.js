@@ -3743,16 +3743,28 @@ async function loadAnalytics(range) {
 
 function pctText(v) { return v === null || v === undefined ? '—' : `${v}%`; }
 
+// Funnel bar widths are each step's count as a % of total sends (the
+// funnel's own baseline) — so the four bars visually show the real
+// drop-off shape, not just four independent numbers side by side.
+function funnelBarWidth(count, total) {
+  return total > 0 ? `${Math.max(2, Math.min(100, (count / total) * 100))}%` : '0%';
+}
+
 function renderFunnel(funnel) {
   if (!funnel) return;
+  const total = funnel.totalSends;
   $('#fn-sends').textContent = funnel.totalSends;
-  $('#fn-followups').textContent = funnel.followups;
+  $('#fn-sends-bar').style.width = funnelBarWidth(total, total);
   $('#fn-replies').textContent = funnel.replies;
+  $('#fn-replies-bar').style.width = funnelBarWidth(funnel.replies, total);
   $('#fn-rr').textContent = pctText(funnel.replyRate);
   $('#fn-positive').textContent = funnel.positiveReplies;
+  $('#fn-positive-bar').style.width = funnelBarWidth(funnel.positiveReplies, total);
   $('#fn-prr').textContent = pctText(funnel.prr);
   $('#fn-appts').textContent = funnel.appointmentsSet;
+  $('#fn-appts-bar').style.width = funnelBarWidth(funnel.appointmentsSet, total);
   $('#fn-asr').textContent = pctText(funnel.asr);
+  $('#fn-followups').textContent = funnel.followups;
   $('#fn-conn-sent').textContent = funnel.connectionsSent;
   $('#fn-conn-accepted').textContent = funnel.connectionsAccepted;
   $('#fn-car').textContent = pctText(funnel.car);

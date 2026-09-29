@@ -1036,7 +1036,7 @@ kbd {
 .range-tab.active { background: #fff; box-shadow: var(--shadow); font-weight: 500; }
 
 .chart-card { position: relative; }
-#an-chart { width: 100%; height: 260px; }
+#an-chart { width: 100%; height: 190px; }
 .chart-bar { transition: fill 0.1s; }
 .chart-hit-area { cursor: pointer; }
 
@@ -1046,11 +1046,10 @@ kbd {
   transform: translate(-50%, -100%);
   background: var(--text);
   color: var(--bg);
-  font-family: var(--font-display);
-  font-size: 0.8rem;
-  font-weight: 700;
-  padding: 6px 10px;
-  border-radius: 8px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  padding: 7px 14px;
+  border-radius: var(--r-pill);
   box-shadow: var(--shadow-lift);
   white-space: nowrap;
   z-index: 5;
@@ -1066,10 +1065,9 @@ kbd {
 }
 .chart-tooltip .tooltip-sub {
   display: block;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-  font-weight: 500;
-  font-size: 0.68rem;
-  opacity: 0.75;
+  font-weight: 450;
+  font-size: 0.72rem;
+  color: #D1CDC7;
   margin-top: 1px;
 }
 
@@ -2240,22 +2238,50 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 .followup-delete-btn:hover { color: var(--warn); }
 .followup-empty-state { text-align: center; padding: 40px 20px; }
 
-/* ===== Analytics funnel grid ===== */
+/* ===== Analytics ===== */
 
-.funnel-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
+.an-hero-card { display: flex; flex-wrap: wrap; gap: 36px; align-items: flex-end; padding: 36px; }
+.an-hero-stat { flex: 1 1 240px; display: flex; flex-direction: column; gap: 8px; }
+.an-hero-label { font-size: 0.85rem; color: var(--muted); }
+.an-hero-number { font-size: 4.4rem; line-height: 0.95; letter-spacing: -0.03em; font-weight: 500; }
+.an-hero-delta { font-size: 0.95rem; }
+.an-hero-chart { flex: 2 1 420px; min-width: 0; position: relative; }
+
+.an-funnel-row { display: flex; flex-wrap: wrap; gap: 24px; }
+.an-funnel-card { flex: 8 1 460px; min-width: 0; background: var(--card-bg-alt); display: flex; flex-direction: column; gap: 14px; }
+.an-funnel-card h3 { margin: 0 0 6px; font-size: 1.25rem; letter-spacing: -0.02em; font-weight: 500; }
+.an-funnel-bar-row { display: grid; grid-template-columns: minmax(110px, 160px) minmax(0, 1fr) minmax(90px, 130px); gap: 16px; align-items: center; }
+.an-funnel-bar-label { font-size: 0.95rem; }
+.an-funnel-bar-track { height: 40px; background: var(--bg); border-radius: var(--r-pill); overflow: hidden; }
+.an-funnel-bar-fill {
+  height: 100%;
+  min-width: 40px;
+  background: var(--accent);
+  border-radius: var(--r-pill);
+  display: flex;
+  align-items: center;
+  padding: 0 16px;
+  color: #fff;
+  font-size: 0.95rem;
+  font-weight: 500;
+  white-space: nowrap;
+  transition: width 0.4s cubic-bezier(0.4, 0, 0.2, 1);
 }
-.funnel-tile {
-  background: var(--bg);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 14px;
-  text-align: center;
+.an-funnel-bar-rate { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; font-size: 0.8rem; }
+.an-funnel-bar-rate strong { font-size: 1.05rem; font-weight: 500; }
+
+.an-secondary-col { flex: 4 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.an-secondary-card {
+  background: var(--card-bg);
+  border-radius: var(--r-md);
+  padding: 20px 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  box-shadow: var(--shadow);
 }
-.funnel-value { font-family: var(--font-display); font-size: 1.35rem; font-weight: 800; }
-.funnel-label { font-size: 0.76rem; color: var(--muted); margin-top: 2px; }
+.an-secondary-card > span:last-child { font-size: 1.6rem; letter-spacing: -0.02em; font-weight: 500; }
 
 /* ===== Settings ===== */
 
