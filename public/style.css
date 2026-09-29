@@ -333,20 +333,19 @@ label {
 input, textarea, select {
   width: 100%;
   margin-top: 5px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 9px;
-  background: var(--bg);
+  padding: 11px 16px;
+  border: 1px solid rgba(20, 20, 19, 0.18);
+  border-radius: var(--r-pill);
+  background: #fff;
   color: var(--text);
   font-size: 0.92rem;
   font-family: inherit;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color 0.15s;
 }
-textarea { resize: vertical; }
+textarea { resize: vertical; border-radius: var(--r-md); }
 input:focus, textarea:focus, select:focus {
   outline: none;
-  border-color: var(--purple-light);
-  box-shadow: 0 0 0 3px rgba(111, 36, 184, 0.16);
+  border-color: rgba(20, 20, 19, 0.6);
 }
 
 .row-between { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
@@ -1514,8 +1513,7 @@ kbd {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  background: rgba(20, 10, 30, 0.45);
-  backdrop-filter: blur(2px);
+  background: rgba(20, 20, 19, 0.28);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1524,16 +1522,16 @@ kbd {
 }
 .modal {
   background: var(--card-bg);
-  border-radius: 18px;
-  padding: 26px;
+  border-radius: var(--r-xl);
+  padding: 36px;
   width: 100%;
   max-width: 520px;
-  max-height: 86vh;
+  max-height: 88vh;
   overflow-y: auto;
-  box-shadow: var(--shadow-lift);
+  box-shadow: var(--shadow-modal);
 }
-.modal h3 { margin-top: 0; }
-.modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px; }
+.modal h3 { margin: 0 0 18px; font-size: 1.5rem; line-height: 1.15; letter-spacing: -0.02em; font-weight: 500; }
+.modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 20px; }
 
 .radio-label {
   display: flex;
@@ -1581,13 +1579,13 @@ kbd {
 .undo-toast {
   position: fixed;
   left: 50%;
-  bottom: 24px;
+  bottom: 32px;
   transform: translateX(-50%);
   background: var(--text);
   color: var(--bg);
-  border-radius: 14px;
+  border-radius: var(--r-pill);
   box-shadow: var(--shadow-lift);
-  padding: 14px 16px 10px;
+  padding: 14px 18px 10px;
   min-width: 280px;
   z-index: 200;
   overflow: hidden;
@@ -1599,19 +1597,20 @@ kbd {
   justify-content: space-between;
   gap: 16px;
   font-size: 0.9rem;
-  font-weight: 500;
+  font-weight: 450;
 }
 .undo-btn {
   background: none;
   border: none;
-  color: var(--purple-light);
-  font-weight: 700;
+  color: var(--bg);
+  font-weight: 500;
   font-size: 0.9rem;
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 6px;
+  padding: 4px 10px;
+  border-radius: var(--r-pill);
+  text-decoration: underline;
 }
-.undo-btn:hover { background: rgba(255, 255, 255, 0.1); }
+.undo-btn:hover { background: rgba(255, 255, 255, 0.12); }
 .undo-progress {
   margin-top: 10px;
   height: 3px;
