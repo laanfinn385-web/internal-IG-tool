@@ -168,15 +168,26 @@ function applyPlatformVisibility() {
   // sequences) vs LinkedIn's own separate follow-up template system.
   if (!igOn) {
     $('#settings-accounts-card').classList.add('hidden');
-    $('#settings-timing-sequences-card').classList.add('hidden');
-    $('#settings-message-sequences-card').classList.add('hidden');
+    $('#open-timing-sequences-btn').classList.add('hidden');
+    $('#open-message-sequences-btn').classList.add('hidden');
   }
   if (!liOn) {
     $('#settings-linkedin-followups-card').classList.add('hidden');
   }
 }
 
+// position: fixed on #profile-switcher-dropdown (style.css) needs explicit
+// px coordinates — computed fresh on every open since the sidebar's own
+// width (and so the button's position) differs between expanded/collapsed.
+function positionProfileSwitcherDropdown() {
+  const btnBox = $('#profile-switcher-btn').getBoundingClientRect();
+  const dropdown = $('#profile-switcher-dropdown');
+  dropdown.style.left = `${btnBox.left}px`;
+  dropdown.style.top = `${btnBox.bottom + 6}px`;
+}
+
 function toggleProfileSwitcherDropdown(show) {
+  if (show) positionProfileSwitcherDropdown();
   $('#profile-switcher-dropdown').classList.toggle('hidden', !show);
 }
 
@@ -334,6 +345,25 @@ function clearSession() {
 
 function $(sel) { return document.querySelector(sel); }
 function $all(sel) { return Array.from(document.querySelectorAll(sel)); }
+
+// ---------- Shared lead/account avatar tone (redesign-v2) ----------
+// A deterministic hash → one of a fixed warm-beige palette, so the same
+// lead/account always gets the same color without storing one — reused
+// everywhere a circular initials avatar shows up (session, leads, saved
+// sessions, follow-ups). Same palette/algorithm as the source Claude
+// Design file's own TONES/hash(), for visual consistency with it.
+const AVATAR_TONES = ['#E8E2DA', '#E9DACB', '#EFDDD0', '#DED6CD', '#E6DCD2', '#F0E3D6'];
+function hashStr(str) {
+  let h = 7;
+  for (let i = 0; i < (str || '').length; i++) h = (h * 31 + str.charCodeAt(i)) | 0;
+  return Math.abs(h);
+}
+function toneForId(id) { return AVATAR_TONES[hashStr(id) % AVATAR_TONES.length]; }
+function initialsFor(name) {
+  const words = (name || '?').trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return '?';
+  return ((words[0][0] || '') + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase();
+}
 
 // ---------- Shared platform helpers ----------
 // LinkedIn leads have no username (there's no equivalent handle concept) and
@@ -664,7 +694,19 @@ $('#home-platform-tabs').addEventListener('click', (e) => {
   loadHome();
 });
 
+// Purely presentational, computed client-side from the visitor's own clock
+// — no server data needed, so it's set once per loadHome() call rather than
+// living in /api/home's response.
+function renderHomeGreeting() {
+  const now = new Date();
+  $('#home-date').textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const hour = now.getHours();
+  const greeting = hour < 5 ? 'Still up?' : hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
+  $('#home-greeting').textContent = greeting;
+}
+
 async function loadHome() {
+  renderHomeGreeting();
   try {
     const data = await fetchJson(`/api/home?platform=${homePlatformFilter}`);
     $('#streak-value').textContent = data.streak;
@@ -697,55 +739,51 @@ async function loadHome() {
 
 // ---------- Daily goal ----------
 let homeDailyGoalData = null;
+const DAILY_GOAL_RING_CIRCUMFERENCE = 2 * Math.PI * 150; // r=150, matches the SVG circle in index.html
 
 function renderDailyGoal(dailyGoal) {
   homeDailyGoalData = dailyGoal;
   const igGoal = dailyGoal.instagram;
   const liGoal = dailyGoal.linkedin;
   const totalGoal = igGoal + liGoal;
+  const card = $('#daily-goal-card');
   const emptyState = $('#daily-goal-empty-state');
   const btn = $('#daily-goal-session-btn');
+  const restEls = [$('.home-goal-ring-wrap'), $('#daily-goal-stats'), $('#home-goal-streak'), btn];
 
   if (totalGoal === 0) {
-    $('#daily-goal-bar-track').classList.add('hidden');
-    $('#daily-goal-text').classList.add('hidden');
-    btn.classList.add('hidden');
+    restEls.forEach(el => el && el.classList.add('hidden'));
     emptyState.classList.remove('hidden');
     return;
   }
-  $('#daily-goal-bar-track').classList.remove('hidden');
-  $('#daily-goal-text').classList.remove('hidden');
-  btn.classList.remove('hidden');
+  restEls.forEach(el => el && el.classList.remove('hidden'));
   emptyState.classList.add('hidden');
 
   const igDone = dailyGoal.todaySentInstagram;
   const liDone = dailyGoal.todayEngagedLinkedin;
-  // Each segment's width is that platform's own completion %, scaled by its
-  // share of the combined goal — so the two segments together always sum to
-  // "how much of the combined daily goal is done", not just their own.
-  const igPct = igGoal > 0 ? Math.min(100, (igDone / igGoal) * 100) : 0;
-  const liPct = liGoal > 0 ? Math.min(100, (liDone / liGoal) * 100) : 0;
-  const igShare = (igGoal / totalGoal) * 100;
-  const liShare = (liGoal / totalGoal) * 100;
-  $('#daily-goal-bar-instagram').style.width = `${(igShare * igPct) / 100}%`;
-  $('#daily-goal-bar-linkedin').style.width = `${(liShare * liPct) / 100}%`;
+  const totalDone = igDone + liDone;
+  const fraction = Math.min(1, totalGoal > 0 ? totalDone / totalGoal : 0);
+  $('#daily-goal-ring-fill').style.strokeDashoffset = `${DAILY_GOAL_RING_CIRCUMFERENCE * (1 - fraction)}`;
+  $('#daily-goal-ring-done').textContent = totalDone.toLocaleString('en-US');
+  $('#daily-goal-ring-total').textContent = `of ${totalGoal.toLocaleString('en-US')} sent`;
 
-  const textParts = [];
-  if (igGoal > 0) textParts.push(`${igDone}/${igGoal} Instagram${dailyGoal.instagramSynced ? ' (synced)' : ''}`);
-  if (liGoal > 0) textParts.push(`${liDone}/${liGoal} LinkedIn`);
-  $('#daily-goal-text').textContent = textParts.join(' · ');
+  $('#daily-goal-ig-stat').classList.toggle('hidden', igGoal === 0);
+  $('#daily-goal-ig-text').textContent = `${igDone}/${igGoal}${dailyGoal.instagramSynced ? ' (synced)' : ''}`;
+  $('#daily-goal-li-stat').classList.toggle('hidden', liGoal === 0);
+  $('#daily-goal-li-text').textContent = `${liDone}/${liGoal}`;
 
   const igRemaining = Math.max(0, igGoal - igDone);
   const liRemaining = Math.max(0, liGoal - liDone);
-  if (igRemaining === 0 && liRemaining === 0) {
+  const goalReached = igRemaining === 0 && liRemaining === 0;
+  card.classList.toggle('goal-reached', goalReached);
+  if (goalReached) {
+    $('#daily-goal-ring-label').textContent = 'Goal reached';
     btn.textContent = '🎉 Goal reached';
     btn.disabled = true;
-  } else if (dailyGoal.savedSession) {
-    btn.textContent = 'Continue daily goal session →';
-    btn.disabled = false;
   } else {
-    btn.textContent = 'Start daily goal session →';
+    $('#daily-goal-ring-label').textContent = 'On track';
     btn.disabled = false;
+    btn.textContent = dailyGoal.savedSession ? 'Continue daily goal session →' : 'Start daily goal session →';
   }
 }
 
@@ -816,12 +854,12 @@ function showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable
   const title = $('#ig-account-picker-title');
   const emoji = $('#ig-account-picker-emoji');
   if (isHandoff) {
-    emoji.textContent = '✅';
+    emoji.textContent = 'Switching accounts';
     title.textContent = 'Switching accounts';
     banner.textContent = `Finished with @${state.igAccountUsername || 'that account'} for today — ${state.sentCount} sent. ${igRemaining} more needed to hit today's Instagram goal.`;
     banner.classList.remove('hidden');
   } else {
-    emoji.textContent = '🎯';
+    emoji.textContent = 'Instagram';
     title.textContent = 'Choose an account to start with';
     banner.classList.add('hidden');
   }
@@ -1384,6 +1422,9 @@ function renderProfile() {
 
   $('#profile-link').href = p.profileUrl;
   $('#profile-link').textContent = isLinkedin ? 'Open profile on LinkedIn ↗' : 'Open profile on Instagram ↗';
+  const avatar = $('#dashboard-avatar');
+  avatar.textContent = initialsFor(p.fullName || p.username);
+  avatar.style.background = toneForId(p.leadId || p.username || '');
   $('#f-fullname').value = p.fullName;
   $('#f-username').value = p.username || '';
   $('#f-headline').value = p.headline || '';
@@ -2182,6 +2223,29 @@ $('#accept-btn').addEventListener('click', () => decide('sent'));
 $('#reject-btn').addEventListener('click', () => decide('not_qualified'));
 $('#next-unreachable-btn').addEventListener('click', () => decide('cant_message'));
 
+// Keyboard shortcuts for the two live-session screens — new in the redesign
+// (the buttons now show their key as a small badge, so they need to
+// actually work). Only fires against whichever of the two decision buttons
+// is currently visible, so it respects the existing canReceiveMessages
+// gating (view-dashboard shows either [Not qualified, Sent] or
+// [Next→/can't message], never a mix) rather than reimplementing it.
+document.addEventListener('keydown', (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (e.target && /TEXTAREA|INPUT|SELECT/.test(e.target.tagName)) return;
+  const activeView = document.querySelector('.view:not(.hidden)');
+  if (!activeView) return;
+  const k = e.key.toLowerCase();
+  if (activeView.id === 'view-dashboard') {
+    if (k === 's' && !$('#accept-btn').classList.contains('hidden')) decide('sent');
+    else if (k === 'n' && !$('#reject-btn').classList.contains('hidden')) decide('not_qualified');
+    else if (k === 'x' && !$('#next-unreachable-btn').classList.contains('hidden')) decide('cant_message');
+  } else if (activeView.id === 'view-simple-session') {
+    const cfg = currentSimpleConfig();
+    if (k === cfg.positiveKey) decideSimple(true);
+    else if (k === cfg.negativeKey) decideSimple(false);
+  }
+});
+
 // ---------- END SCREEN ----------
 function showEndScreen(opts = {}) {
   const sent = state.results.filter(r => r.status === 'sent');
@@ -2838,8 +2902,8 @@ $('#quit-save-btn').addEventListener('click', async () => {
 // negative button is always a soft-delete, same "not qualified" semantics
 // the message-session dashboard already uses.
 const SIMPLE_SESSION_CONFIG = {
-  li_engagement: { title: 'Engagement session', positiveLabel: '✓ Engaged', negativeLabel: '✕ Not qualified', positiveStage: 'engaged' },
-  li_connection: { title: 'Connection session', positiveLabel: '✓ Connected', negativeLabel: '✕ Delete', positiveStage: 'connection_sent' }
+  li_engagement: { title: 'Engagement session', positiveLabel: 'Engaged', positiveKey: 'e', negativeLabel: 'Not qualified', negativeKey: 'n', positiveStage: 'engaged' },
+  li_connection: { title: 'Connection session', positiveLabel: 'Connected', positiveKey: 'c', negativeLabel: 'Delete', negativeKey: 'n', positiveStage: 'connection_sent' }
 };
 
 function currentSimpleConfigFor(kind) {
@@ -2872,8 +2936,12 @@ function renderSimpleSessionProfile() {
   $('#simple-session-title').textContent = cfg.title;
   $('#simple-session-fullname').textContent = p.fullName || 'Unknown';
   $('#simple-session-link').href = p.profileUrl || '#';
-  $('#simple-positive-btn').textContent = cfg.positiveLabel;
-  $('#simple-negative-btn').textContent = cfg.negativeLabel;
+  $('#simple-session-headline').textContent = p.headline || '';
+  $('#simple-session-headline').classList.toggle('hidden', !p.headline);
+  $('#simple-session-bio').textContent = p.bio || '';
+  $('#simple-session-bio').classList.toggle('hidden', !p.bio);
+  $('#simple-positive-btn').innerHTML = `${escapeHtml(cfg.positiveLabel)} <kbd>${cfg.positiveKey.toUpperCase()}</kbd>`;
+  $('#simple-negative-btn').innerHTML = `${escapeHtml(cfg.negativeLabel)} <kbd>${cfg.negativeKey.toUpperCase()}</kbd>`;
   updateSwitchAccountsButtonVisibility();
 }
 
@@ -3296,6 +3364,7 @@ $('#saved-sessions-type-tabs').addEventListener('click', (e) => {
 function renderSavedSessionsList() {
   const list = $('#saved-sessions-list');
   const empty = $('#saved-sessions-empty');
+  const emptyCard = $('#saved-sessions-empty-card');
   const filtered = savedSessionsState.typeFilter === 'all'
     ? savedSessionsState.sessions
     : savedSessionsState.sessions.filter(s => savedSessionTypeCategory(s) === savedSessionsState.typeFilter);
@@ -3303,29 +3372,40 @@ function renderSavedSessionsList() {
   if (filtered.length === 0) {
     list.innerHTML = '';
     empty.textContent = savedSessionsState.sessions.length === 0
-      ? 'No saved sessions — use "Quit & save" mid-session to pick one up later.'
+      ? 'Use "Quit & save" mid-session to pick one up later.'
       : 'No saved sessions match this filter.';
-    empty.classList.remove('hidden');
+    emptyCard.classList.remove('hidden');
     return;
   }
-  empty.classList.add('hidden');
+  emptyCard.classList.add('hidden');
   // username/fullName are freely-editable, possibly CSV-imported text —
   // escaped here like everywhere else this app renders lead-supplied text.
-  list.innerHTML = filtered.map(s => `
+  list.innerHTML = filtered.map(s => {
+    const total = s.results.length + s.remainingProfiles.length;
+    const pct = total > 0 ? Math.round((s.results.length / total) * 100) : 0;
+    const faces = s.remainingProfiles.slice(0, 4).map(p => {
+      const name = leadDisplayName(p);
+      return `<span class="saved-session-face" style="background:${toneForId(p.leadId || name)}">${escapeHtml(initialsFor(p.fullName || p.username))}</span>`;
+    }).join('');
+    const moreCount = s.remainingProfiles.length - 4;
+    const more = moreCount > 0 ? `<span class="saved-session-face saved-session-face-more">+${moreCount}</span>` : '';
+    return `
     <div class="saved-session-card" data-id="${s.id}">
-      <div class="saved-session-main">
-        <div class="saved-session-date-row">
-          <span class="saved-session-type-badge saved-session-type-${savedSessionTypeCategory(s)}">${escapeHtml(savedSessionTypeLabel(s))}</span>
-          <span class="saved-session-date">${escapeHtml(timeAgo(s.createdAt))}</span>
+      <div class="saved-session-card-top">
+        <div class="saved-session-main">
+          <span class="saved-session-summary">${escapeHtml(savedSessionSummary(s))}</span>
+          <span class="muted">${escapeHtml(timeAgo(s.createdAt))}</span>
         </div>
-        <div class="saved-session-summary">${escapeHtml(savedSessionSummary(s))}</div>
+        <span class="saved-session-type-badge saved-session-type-${savedSessionTypeCategory(s)}">${escapeHtml(savedSessionTypeLabel(s))}</span>
       </div>
+      <div class="saved-session-faces">${faces}${more}</div>
+      <div class="saved-session-progress-track"><div class="saved-session-progress-fill" style="width:${pct}%"></div></div>
       <div class="saved-session-card-actions">
         <button type="button" class="saved-session-continue-btn" data-id="${s.id}">Continue →</button>
-        <button type="button" class="saved-session-delete-btn" data-id="${s.id}" title="Delete this saved session">🗑</button>
+        <button type="button" class="saved-session-view-btn" data-id="${s.id}">View leads</button>
       </div>
-    </div>
-  `).join('');
+    </div>`;
+  }).join('');
 }
 
 // Deleting a saved session only discards the saved copy of the queue — the
@@ -3355,12 +3435,8 @@ $('#saved-sessions-list').addEventListener('click', (e) => {
     if (session) resumeSavedSession(session);
     return;
   }
-  const deleteBtn = e.target.closest('.saved-session-delete-btn');
-  if (deleteBtn) {
-    e.stopPropagation();
-    deleteSavedSession(deleteBtn.dataset.id);
-    return;
-  }
+  // "View leads" has no handler of its own — it (and clicking anywhere
+  // else on the card) falls through to the same open-detail action below.
   const card = e.target.closest('.saved-session-card');
   if (card) showSavedSessionDetail(card.dataset.id);
 });
@@ -3370,14 +3446,24 @@ function showSavedSessionDetail(id) {
   if (!session) return;
   savedSessionsState.viewingId = id;
   $('#saved-session-summary').innerHTML = `
-    <span class="saved-session-type-badge saved-session-type-${savedSessionTypeCategory(session)}">${escapeHtml(savedSessionTypeLabel(session))}</span>
-    <h3>${escapeHtml(timeAgo(session.createdAt))}</h3>
-    <p class="muted">${escapeHtml(savedSessionSummary(session))}</p>
+    <div style="display:flex;flex-direction:column;gap:10px;">
+      <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">${escapeHtml(savedSessionTypeLabel(session))} session</h1>
+      <p class="muted" style="margin:0;">${escapeHtml(timeAgo(session.createdAt))} · ${escapeHtml(savedSessionSummary(session))}</p>
+    </div>
   `;
   const list = $('#saved-session-remaining-list');
   list.innerHTML = session.remainingProfiles.length
-    ? session.remainingProfiles.map(p => `<li><strong>${escapeHtml(leadDisplayName(p))}</strong></li>`).join('')
-    : '<li class="muted">None</li>';
+    ? session.remainingProfiles.map(p => {
+        const name = leadDisplayName(p);
+        return `
+        <li class="saved-session-lead-row">
+          <span class="saved-session-face" style="background:${toneForId(p.leadId || name)}">${escapeHtml(initialsFor(p.fullName || p.username))}</span>
+          <span class="saved-session-lead-name">${escapeHtml(name)}</span>
+          <span class="muted">${p.platform === 'linkedin' ? 'LinkedIn' : 'Instagram'}</span>
+          <span class="saved-session-lead-followers">${p.followers ? Number(p.followers).toLocaleString('en-US') : ''}</span>
+        </li>`;
+      }).join('')
+    : '<li class="muted saved-session-lead-row">None</li>';
   $('#saved-session-combi-actions').classList.toggle('hidden', session.sessionKind !== 'combi');
   showView('saved-session-detail');
 }
@@ -3675,16 +3761,28 @@ async function loadAnalytics(range) {
 
 function pctText(v) { return v === null || v === undefined ? '—' : `${v}%`; }
 
+// Funnel bar widths are each step's count as a % of total sends (the
+// funnel's own baseline) — so the four bars visually show the real
+// drop-off shape, not just four independent numbers side by side.
+function funnelBarWidth(count, total) {
+  return total > 0 ? `${Math.max(2, Math.min(100, (count / total) * 100))}%` : '0%';
+}
+
 function renderFunnel(funnel) {
   if (!funnel) return;
+  const total = funnel.totalSends;
   $('#fn-sends').textContent = funnel.totalSends;
-  $('#fn-followups').textContent = funnel.followups;
+  $('#fn-sends-bar').style.width = funnelBarWidth(total, total);
   $('#fn-replies').textContent = funnel.replies;
+  $('#fn-replies-bar').style.width = funnelBarWidth(funnel.replies, total);
   $('#fn-rr').textContent = pctText(funnel.replyRate);
   $('#fn-positive').textContent = funnel.positiveReplies;
+  $('#fn-positive-bar').style.width = funnelBarWidth(funnel.positiveReplies, total);
   $('#fn-prr').textContent = pctText(funnel.prr);
   $('#fn-appts').textContent = funnel.appointmentsSet;
+  $('#fn-appts-bar').style.width = funnelBarWidth(funnel.appointmentsSet, total);
   $('#fn-asr').textContent = pctText(funnel.asr);
+  $('#fn-followups').textContent = funnel.followups;
   $('#fn-conn-sent').textContent = funnel.connectionsSent;
   $('#fn-conn-accepted').textContent = funnel.connectionsAccepted;
   $('#fn-car').textContent = pctText(funnel.car);

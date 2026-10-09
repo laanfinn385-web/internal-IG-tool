@@ -7,8 +7,8 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 36 36'%3E%3Crect width='36' height='36' rx='10' fill='%23430074'/%3E%3Ctext x='18' y='25' font-size='18' text-anchor='middle' fill='white' font-family='sans-serif'%3E%F0%9F%93%A9%3C/text%3E%3Ccircle cx='30' cy='7' r='4' fill='%23ff3131'/%3E%3C/svg%3E">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@600;700;800&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=23">
+<link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=33">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -35,16 +35,53 @@
           <button type="button" id="profile-switcher-new-btn" class="profile-switcher-new-btn">+ New profile</button>
         </div>
       </div>
-      <button id="sidebar-toggle" class="sidebar-toggle-btn" title="Collapse sidebar">◀</button>
+      <button id="sidebar-toggle" class="sidebar-toggle-btn" title="Collapse sidebar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
+      </button>
     </div>
     <nav class="sidebar-nav">
-      <button class="navbtn active" data-nav="home"><span class="navbtn-icon">🏠</span><span class="navbtn-label">Home</span></button>
-      <button class="navbtn" data-nav="leads"><span class="navbtn-icon">👥</span><span class="navbtn-label">Leads</span></button>
-      <button class="navbtn" data-nav="analytics"><span class="navbtn-icon">📊</span><span class="navbtn-label">Analytics</span></button>
-      <button class="navbtn" data-nav="saved-sessions"><span class="navbtn-icon">💾</span><span class="navbtn-label">Saved Sessions</span></button>
+      <button class="navbtn active" data-nav="home" title="Home">
+        <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"></path></svg></span>
+        <span class="navbtn-label">Home</span>
+      </button>
+      <button class="navbtn" data-nav="leads" title="Leads">
+        <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg></span>
+        <span class="navbtn-label">Leads</span>
+      </button>
+      <button class="navbtn" data-nav="analytics" title="Analytics">
+        <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18M7 16v-4M12 16V8M17 16v-7"></path></svg></span>
+        <span class="navbtn-label">Analytics</span>
+      </button>
+      <button class="navbtn" data-nav="saved-sessions" title="Saved Sessions">
+        <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg></span>
+        <span class="navbtn-label">Saved Sessions</span>
+      </button>
     </nav>
     <div class="sidebar-bottom">
-      <button id="settings-btn" class="navbtn" title="Settings" data-nav="settings"><span class="navbtn-icon">⚙️</span><span class="navbtn-label">Settings</span></button>
+      <div id="sidebar-fu-card" class="sidebar-fu-card hidden">
+        <div class="sidebar-fu-card-title">
+          <strong id="sidebar-fu-card-title">Follow-ups waiting</strong>
+          <span id="sidebar-fu-card-sub">—</span>
+        </div>
+        <button type="button" id="sidebar-fu-card-btn" class="sidebar-fu-card-btn">Work through →</button>
+      </div>
+      <div class="notif-wrap">
+        <button id="notif-bell" class="notif-bell" title="Follow-up notifications">
+          <span class="notif-bell-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg></span>
+          <span class="notif-bell-label">Notifications</span>
+          <span class="notif-badge hidden" id="notif-badge">0</span>
+        </button>
+        <div id="notif-dropdown" class="notif-dropdown hidden">
+          <div class="notif-dropdown-header">Notifications</div>
+          <div id="notif-list"></div>
+          <div class="notif-empty hidden" id="notif-empty">You're all caught up 🎉</div>
+          <button type="button" id="notif-add-reminder-btn" class="notif-add-reminder-btn">+ Add reminder</button>
+        </div>
+      </div>
+      <button id="settings-btn" class="navbtn" title="Settings" data-nav="settings">
+        <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg></span>
+        <span class="navbtn-label">Settings</span>
+      </button>
     </div>
   </aside>
 
@@ -70,25 +107,15 @@
     </div>
   </div>
 
-  <div class="notif-wrap">
-    <button id="notif-bell" class="icon-btn notif-bell" title="Follow-up notifications">
-      🔔
-      <span class="notif-badge hidden" id="notif-badge">0</span>
-    </button>
-    <div id="notif-dropdown" class="notif-dropdown hidden">
-      <div class="notif-dropdown-header">Notifications</div>
-      <div id="notif-list"></div>
-      <div class="notif-empty hidden" id="notif-empty">You're all caught up 🎉</div>
-      <button type="button" id="notif-add-reminder-btn" class="notif-add-reminder-btn">+ Add reminder</button>
-    </div>
-  </div>
-
   <div class="main-wrap"><main class="main-content">
 
     <!-- HOME -->
     <section id="view-home" class="view">
-      <div class="row-between leads-header">
-        <h1 class="page-title">Overview</h1>
+      <div class="home-header">
+        <div class="home-header-text">
+          <div class="eyebrow" id="home-date">–</div>
+          <h1 class="home-greeting" id="home-greeting">Welcome back.</h1>
+        </div>
         <div class="range-tabs" id="home-platform-tabs">
           <button type="button" class="range-tab" data-platform="instagram">Instagram</button>
           <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
@@ -96,28 +123,88 @@
         </div>
       </div>
 
-      <div class="card daily-goal-card" id="daily-goal-card">
-        <div class="daily-goal-row">
-          <div class="daily-goal-main">
-            <div class="daily-goal-label-row">
-              <span class="daily-goal-title">🎯 Daily goal</span>
-              <span class="muted" id="daily-goal-text">–</span>
-            </div>
-            <div class="daily-goal-bar-track" id="daily-goal-bar-track">
-              <div class="daily-goal-bar-fill daily-goal-bar-instagram" id="daily-goal-bar-instagram"></div>
-              <div class="daily-goal-bar-fill daily-goal-bar-linkedin" id="daily-goal-bar-linkedin"></div>
+      <section class="home-hero-row">
+        <div class="home-goal-card" id="daily-goal-card">
+          <span class="home-goal-ghost" aria-hidden="true">Today</span>
+          <div class="home-goal-ring-wrap">
+            <svg class="home-goal-ring-svg" viewBox="0 0 360 360">
+              <circle cx="180" cy="180" r="150" class="home-goal-ring-track"></circle>
+              <circle cx="180" cy="180" r="150" class="home-goal-ring-fill" id="daily-goal-ring-fill" stroke-dasharray="942.5" stroke-dashoffset="942.5"></circle>
+            </svg>
+            <div class="home-goal-ring-center">
+              <span class="home-goal-ring-label" id="daily-goal-ring-label">Set a goal</span>
+              <span class="home-goal-ring-done" id="daily-goal-ring-done">0</span>
+              <span class="home-goal-ring-total" id="daily-goal-ring-total">of 0 sent</span>
             </div>
           </div>
-          <button id="daily-goal-session-btn" class="btn-primary">Start daily goal session →</button>
+          <div class="home-goal-stats" id="daily-goal-stats">
+            <div class="home-goal-stat" id="daily-goal-ig-stat"><span>Instagram</span><strong id="daily-goal-ig-text">0/0</strong></div>
+            <div class="home-goal-stat" id="daily-goal-li-stat"><span>LinkedIn</span><strong id="daily-goal-li-text">0/0</strong></div>
+          </div>
+          <div class="home-goal-streak" id="home-goal-streak">
+            <span id="streak-flame" class="streak-flame" title="Lights up once you hit today's daily goal">🔥</span>
+            <span><strong id="streak-value">–</strong> day streak</span>
+          </div>
+          <button id="daily-goal-session-btn" class="home-goal-btn">Start daily goal session →</button>
+          <p class="muted hidden" id="daily-goal-empty-state">No daily goal set yet — <a href="#" data-nav="settings" class="inline-link">set one in Settings</a> to track today's progress here.</p>
         </div>
-        <p class="muted hidden" id="daily-goal-empty-state">No daily goal set yet — <a href="#" data-nav="settings" class="inline-link">set one in Settings</a> to track today's progress here.</p>
-      </div>
 
-      <div class="overview-grid overview-grid-3">
-        <div class="overview-tile highlight">
-          <div class="overview-tile-label"><span id="streak-flame" class="streak-flame" title="Lights up once you hit today's daily goal">🔥</span> Day streak</div>
-          <div class="overview-tile-value" id="streak-value">–</div>
+        <div class="card home-session-card">
+          <h2>Start new session</h2>
+          <p class="muted">Pulls the next leads from your <a href="#" data-nav="leads" class="inline-link">Leads</a> list that haven't been contacted yet.</p>
+
+          <div class="range-tabs" id="home-session-platform-tabs">
+            <button type="button" class="range-tab active" data-session-platform="instagram">Instagram session</button>
+            <button type="button" class="range-tab" data-session-platform="linkedin">LinkedIn session</button>
+            <button type="button" class="range-tab" data-session-platform="combi">Combi session</button>
+          </div>
+
+          <div id="home-session-single">
+            <div class="session-size-row">
+              <div class="session-size-presets" id="session-size-presets">
+                <button type="button" class="preset-btn" data-size="10">10</button>
+                <button type="button" class="preset-btn active" data-size="15">15</button>
+                <button type="button" class="preset-btn" data-size="25">25</button>
+                <button type="button" class="preset-btn" data-size="50">50</button>
+                <button type="button" class="preset-btn" data-size="100">100</button>
+              </div>
+              <label class="session-size-custom">Leads
+                <input type="number" id="session-size-input" min="1" value="15">
+              </label>
+            </div>
+          </div>
+
+          <div id="home-session-combi" class="hidden">
+            <p class="muted">Goes through all Instagram leads first, then LinkedIn.</p>
+            <div class="combi-size-row">
+              <label>Instagram leads
+                <input type="number" id="combi-ig-size-input" min="1" value="15">
+              </label>
+              <label>LinkedIn leads
+                <input type="number" id="combi-li-size-input" min="1" value="15">
+              </label>
+            </div>
+          </div>
+
+          <div id="home-session-account-row" class="hidden">
+            <label>Instagram account
+              <select id="home-session-account-select"></select>
+            </label>
+            <p class="muted hidden" id="home-session-no-accounts">No Instagram accounts yet — <a href="#" data-nav="settings" class="inline-link">add one in Settings</a> first.</p>
+            <p class="hidden" id="home-session-account-error" style="color: var(--red); font-size: 0.85rem; margin-top: 6px;"></p>
+          </div>
+
+          <p class="muted" id="home-session-cooldown-notice" style="display:none;"></p>
+
+          <div class="row-between">
+            <span class="muted">&nbsp;</span>
+            <button id="start-session-btn" class="btn-primary">Start session →</button>
+          </div>
+          <div id="home-session-error" class="import-error hidden"></div>
         </div>
+      </section>
+
+      <div class="overview-grid overview-grid-2">
         <div class="overview-tile">
           <div class="overview-tile-label">📤 Reach-outs (7d)</div>
           <div class="overview-tile-value" id="week-value">–</div>
@@ -179,60 +266,6 @@
           <div class="overview-tile-value" id="car-value">–</div>
         </div>
       </div>
-
-      <div class="card">
-        <h2>Start new session</h2>
-        <p class="muted">Pulls the next leads from your <a href="#" data-nav="leads" class="inline-link">Leads</a> list that haven't been contacted yet.</p>
-
-        <div class="range-tabs" id="home-session-platform-tabs">
-          <button type="button" class="range-tab active" data-session-platform="instagram">Instagram session</button>
-          <button type="button" class="range-tab" data-session-platform="linkedin">LinkedIn session</button>
-          <button type="button" class="range-tab" data-session-platform="combi">Combi session</button>
-        </div>
-
-        <div id="home-session-single">
-          <div class="session-size-row">
-            <div class="session-size-presets" id="session-size-presets">
-              <button type="button" class="preset-btn" data-size="10">10</button>
-              <button type="button" class="preset-btn active" data-size="15">15</button>
-              <button type="button" class="preset-btn" data-size="25">25</button>
-              <button type="button" class="preset-btn" data-size="50">50</button>
-              <button type="button" class="preset-btn" data-size="100">100</button>
-            </div>
-            <label class="session-size-custom">Leads
-              <input type="number" id="session-size-input" min="1" value="15">
-            </label>
-          </div>
-        </div>
-
-        <div id="home-session-combi" class="hidden">
-          <p class="muted">Goes through all Instagram leads first, then LinkedIn.</p>
-          <div class="combi-size-row">
-            <label>Instagram leads
-              <input type="number" id="combi-ig-size-input" min="1" value="15">
-            </label>
-            <label>LinkedIn leads
-              <input type="number" id="combi-li-size-input" min="1" value="15">
-            </label>
-          </div>
-        </div>
-
-        <div id="home-session-account-row" class="hidden">
-          <label>Instagram account
-            <select id="home-session-account-select"></select>
-          </label>
-          <p class="muted hidden" id="home-session-no-accounts">No Instagram accounts yet — <a href="#" data-nav="settings" class="inline-link">add one in Settings</a> first.</p>
-          <p class="hidden" id="home-session-account-error" style="color: var(--red); font-size: 0.85rem; margin-top: 6px;"></p>
-        </div>
-
-        <p class="muted" id="home-session-cooldown-notice" style="display:none;"></p>
-
-        <div class="row-between">
-          <span class="muted">&nbsp;</span>
-          <button id="start-session-btn" class="btn-primary">Start session →</button>
-        </div>
-        <div id="home-session-error" class="import-error hidden"></div>
-      </div>
     </section>
 
     <!-- VIDEO PRELOAD -->
@@ -249,14 +282,15 @@
 
     <!-- COMBI INTERSTITIAL -->
     <section id="view-combi-interstitial" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji">✅</div>
+      <div class="interstitial">
+        <span class="interstitial-ghost" aria-hidden="true">Done</span>
+        <div class="eyebrow">Instagram complete</div>
         <h1>Finished all Instagram leads</h1>
-        <p class="end-sub" id="combi-interstitial-summary"></p>
-      </div>
-      <div class="decision-row">
-        <button id="combi-save-li-btn" class="btn-secondary">💾 Save LinkedIn leads for later</button>
-        <button id="combi-continue-li-btn" class="btn-primary">Move on to LinkedIn leads →</button>
+        <p id="combi-interstitial-summary"></p>
+        <div class="interstitial-actions">
+          <button id="combi-save-li-btn" class="btn-secondary">💾 Save LinkedIn leads for later</button>
+          <button id="combi-continue-li-btn" class="btn-primary">Move on to LinkedIn leads →</button>
+        </div>
       </div>
     </section>
 
@@ -270,15 +304,15 @@
          reactive "daily limit reached mid-session" screen below) — you're
          choosing deliberately, not reacting to a surprise limit. -->
     <section id="view-ig-account-picker" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji" id="ig-account-picker-emoji">🎯</div>
+      <div class="interstitial">
+        <span class="interstitial-ghost" aria-hidden="true">Choose</span>
+        <div class="eyebrow" id="ig-account-picker-emoji">Instagram</div>
         <h1 id="ig-account-picker-title">Choose an account to start with</h1>
-        <p class="end-sub hidden" id="ig-account-picker-banner"></p>
-      </div>
-      <div class="daily-goal-account-picker-list" id="ig-account-picker-list"></div>
-      <div class="row-between" style="margin-top:16px;">
-        <span class="muted">&nbsp;</span>
-        <button id="ig-account-picker-home-btn" class="btn-secondary">Not now — back to Home</button>
+        <p class="hidden" id="ig-account-picker-banner"></p>
+        <div class="daily-goal-account-picker-list" id="ig-account-picker-list"></div>
+        <div class="interstitial-actions">
+          <button id="ig-account-picker-home-btn" class="btn-secondary">Not now — back to Home</button>
+        </div>
       </div>
     </section>
 
@@ -286,10 +320,11 @@
          (starts the 2-hour switch cooldown) or, mid-combi, skip straight to
          the LinkedIn portion instead (unaffected by the Instagram limit). -->
     <section id="view-ig-account-limit" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji">⏸️</div>
+      <div class="interstitial">
+        <span class="interstitial-ghost" aria-hidden="true">Paused</span>
+        <div class="eyebrow">Instagram</div>
         <h1 id="ig-limit-title">Daily limit reached</h1>
-        <p class="end-sub" id="ig-limit-summary"></p>
+        <p id="ig-limit-summary"></p>
       </div>
 
       <div class="card" id="ig-limit-picker-card">
@@ -306,11 +341,18 @@
         <button id="ig-limit-continue-li-btn" class="btn-secondary hidden" type="button">Continue to LinkedIn leads →</button>
       </div>
 
-      <div class="card hidden" id="ig-limit-cooldown-card">
-        <h2>Switching accounts</h2>
-        <p class="muted">Instagram can flag back-to-back account switching as automated. Waiting a couple hours keeps this looking human.</p>
-        <div class="cooldown-countdown" id="ig-limit-countdown"></div>
-        <div class="modal-actions" style="justify-content:flex-start; gap:12px;">
+      <div class="interstitial hidden" id="ig-limit-cooldown-card">
+        <span class="interstitial-ghost" aria-hidden="true">Wait</span>
+        <div class="eyebrow">Switching accounts</div>
+        <h2>Instagram can flag rapid switching</h2>
+        <p>Waiting a couple hours keeps this looking human.</p>
+        <div class="interstitial-ring-wrap">
+          <svg class="interstitial-ring-svg" viewBox="0 0 176 176">
+            <circle cx="88" cy="88" r="80" class="interstitial-ring-track"></circle>
+          </svg>
+          <div class="cooldown-countdown" id="ig-limit-countdown"></div>
+        </div>
+        <div class="interstitial-actions">
           <button id="ig-limit-home-btn" class="btn-secondary">← Go back to home</button>
           <button id="ig-limit-skip-btn" class="btn-secondary">Skip timer</button>
         </div>
@@ -321,15 +363,19 @@
          button (that would defeat the point); "Go back to home" is still
          available as a genuine exit. -->
     <section id="view-send-pacing-break" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji">⏸️</div>
+      <div class="interstitial">
+        <span class="interstitial-ghost" aria-hidden="true">Pause</span>
+        <div class="eyebrow">Pacing break</div>
         <h1 id="pacing-break-title">Take a quick break</h1>
-        <p class="end-sub">Real people don't send DMs back-to-back for hours.</p>
-      </div>
-      <div class="card">
+        <p>Real people don't send DMs back-to-back for hours.</p>
         <p class="muted" id="pacing-break-status"></p>
-        <div class="cooldown-countdown" id="pacing-break-countdown"></div>
-        <div class="modal-actions" style="justify-content:flex-start; gap:12px;">
+        <div class="interstitial-ring-wrap">
+          <svg class="interstitial-ring-svg" viewBox="0 0 176 176">
+            <circle cx="88" cy="88" r="80" class="interstitial-ring-track"></circle>
+          </svg>
+          <div class="cooldown-countdown" id="pacing-break-countdown"></div>
+        </div>
+        <div class="interstitial-actions">
           <button id="pacing-break-home-btn" class="btn-secondary">← Go back to home</button>
           <button id="pacing-break-continue-btn" class="btn-primary hidden">Continue session →</button>
         </div>
@@ -340,15 +386,19 @@
          still in warmup. No skip button: only actually letting the timer run
          (paused or not) counts. -->
     <section id="view-warmup-engage" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji">📱</div>
-        <h1 id="warmup-engage-title">Scroll & engage</h1>
-        <p class="end-sub">Genuinely scroll your feed, watch some stories, like a few posts — real activity, not the tool running in the background.</p>
-      </div>
-      <div class="card">
-        <div class="cooldown-countdown" id="warmup-engage-countdown"></div>
+      <div class="interstitial">
+        <span class="interstitial-ghost" aria-hidden="true">Scroll</span>
+        <div class="eyebrow">Warmup</div>
+        <h1 id="warmup-engage-title">Scroll &amp; engage</h1>
+        <p>Genuinely scroll your feed, watch some stories, like a few posts — real activity, not the tool running in the background.</p>
+        <div class="interstitial-ring-wrap">
+          <svg class="interstitial-ring-svg" viewBox="0 0 176 176">
+            <circle cx="88" cy="88" r="80" class="interstitial-ring-track"></circle>
+          </svg>
+          <div class="cooldown-countdown" id="warmup-engage-countdown"></div>
+        </div>
         <p class="muted hidden" id="warmup-engage-done">🎉 Session complete for today — nice work.</p>
-        <div class="modal-actions" style="justify-content:flex-start; gap:12px;">
+        <div class="interstitial-actions">
           <button id="warmup-engage-home-btn" class="btn-secondary">← Go back to home</button>
           <button id="warmup-engage-start-btn" class="btn-primary hidden">Start scrolling session →</button>
           <button id="warmup-engage-pause-btn" class="btn-secondary hidden">⏸ Pause</button>
@@ -359,56 +409,68 @@
     <!-- SIMPLE SESSION (LinkedIn engagement / connection-request sessions —
          just a name, a clickable profile link, and two buttons) -->
     <section id="view-simple-session" class="view hidden">
-      <div class="progress-wrap">
-        <div class="progress-main">
-          <div class="progress-label"><span id="simple-progress-current">1</span> / <span id="simple-progress-total">15</span></div>
-          <div class="progress-bar"><div class="progress-fill" id="simple-progress-fill"></div></div>
+      <div class="session-header">
+        <div class="eyebrow" id="simple-session-title">LinkedIn session</div>
+        <div class="session-progress">
+          <div class="session-progress-track"><div class="progress-fill" id="simple-progress-fill"></div></div>
+          <span class="session-progress-label"><span id="simple-progress-current">1</span> / <span id="simple-progress-total">15</span></span>
         </div>
-        <button id="simple-switch-accounts-btn" class="btn-switch-accounts hidden" type="button" title="Switch to an Instagram account">🔀 Switch accounts</button>
-        <button id="simple-quit-save-btn" class="btn-quit-save" type="button" title="Save the rest of this session for later">⏸ Quit &amp; save</button>
+        <div class="session-header-actions">
+          <button id="simple-switch-accounts-btn" class="session-pill-btn hidden" type="button" title="Switch to an Instagram account">Switch accounts</button>
+          <button id="simple-quit-save-btn" class="session-pill-btn session-pill-btn-dark" type="button" title="Save the rest of this session for later">Quit &amp; save</button>
+        </div>
       </div>
 
-      <div class="card simple-session-card">
-        <h2 id="simple-session-title">LinkedIn session</h2>
-        <div class="simple-session-name" id="simple-session-fullname">–</div>
-        <a id="simple-session-link" href="#" target="li_preview" rel="noopener" class="profile-link-btn">Open profile on LinkedIn ↗</a>
-      </div>
-
-      <div class="decision-row">
-        <button id="simple-negative-btn" class="btn-reject">✕ Not qualified</button>
-        <button id="simple-positive-btn" class="btn-accept">✓ Engaged</button>
+      <div class="session-li-split">
+        <div class="session-li-card">
+          <h2 class="session-li-name" id="simple-session-fullname">–</h2>
+          <span class="session-li-headline hidden" id="simple-session-headline"></span>
+          <p class="session-li-bio hidden" id="simple-session-bio"></p>
+          <a id="simple-session-link" href="#" target="li_preview" rel="noopener" class="btn-secondary">Open profile on LinkedIn ↗</a>
+        </div>
+        <div class="session-li-engage">
+          <span class="session-li-engage-label">Decide</span>
+          <div class="session-li-engage-actions">
+            <button id="simple-negative-btn" class="session-li-btn">Not qualified <kbd>N</kbd></button>
+            <button id="simple-positive-btn" class="session-li-btn-primary">Engaged <kbd>E</kbd></button>
+          </div>
+        </div>
       </div>
     </section>
 
     <!-- SIMPLE SESSION END SCREEN -->
     <section id="view-simple-end" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji">🎉</div>
-        <h1>Well done!</h1>
-        <p class="end-sub" id="simple-end-summary-line"></p>
-      </div>
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="stat-value" id="simple-end-positive-count">0</div>
-          <div class="stat-label" id="simple-end-positive-label">engaged</div>
+      <div class="done-hero">
+        <svg class="done-hero-curve" viewBox="0 0 1000 300" preserveAspectRatio="none"><path d="M -20 260 C 200 20, 780 -30, 1020 180" fill="none" stroke="#430074" stroke-width="1.25"></path></svg>
+        <div class="eyebrow">Session complete</div>
+        <h1>Well done.</h1>
+        <p class="muted" id="simple-end-summary-line"></p>
+        <div class="done-stats-row">
+          <div class="done-stat-circle">
+            <div class="stat-value" id="simple-end-positive-count">0</div>
+            <div class="stat-label" id="simple-end-positive-label">engaged</div>
+          </div>
+          <div class="done-stat-circle">
+            <div class="stat-value" id="simple-end-negative-count">0</div>
+            <div class="stat-label" id="simple-end-negative-label">not qualified</div>
+          </div>
         </div>
-        <div class="stat-card">
-          <div class="stat-value" id="simple-end-negative-count">0</div>
-          <div class="stat-label" id="simple-end-negative-label">not qualified</div>
-        </div>
+        <button id="simple-end-back-btn" class="btn-primary">← Back to home</button>
       </div>
-      <button id="simple-end-back-btn" class="btn-primary">← Back to home</button>
     </section>
 
     <!-- DASHBOARD -->
     <section id="view-dashboard" class="view hidden">
-      <div class="progress-wrap">
-        <div class="progress-main">
-          <div class="progress-label"><span id="progress-current">1</span> / <span id="progress-total">15</span></div>
-          <div class="progress-bar"><div class="progress-fill" id="progress-fill"></div></div>
+      <div class="session-header">
+        <div class="eyebrow">Session</div>
+        <div class="session-progress">
+          <div class="session-progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+          <span class="session-progress-label"><span id="progress-current">1</span> / <span id="progress-total">15</span></span>
         </div>
-        <button id="switch-accounts-btn" class="btn-switch-accounts hidden" type="button" title="Switch to a different account, or to LinkedIn">🔀 Switch accounts</button>
-        <button id="quit-save-btn" class="btn-quit-save" type="button" title="Save the rest of this session for later">⏸ Quit &amp; save</button>
+        <div class="session-header-actions">
+          <button id="switch-accounts-btn" class="session-pill-btn hidden" type="button" title="Switch to a different account, or to LinkedIn">Switch account</button>
+          <button id="quit-save-btn" class="session-pill-btn session-pill-btn-dark" type="button" title="Save the rest of this session for later">Quit &amp; save</button>
+        </div>
       </div>
 
       <div class="video-batch-row">
@@ -416,90 +478,82 @@
         <span class="muted" id="video-batch-status"></span>
       </div>
 
-      <div class="dash-nav">
-        <button id="prev-btn" class="icon-btn" title="Previous profile">←</button>
-        <a id="profile-link" href="#" target="ig_preview" rel="noopener" class="profile-link-btn">Open profile on Instagram ↗</a>
-        <button id="next-btn" class="icon-btn" title="Next profile">→</button>
-      </div>
-
-      <div class="dashboard-grid">
-
-        <div class="card profile-card">
-          <h2>Profile</h2>
-          <label>Full name
-            <input type="text" id="f-fullname" placeholder="E.g. John Smith">
-          </label>
-          <label id="f-username-row">Username
-            <input type="text" id="f-username" placeholder="username">
-          </label>
-          <label id="f-headline-row" class="hidden">Headline
-            <input type="text" id="f-headline" placeholder="E.g. Fitness Coach at Acme">
-          </label>
-          <label><span id="f-bio-label">Bio</span>
-            <textarea id="f-bio" rows="3" placeholder="Bio text..."></textarea>
-          </label>
-        </div>
-
-        <div class="card stats-card">
-          <h2>Stats</h2>
-          <label>Number of followers
-            <input type="number" id="f-followers" min="0" placeholder="E.g. 3200">
-          </label>
-          <label>Last post — how many weeks ago?
-            <input type="number" id="f-lastpost" min="0" step="0.5" placeholder="E.g. 2">
-          </label>
-          <label>Avg. posts per week (this month)
-            <input type="number" id="f-postsperweek" min="0" step="0.1" placeholder="E.g. 1.5">
-          </label>
-          <label>Avg. views (optional)
-            <input type="number" id="f-avgviews" min="0" placeholder="E.g. 800">
-          </label>
-        </div>
-
-        <div class="card message-card">
-          <h2>Message</h2>
-          <label>Message (editable)
-            <textarea id="f-message" rows="7"></textarea>
-          </label>
-          <div class="message-actions">
-            <button id="copy-btn" class="btn-secondary">📋 Copy message</button>
-            <a id="dm-link" href="#" target="_blank" rel="noopener" class="btn-secondary">💬 Open Instagram DM ↗</a>
+      <div class="session-split">
+        <div class="session-lead-card">
+          <div class="session-lead-nav">
+            <button id="prev-btn" class="session-icon-btn" title="Previous profile">←</button>
+            <a id="profile-link" href="#" target="ig_preview" rel="noopener" class="session-profile-link">Open profile on Instagram ↗</a>
+            <button id="next-btn" class="session-icon-btn" title="Next profile">→</button>
           </div>
-        </div>
 
-        <div class="card video-card">
-          <h2>Personalized video</h2>
-          <label>Name shown in video
-            <input type="text" id="f-video-name" placeholder="E.g. Brad">
-          </label>
-          <div class="video-status muted" id="video-status">Not generated yet.</div>
-          <video id="video-preview" controls playsinline class="video-preview hidden"></video>
-          <div class="video-actions">
-            <button id="video-generate-btn" class="btn-secondary" type="button">🎬 Generate video</button>
-            <a id="video-download-link" href="#" download class="btn-secondary hidden">⬇ Download video</a>
+          <div class="session-lead-head">
+            <div class="session-lead-avatar" id="dashboard-avatar">?</div>
+            <div class="session-lead-identity">
+              <input type="text" id="f-fullname" class="session-name-input" placeholder="Full name">
+              <div id="f-username-row" class="session-username-row">
+                <span class="session-at">@</span><input type="text" id="f-username" class="session-username-input" placeholder="username">
+              </div>
+              <div id="f-headline-row" class="hidden">
+                <input type="text" id="f-headline" class="session-headline-input" placeholder="Headline">
+              </div>
+            </div>
           </div>
-        </div>
 
-        <div class="card status-card">
-          <h2>Lead status</h2>
-          <label class="toggle-switch-row">
+          <label class="session-field-label"><span id="f-bio-label">Bio</span>
+            <textarea id="f-bio" rows="3" class="session-bio-input" placeholder="Bio text..."></textarea>
+          </label>
+
+          <div class="session-stat-grid stats-card">
+            <label class="session-stat"><span>Followers</span><input type="number" id="f-followers" min="0" placeholder="0"></label>
+            <label class="session-stat"><span>Last post (wks ago)</span><input type="number" id="f-lastpost" min="0" step="0.5" placeholder="0"></label>
+            <label class="session-stat"><span>Posts/week</span><input type="number" id="f-postsperweek" min="0" step="0.1" placeholder="0"></label>
+            <label class="session-stat"><span>Avg. views</span><input type="number" id="f-avgviews" min="0" placeholder="0"></label>
+          </div>
+
+          <label class="toggle-row">
             <span class="toggle-switch">
               <input type="checkbox" id="f-can-receive" checked>
               <span class="toggle-switch-track"></span>
             </span>
             <span>Can receive messages</span>
           </label>
-          <label>Notes
-            <textarea id="f-session-notes" rows="3" class="auto-resize" placeholder="Anything worth remembering about this lead..."></textarea>
+
+          <label class="session-field-label">Notes
+            <textarea id="f-session-notes" rows="3" class="auto-resize session-notes-input" placeholder="Anything worth remembering about this lead..."></textarea>
           </label>
         </div>
 
-      </div>
+        <div class="session-action-col">
+          <div class="session-message-card">
+            <div class="eyebrow">Opening message</div>
+            <textarea id="f-message" class="session-message-input" rows="7"></textarea>
+            <div class="session-message-actions">
+              <button id="copy-btn" class="btn-primary">Copy message</button>
+              <a id="dm-link" href="#" target="_blank" rel="noopener" class="btn-secondary">Open Instagram DM ↗</a>
+            </div>
+          </div>
 
-      <div class="decision-row">
-        <button id="reject-btn" class="btn-reject">✕ Not qualified</button>
-        <button id="accept-btn" class="btn-accept">✓ Sent</button>
-        <button id="next-unreachable-btn" class="btn-next-grey hidden">Next <span aria-hidden="true">→</span></button>
+          <div class="session-video-card video-card">
+            <div class="session-video-row">
+              <label class="session-video-name-label">Name shown in video
+                <input type="text" id="f-video-name" placeholder="E.g. Brad">
+              </label>
+              <button id="video-generate-btn" class="btn-secondary" type="button">🎬 Generate video</button>
+            </div>
+            <div class="video-status muted" id="video-status">Not generated yet.</div>
+            <video id="video-preview" controls playsinline class="video-preview hidden"></video>
+            <a id="video-download-link" href="#" download class="btn-secondary hidden">⬇ Download video</a>
+          </div>
+
+          <div class="session-mark-panel">
+            <span class="session-mark-label">Mark this lead</span>
+            <div class="session-mark-grid">
+              <button id="reject-btn" class="session-mark-btn">Not qualified <kbd>N</kbd></button>
+              <button id="next-unreachable-btn" class="session-mark-btn hidden">Next <span aria-hidden="true">→</span></button>
+            </div>
+            <button id="accept-btn" class="session-mark-btn-primary">Sent — next lead → <kbd>S</kbd></button>
+          </div>
+        </div>
       </div>
     </section>
 
@@ -544,24 +598,24 @@
 
     <!-- END SCREEN -->
     <section id="view-end" class="view hidden">
-      <div class="end-hero">
-        <div class="end-emoji">🎉</div>
-        <h1>Well done!</h1>
-        <p class="end-sub" id="end-summary-line"></p>
-      </div>
-
-      <div class="stats-row">
-        <div class="stat-card">
-          <div class="stat-value" id="end-sent-count">0</div>
-          <div class="stat-label">messages sent</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="end-rejected-count">0</div>
-          <div class="stat-label">not qualified</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-value" id="end-cant-message-count">0</div>
-          <div class="stat-label">can't receive messages</div>
+      <div class="done-hero">
+        <svg class="done-hero-curve" viewBox="0 0 1000 300" preserveAspectRatio="none"><path d="M -20 260 C 200 20, 780 -30, 1020 180" fill="none" stroke="#430074" stroke-width="1.25"></path></svg>
+        <div class="eyebrow">Session complete</div>
+        <h1>Well done.</h1>
+        <p class="muted" id="end-summary-line"></p>
+        <div class="done-stats-row">
+          <div class="done-stat-circle">
+            <div class="stat-value" id="end-sent-count">0</div>
+            <div class="stat-label">messages sent</div>
+          </div>
+          <div class="done-stat-circle">
+            <div class="stat-value" id="end-rejected-count">0</div>
+            <div class="stat-label">not qualified</div>
+          </div>
+          <div class="done-stat-circle">
+            <div class="stat-value" id="end-cant-message-count">0</div>
+            <div class="stat-label">can't receive messages</div>
+          </div>
         </div>
       </div>
 
@@ -583,8 +637,11 @@
 
     <!-- SAVED SESSIONS -->
     <section id="view-saved-sessions" class="view hidden">
-      <div class="row-between leads-header">
-        <h1>Saved Sessions</h1>
+      <div class="row-between leads-header" style="align-items:flex-end;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="eyebrow">Saved sessions</div>
+          <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Pick up where you left off.</h1>
+        </div>
         <div class="range-tabs" id="saved-sessions-type-tabs">
           <button type="button" class="range-tab active" data-type-filter="all">All</button>
           <button type="button" class="range-tab" data-type-filter="instagram">Instagram</button>
@@ -592,38 +649,39 @@
           <button type="button" class="range-tab" data-type-filter="combi">Combi</button>
         </div>
       </div>
-      <p class="muted" id="saved-sessions-empty">No saved sessions — use "Quit &amp; save" mid-session to pick one up later.</p>
+      <div class="interstitial hidden" id="saved-sessions-empty-card">
+        <span class="interstitial-ghost" aria-hidden="true">Saved</span>
+        <h2>No saved sessions.</h2>
+        <p id="saved-sessions-empty">Use "Quit &amp; save" mid-session to pick one up later.</p>
+      </div>
       <div id="saved-sessions-list" class="saved-sessions-list"></div>
     </section>
 
     <!-- SAVED SESSION DETAIL -->
     <section id="view-saved-session-detail" class="view hidden">
-      <div class="row-between leads-header">
-        <button id="saved-session-back-btn" class="icon-btn" title="Back to Saved Sessions">←</button>
-        <h1>Saved session</h1>
+      <button id="saved-session-back-btn" class="btn-ghost" style="align-self:flex-start;padding-left:0;">← All saved sessions</button>
+      <div class="row-between leads-header" style="align-items:flex-end;margin-top:10px;">
+        <div id="saved-session-summary"></div>
+        <div class="saved-session-detail-actions">
+          <button id="saved-session-delete-btn" class="btn-ghost" type="button" style="color:var(--warn);">Delete</button>
+          <div id="saved-session-combi-actions" class="hidden" style="display:flex;gap:8px;">
+            <button id="saved-session-continue-ig-btn" class="btn-secondary">Only Instagram</button>
+            <button id="saved-session-continue-li-btn" class="btn-secondary">Only LinkedIn</button>
+          </div>
+          <button id="saved-session-continue-btn" class="btn-primary">Continue this session →</button>
+        </div>
       </div>
-      <div class="card" id="saved-session-summary"></div>
-      <div class="card">
-        <h3>Remaining leads</h3>
-        <ul class="result-list" id="saved-session-remaining-list"></ul>
-      </div>
-      <div class="saved-session-detail-actions">
-        <button id="saved-session-continue-btn" class="btn-primary">Continue this session →</button>
-        <button id="saved-session-delete-btn" class="btn-quit-save" type="button">🗑 Delete this saved session</button>
-      </div>
-      <!-- Combi sessions only — split the two portions apart instead of
-           resuming both at once. -->
-      <div class="saved-session-detail-actions hidden" id="saved-session-combi-actions">
-        <button id="saved-session-continue-ig-btn" class="btn-secondary">Continue with only IG leads →</button>
-        <button id="saved-session-continue-li-btn" class="btn-secondary">Continue with only LinkedIn leads →</button>
+      <div class="card" id="saved-session-remaining-card">
+        <ul class="saved-session-lead-list" id="saved-session-remaining-list"></ul>
       </div>
     </section>
 
     <!-- LEADS -->
     <section id="view-leads" class="view hidden">
       <div class="row-between leads-header">
-        <div>
-          <h1 class="page-title">Leads</h1>
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="eyebrow">Leads</div>
+          <h1>Leads</h1>
           <p class="muted" id="leads-total-count"></p>
         </div>
         <div class="leads-header-right">
@@ -633,9 +691,9 @@
             <button type="button" class="range-tab active" data-platform="all">All</button>
           </div>
           <div class="leads-toolbar" id="leads-toolbar-actions">
-            <button id="leads-add-btn" class="btn-secondary">+ Add lead</button>
+            <button id="leads-delete-btn" class="btn-ghost">🗑 Delete leads</button>
             <button id="leads-import-btn" class="btn-secondary">⬆ Import CSV</button>
-            <button id="leads-delete-btn" class="btn-secondary btn-danger-outline">🗑 Delete leads</button>
+            <button id="leads-add-btn" class="btn-primary">+ Add lead</button>
           </div>
         </div>
       </div>
@@ -655,9 +713,9 @@
       <div id="leads-selection-bar" class="leads-selection-bar hidden">
         <span id="leads-selection-count"></span>
         <div class="leads-selection-btns">
-          <button id="leads-selection-start" class="btn-primary">Start session →</button>
-          <button id="leads-selection-delete" class="btn-secondary btn-danger-outline">🗑 Delete selected</button>
-          <button id="leads-selection-clear" class="btn-secondary">Clear</button>
+          <button id="leads-selection-clear" class="session-mark-btn">Clear</button>
+          <button id="leads-selection-delete" class="session-mark-btn">🗑 Delete selected</button>
+          <button id="leads-selection-start" class="session-mark-btn-primary">Start session →</button>
         </div>
       </div>
 
@@ -833,8 +891,11 @@
 
     <!-- ANALYTICS -->
     <section id="view-analytics" class="view hidden">
-      <div class="row-between leads-header">
-        <h1 class="page-title">Analytics</h1>
+      <div class="row-between leads-header" style="align-items:flex-end;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="eyebrow">Analytics</div>
+          <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">How your outreach is landing.</h1>
+        </div>
         <div class="range-tabs" id="analytics-mode-tabs">
           <button type="button" class="range-tab active" data-mode="overview">Overview</button>
           <button type="button" class="range-tab" data-mode="openers">Opener A/B test</button>
@@ -843,59 +904,69 @@
       </div>
 
       <div id="analytics-overview-section">
-        <div class="row-between leads-header">
-          <div></div>
+        <div class="row-between leads-header" style="margin-bottom:14px;">
+          <div class="range-tabs" id="range-tabs">
+            <button data-range="today" class="range-tab active">Today</button>
+            <button data-range="week" class="range-tab">This week</button>
+            <button data-range="month" class="range-tab">This month</button>
+            <button data-range="3months" class="range-tab">3 months</button>
+            <button data-range="year" class="range-tab">This year</button>
+            <button data-range="all" class="range-tab">All</button>
+          </div>
           <div class="range-tabs" id="analytics-platform-tabs">
             <button type="button" class="range-tab" data-platform="instagram">Instagram</button>
             <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
             <button type="button" class="range-tab active" data-platform="all">All</button>
           </div>
         </div>
-        <div class="range-tabs" id="range-tabs">
-          <button data-range="today" class="range-tab active">Today</button>
-          <button data-range="week" class="range-tab">This week</button>
-          <button data-range="month" class="range-tab">This month</button>
-          <button data-range="3months" class="range-tab">3 months</button>
-          <button data-range="year" class="range-tab">This year</button>
-          <button data-range="all" class="range-tab">All</button>
-        </div>
 
-        <div class="stats-row">
-          <div class="stat-card">
-            <div class="stat-value" id="an-total">–</div>
-            <div class="stat-label">reach-outs</div>
+        <div class="card chart-card an-hero-card">
+          <div class="an-hero-stat">
+            <span class="an-hero-label">reach-outs</span>
+            <span class="an-hero-number" id="an-total">–</span>
+            <span class="an-hero-delta"><strong id="an-change">–</strong> <span class="muted" id="an-change-label">vs previous period</span></span>
           </div>
-          <div class="stat-card">
-            <div class="stat-value" id="an-change">–</div>
-            <div class="stat-label" id="an-change-label">vs previous period</div>
+          <div class="an-hero-chart">
+            <svg id="an-chart" viewBox="0 0 800 300" preserveAspectRatio="none"></svg>
+            <div id="an-tooltip" class="chart-tooltip hidden"></div>
           </div>
         </div>
 
-        <div class="card chart-card">
-          <svg id="an-chart" viewBox="0 0 800 300" preserveAspectRatio="none"></svg>
-          <div id="an-tooltip" class="chart-tooltip hidden"></div>
-        </div>
-
-        <div class="card">
-          <h3>Funnel</h3>
-          <div class="funnel-grid" id="funnel-grid">
-            <div class="funnel-tile"><div class="funnel-value" id="fn-sends">–</div><div class="funnel-label">Total Sends</div></div>
-            <div class="funnel-tile"><div class="funnel-value" id="fn-followups">–</div><div class="funnel-label">Follow ups</div></div>
-            <div class="funnel-tile"><div class="funnel-value" id="fn-replies">–</div><div class="funnel-label">Replies</div></div>
-            <div class="funnel-tile"><div class="funnel-value" id="fn-rr">–</div><div class="funnel-label">Reply Rate %</div></div>
-            <div class="funnel-tile"><div class="funnel-value" id="fn-positive">–</div><div class="funnel-label">Positive Replies</div></div>
-            <div class="funnel-tile"><div class="funnel-value" id="fn-prr">–</div><div class="funnel-label">PRR %</div></div>
-            <div class="funnel-tile"><div class="funnel-value" id="fn-appts">–</div><div class="funnel-label">Appointments Set</div></div>
-            <div class="funnel-tile"><div class="funnel-value" id="fn-asr">–</div><div class="funnel-label">ASR %</div></div>
-            <div class="funnel-tile"><div class="funnel-value" id="fn-conn-sent">–</div><div class="funnel-label">Connections Sent</div></div>
-            <div class="funnel-tile"><div class="funnel-value" id="fn-conn-accepted">–</div><div class="funnel-label">Connections Accepted</div></div>
-            <div class="funnel-tile"><div class="funnel-value" id="fn-car">–</div><div class="funnel-label">CAR %</div></div>
+        <div class="an-funnel-row">
+          <div class="card an-funnel-card">
+            <h3>Funnel</h3>
+            <div class="an-funnel-bar-row">
+              <span class="an-funnel-bar-label">Total sends</span>
+              <div class="an-funnel-bar-track"><div class="an-funnel-bar-fill" id="fn-sends-bar"><span id="fn-sends">–</span></div></div>
+              <span class="an-funnel-bar-rate"></span>
+            </div>
+            <div class="an-funnel-bar-row">
+              <span class="an-funnel-bar-label">Replies</span>
+              <div class="an-funnel-bar-track"><div class="an-funnel-bar-fill" id="fn-replies-bar"><span id="fn-replies">–</span></div></div>
+              <span class="an-funnel-bar-rate"><strong id="fn-rr">–</strong><span class="muted"> reply rate</span></span>
+            </div>
+            <div class="an-funnel-bar-row">
+              <span class="an-funnel-bar-label">Positive replies</span>
+              <div class="an-funnel-bar-track"><div class="an-funnel-bar-fill" id="fn-positive-bar"><span id="fn-positive">–</span></div></div>
+              <span class="an-funnel-bar-rate"><strong id="fn-prr">–</strong><span class="muted"> PRR</span></span>
+            </div>
+            <div class="an-funnel-bar-row">
+              <span class="an-funnel-bar-label">Appointments set</span>
+              <div class="an-funnel-bar-track"><div class="an-funnel-bar-fill" id="fn-appts-bar"><span id="fn-appts">–</span></div></div>
+              <span class="an-funnel-bar-rate"><strong id="fn-asr">–</strong><span class="muted"> ASR</span></span>
+            </div>
+          </div>
+          <div class="an-secondary-col">
+            <div class="an-secondary-card"><span class="muted">Follow ups</span><span id="fn-followups">–</span></div>
+            <div class="an-secondary-card"><span class="muted">Connections sent</span><span id="fn-conn-sent">–</span></div>
+            <div class="an-secondary-card"><span class="muted">Connections accepted</span><span id="fn-conn-accepted">–</span></div>
+            <div class="an-secondary-card"><span class="muted">Connection accept rate</span><span id="fn-car">–</span></div>
           </div>
         </div>
       </div>
 
       <div id="analytics-openers-section" class="hidden">
-        <p class="muted">Instagram only. Cumulative across each opener's whole lifetime (not scoped to a date range) — a fresh lead randomly gets one of a sequence's variants, and this shows which wording is actually winning. Sorted by Positive Reply Rate.</p>
+        <p class="muted" style="max-width:720px;">Instagram only. Cumulative across each opener's whole lifetime (not scoped to a date range) — a fresh lead randomly gets one of a sequence's variants, and this shows which wording is actually winning. Sorted by Positive Reply Rate.</p>
         <div class="card">
           <div class="analytics-openers-table-wrap">
             <table class="analytics-openers-table">
@@ -914,7 +985,7 @@
       </div>
 
       <div id="analytics-accounts-section" class="hidden">
-        <p class="muted">Instagram only. Cumulative across each account's whole lifetime (not scoped to a date range) — ranked by Positive Reply Rate, compared against the average of the profile's other accounts.</p>
+        <p class="muted" style="max-width:720px;">Instagram only. Cumulative across each account's whole lifetime (not scoped to a date range) — ranked by Positive Reply Rate, compared against the average of the profile's other accounts.</p>
         <p class="muted hidden" id="analytics-accounts-need-more">Add a second Instagram account to compare performance between accounts.</p>
         <div class="card hidden" id="analytics-accounts-leaderboard-card">
           <h3>Leaderboard</h3>
@@ -940,23 +1011,30 @@
 
     <!-- FOLLOW-UP SESSION -->
     <section id="view-followup" class="view hidden">
-      <div class="row-between">
-        <h1 id="followup-title" class="page-title">Follow-ups</h1>
+      <div class="row-between" style="align-items:flex-start;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="eyebrow">Follow-ups</div>
+          <h1 id="followup-title" style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Follow-ups</h1>
+          <p class="muted" id="followup-sub"></p>
+        </div>
         <button id="followup-back-btn" class="btn-secondary">← Back</button>
       </div>
-      <p class="muted" id="followup-sub"></p>
       <div id="followup-list" class="followup-list"></div>
-      <div id="followup-empty" class="card followup-empty-state hidden">
-        <div class="end-emoji">🎉</div>
+      <div id="followup-empty" class="interstitial hidden">
+        <span class="interstitial-ghost" aria-hidden="true">Done</span>
+        <div class="eyebrow">Follow-ups</div>
         <h2>All done!</h2>
-        <p class="muted">No more follow-ups due in this batch.</p>
+        <p>No more follow-ups due in this batch.</p>
         <button id="followup-done-btn" class="btn-primary">← Back to home</button>
       </div>
     </section>
 
     <!-- SETTINGS -->
     <section id="view-settings" class="view hidden">
-      <h1 class="page-title">Settings</h1>
+      <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:18px;">
+        <div class="eyebrow">Settings</div>
+        <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Settings</h1>
+      </div>
 
       <div class="card" id="settings-profile-card">
         <h3>Profile</h3>
@@ -973,8 +1051,10 @@
             <p class="muted hidden" id="profile-settings-image-status"></p>
           </div>
         </div>
-        <label class="radio-label"><input type="checkbox" id="profile-settings-instagram"> Instagram</label>
-        <label class="radio-label"><input type="checkbox" id="profile-settings-linkedin"> LinkedIn</label>
+        <div style="display:flex;gap:28px;flex-wrap:wrap;">
+          <label class="toggle-row"><span class="toggle-switch"><input type="checkbox" id="profile-settings-instagram"><span class="toggle-switch-track"></span></span> Instagram</label>
+          <label class="toggle-row"><span class="toggle-switch"><input type="checkbox" id="profile-settings-linkedin"><span class="toggle-switch-track"></span></span> LinkedIn</label>
+        </div>
         <p class="hidden" id="profile-settings-error" style="color: var(--red); font-size: 0.85rem;"></p>
         <div class="row-between">
           <button id="profile-settings-archive-btn" class="btn-secondary" type="button" style="color: var(--red-dark);">Archive this profile</button>
@@ -989,11 +1069,12 @@
         <button id="accounts-add-btn" class="btn-secondary">+ Add account</button>
       </div>
 
-      <div class="card" id="settings-timing-sequences-card">
-        <h3>⏱️ Timing sequences</h3>
-        <p class="muted" style="margin-top:-8px;">Named, reusable presets for how an account ramps up its daily send limit and paces itself in-session — since Instagram's rules shift, edit these instead of digging through code. Assign one to each account above.</p>
-        <button type="button" id="open-timing-sequences-btn" class="btn-secondary">Open Timing sequences →</button>
-      </div>
+      <button type="button" id="open-timing-sequences-btn" class="settings-seq-nav-card settings-seq-nav-light">
+        <span class="settings-seq-nav-kicker">Timing</span>
+        <span class="settings-seq-nav-title">Timing sequences</span>
+        <p class="settings-seq-nav-sub">Named, reusable presets for how an account ramps up its daily send limit and paces itself in-session — since Instagram's rules shift, edit these instead of digging through code. Assign one to each account above.</p>
+        <span class="settings-seq-nav-link">Edit ramp &amp; pacing →</span>
+      </button>
 
       <!-- Add account modal -->
       <div id="add-account-modal" class="modal-overlay hidden">
@@ -1028,8 +1109,8 @@
             <input type="number" id="settings-daily-goal-linkedin" min="0" step="1">
           </label>
         </div>
-        <label class="radio-label">
-          <input type="checkbox" id="settings-daily-goal-instagram-sync">
+        <label class="toggle-row" style="background:var(--card-bg-alt);border-radius:var(--r-md);padding:14px 18px;">
+          <span class="toggle-switch"><input type="checkbox" id="settings-daily-goal-instagram-sync"><span class="toggle-switch-track"></span></span>
           Sync to Instagram combined accounts max sends
         </label>
         <p class="muted" style="margin-top:-8px;" id="settings-daily-goal-sync-note">When on, the Instagram goal above is ignored — it's set automatically to the combined daily limit across every connected account, minus today's pending phase-1 follow-ups, and updates itself as accounts ramp up.</p>
@@ -1097,11 +1178,12 @@
         <button id="settings-general-save" class="btn-secondary">Save</button>
       </div>
 
-      <div class="card" id="settings-message-sequences-card">
-        <h3>💬 Messaging sequences</h3>
-        <p class="muted" style="margin-top:-8px;">Named, reusable presets for Instagram's first message and phase1/2/3 follow-up steps — since your messaging keeps changing, edit these instead of digging through code. Assign one to each account above.</p>
-        <button type="button" id="open-message-sequences-btn" class="btn-secondary">Open Messaging sequences →</button>
-      </div>
+      <button type="button" id="open-message-sequences-btn" class="settings-seq-nav-card settings-seq-nav-dark">
+        <span class="settings-seq-nav-kicker">Messaging</span>
+        <span class="settings-seq-nav-title">Messaging sequences</span>
+        <p class="settings-seq-nav-sub">Named, reusable presets for Instagram's first message and phase1/2/3 follow-up steps — since your messaging keeps changing, edit these instead of digging through code. Assign one to each account above.</p>
+        <span class="settings-seq-nav-link">Edit openers &amp; follow-ups →</span>
+      </button>
 
       <div class="card" id="settings-linkedin-followups-card">
         <h3>Follow-up sequence (LinkedIn)</h3>
@@ -1119,9 +1201,12 @@
     <!-- TIMING SEQUENCES — named, reusable ramp-curve + in-session pacing
          presets, assignable per Instagram account. -->
     <section id="view-timing-sequences" class="view hidden">
-      <div class="row-between leads-header">
-        <h1 class="page-title">Timing sequences</h1>
-        <button type="button" id="timing-seq-back-btn" class="btn-secondary">← Back to Settings</button>
+      <div class="row-between leads-header" style="align-items:flex-end;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="eyebrow">Timing sequences</div>
+          <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Timing sequences</h1>
+        </div>
+        <button type="button" id="timing-seq-back-btn" class="btn-ghost">← Back to Settings</button>
       </div>
 
       <div class="card">
@@ -1150,8 +1235,8 @@
           <button type="button" id="timing-pacing-add-send-btn" class="btn-secondary">+ Add send block</button>
           <button type="button" id="timing-pacing-add-pause-btn" class="btn-secondary">+ Add pause block</button>
         </div>
-        <label class="radio-label" style="margin-top:14px;">
-          <input type="checkbox" id="timing-guarantee-pause-checkbox">
+        <label class="toggle-row" style="margin-top:14px;">
+          <span class="toggle-switch"><input type="checkbox" id="timing-guarantee-pause-checkbox"><span class="toggle-switch-track"></span></span>
           Always include at least one scroll break
         </label>
         <p class="muted" style="margin-top:-4px;">For a session whose volume is too low to ever naturally hit the send-block threshold above (e.g. warming up, or a small daily goal) — forces one pause in right before the session ends, so you're never just opening Instagram to send and immediately closing it again. Only applies to a session where at least one message was actually sent.</p>
@@ -1161,9 +1246,12 @@
     <!-- MESSAGING SEQUENCES — named, reusable first-message + phase1/2/3
          follow-up-step presets, assignable per Instagram account. -->
     <section id="view-message-sequences" class="view hidden">
-      <div class="row-between leads-header">
-        <h1 class="page-title">Messaging sequences</h1>
-        <button type="button" id="message-seq-back-btn" class="btn-secondary">← Back to Settings</button>
+      <div class="row-between leads-header" style="align-items:flex-end;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="eyebrow">Messaging sequences</div>
+          <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Messaging sequences</h1>
+        </div>
+        <button type="button" id="message-seq-back-btn" class="btn-ghost">← Back to Settings</button>
       </div>
 
       <div class="card">
@@ -1189,8 +1277,8 @@
         </p>
         <div id="message-seq-openers-list" class="timing-ramp-days-list"></div>
         <button type="button" id="message-seq-opener-add-btn" class="btn-secondary">+ Add variant</button>
-        <label class="radio-label" style="margin-top:12px;">
-          <input type="checkbox" id="message-seq-first-video">
+        <label class="toggle-row" style="margin-top:12px;">
+          <span class="toggle-switch"><input type="checkbox" id="message-seq-first-video"><span class="toggle-switch-track"></span></span>
           Send with a personalized video
         </label>
         <button type="button" id="message-seq-first-save-btn" class="btn-secondary">Save video setting</button>
@@ -1220,8 +1308,8 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=23"></script>
-<script src="leads.js?v=23"></script>
-<script src="followups.js?v=23"></script>
+<script src="app.js?v=31"></script>
+<script src="leads.js?v=28"></script>
+<script src="followups.js?v=27"></script>
 </body>
 </html>

@@ -29,10 +29,25 @@ async function loadNotifications() {
 
 const PLATFORM_LABELS = { instagram: 'Instagram', linkedin: 'LinkedIn' };
 
+// Sidebar "N follow-ups waiting" nudge card — driven by the same payload
+// renderNotifications() already has, filtered to the two notification
+// types that are actually outreach work (not reminders, not the IG
+// cooldown/warmup nudges), since there's no separate "give me everything
+// due" endpoint to back a dedicated Follow-ups nav screen.
+function renderSidebarFollowupCard(notifications) {
+  const workItems = notifications.filter(n => n.type === 'followup' || n.type === 'connections');
+  const card = $('#sidebar-fu-card');
+  if (workItems.length === 0) { card.classList.add('hidden'); return; }
+  const total = workItems.reduce((sum, n) => sum + (n.count || 0), 0);
+  $('#sidebar-fu-card-sub').textContent = `${total} lead${total === 1 ? '' : 's'} across ${workItems.length} group${workItems.length === 1 ? '' : 's'}`;
+  card.classList.remove('hidden');
+}
+
 function renderNotifications(notifications) {
   const badge = $('#notif-badge');
   const list = $('#notif-list');
   const empty = $('#notif-empty');
+  renderSidebarFollowupCard(notifications);
 
   if (notifications.length === 0) {
     badge.classList.add('hidden');
@@ -213,12 +228,34 @@ $('#notif-add-reminder-btn').addEventListener('click', () => {
   $('#reminder-text').focus();
 });
 
+// position: fixed on #notif-dropdown (style.css) needs explicit px
+// coordinates — computed fresh on every open, same reasoning as
+// positionProfileSwitcherDropdown() in app.js (sidebar width/bell position
+// differ between expanded/collapsed).
+function positionNotifDropdown() {
+  const bellBox = $('#notif-bell').getBoundingClientRect();
+  const dropdown = $('#notif-dropdown');
+  dropdown.style.left = `${bellBox.right + 16}px`;
+  dropdown.style.bottom = `${window.innerHeight - bellBox.bottom}px`;
+}
+
+function openNotifDropdown() {
+  positionNotifDropdown();
+  $('#notif-dropdown').classList.remove('hidden');
+}
+
 $('#notif-bell').addEventListener('click', (e) => {
   e.stopPropagation();
-  $('#notif-dropdown').classList.toggle('hidden');
+  const isHidden = $('#notif-dropdown').classList.contains('hidden');
+  if (isHidden) openNotifDropdown();
+  else $('#notif-dropdown').classList.add('hidden');
 });
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.notif-wrap')) $('#notif-dropdown').classList.add('hidden');
+});
+$('#sidebar-fu-card-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  openNotifDropdown();
 });
 
 // ---------- Follow-up session ----------
@@ -274,7 +311,7 @@ function followupCardHtml(lead) {
   // itself needs to be clickable-to-open-DM too, or a message-less media
   // step renders with nothing to click anywhere on the card.
   const mediaLine = isMedia
-    ? `<button type="button" class="followup-media-note followup-open-dm" data-id="${lead.id}">🎬 Send a ${escapeHtml(lead.type)}: ${escapeHtml(lead.mediaNote || '')}</button>`
+    ? `<button type="button" class="followup-message followup-open-dm" data-id="${lead.id}">🎬 Send a ${escapeHtml(lead.type)}: ${escapeHtml(lead.mediaNote || '')}</button>`
     : '';
   const messageLine = lead.message
     ? `<button type="button" class="followup-message followup-open-dm" data-id="${lead.id}">${escapeHtml(lead.message)}</button>`
@@ -285,19 +322,22 @@ function followupCardHtml(lead) {
   const fallbackLine = (!mediaLine && !messageLine)
     ? `<button type="button" class="followup-message followup-open-dm" data-id="${lead.id}">Open DM →</button>`
     : '';
+  const name = leadDisplayName(lead);
   return `
-    <div class="card followup-card" data-id="${lead.id}">
+    <div class="followup-card" data-id="${lead.id}">
       <div class="followup-card-head">
-        <span class="followup-username">${escapeHtml(leadDisplayName(lead))}</span>
-        <span class="muted">Step ${lead.step}</span>
+        <span class="followup-avatar" style="background:${toneForId(lead.id)}">${escapeHtml(initialsFor(name))}</span>
+        <span class="followup-username">${escapeHtml(name)}</span>
+        <span class="followup-step-chip">Step ${lead.step}</span>
       </div>
       ${mediaLine}
       ${messageLine}
       ${fallbackLine}
+      <div class="followup-card-divider"></div>
       <div class="followup-card-actions">
-        <button type="button" class="btn-accept followup-sent-btn" data-id="${lead.id}">✓ Sent</button>
-        <button type="button" class="followup-in-conversation-btn" data-id="${lead.id}">💬 In conversation</button>
-        <button type="button" class="btn-reject followup-delete-btn" data-id="${lead.id}">✕ Delete lead</button>
+        <button type="button" class="btn-primary followup-sent-btn" data-id="${lead.id}">Sent</button>
+        <button type="button" class="btn-secondary followup-in-conversation-btn" data-id="${lead.id}">They replied</button>
+        <button type="button" class="followup-delete-btn" data-id="${lead.id}">Delete lead</button>
       </div>
     </div>`;
 }
