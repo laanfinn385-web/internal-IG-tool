@@ -80,8 +80,13 @@ body {
 
 #app { display: flex; min-height: 100vh; }
 
-.main-wrap { flex: 1; min-width: 0; padding: 0 20px 60px; }
-.main-content { max-width: 900px; margin: 0 auto; padding-top: 28px; }
+/* Scales with the viewport instead of sitting at a fixed 900px — on a
+   laptop that's effectively still ~900px (the 72vw term loses to the floor),
+   but a wide external monitor gets real use of its width instead of two
+   huge empty margins either side of a narrow column. Capped at 1280px so
+   text/table rows never stretch past a comfortable reading width. */
+.main-wrap { flex: 1; min-width: 0; padding: 0 clamp(20px, 2.5vw, 48px) 60px; }
+.main-content { max-width: clamp(900px, 72vw, 1280px); margin: 0 auto; padding-top: 28px; }
 
 h1, h2, h3 { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.01em; }
 
