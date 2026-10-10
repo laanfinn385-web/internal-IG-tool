@@ -549,138 +549,75 @@ function showOverviewTooltip(tooltipEl, wrapEl, x, y, html) {
   tooltipEl.classList.remove('hidden');
 }
 
-// A ring built from one <circle> per non-zero stage, using stroke-dasharray
-// to carve out each arc — the standard SVG-donut technique. Segments are
-// hoverable (mouse position drives the tooltip, since a segment's own
-// bounding box is the full circle, not just its visible arc).
-function renderPipelineDonut(stageCounts) {
-  const svg = $('#pipeline-donut');
-  const legend = $('#pipeline-donut-legend');
-  const tooltip = $('#pipeline-donut-tooltip');
-  const wrap = $('#pipeline-donut-wrap');
-  svg.innerHTML = '';
-  tooltip.classList.add('hidden');
-
+// A horizontal stacked bar (one flex segment per non-zero stage) plus a
+// legend list underneath — same real stage data/colors the old donut used,
+// just the flatter list-style treatment the redesign calls for.
+function renderPipelineStackedBar(stageCounts) {
+  const bar = $('#pipeline-stacked-bar');
+  const legend = $('#pipeline-legend');
+  const totalLabel = $('#pipeline-total-label');
   const counts = stageCounts || {};
   const total = PHASE_BREAKDOWN_STAGES.reduce((sum, s) => sum + (counts[s.key] || 0), 0);
-  const cx = 60, cy = 60, r = 46, strokeWidth = 16;
-  const circumference = 2 * Math.PI * r;
 
-  const track = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-  track.setAttribute('cx', cx); track.setAttribute('cy', cy); track.setAttribute('r', r);
-  track.setAttribute('fill', 'none');
-  track.style.stroke = 'var(--border)';
-  track.setAttribute('stroke-width', strokeWidth);
-  svg.appendChild(track);
+  totalLabel.textContent = `${total.toLocaleString('en-US')} lead${total === 1 ? '' : 's'}`;
 
-  let cumulative = 0;
-  PHASE_BREAKDOWN_STAGES.filter(s => (counts[s.key] || 0) > 0).forEach(s => {
+  bar.innerHTML = PHASE_BREAKDOWN_STAGES.filter(s => (counts[s.key] || 0) > 0).map(s => {
+    const pct = total > 0 ? (counts[s.key] / total) * 100 : 0;
+    return `<span class="home-pipeline-bar-seg" style="width:${pct}%;background:${s.color}" title="${escapeHtml(s.label)}: ${(counts[s.key] || 0).toLocaleString('en-US')}"></span>`;
+  }).join('');
+
+  legend.innerHTML = PHASE_BREAKDOWN_STAGES.map(s => {
     const count = counts[s.key] || 0;
-    const pct = total > 0 ? count / total : 0;
-    const dash = pct * circumference;
-
-    const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    circle.setAttribute('cx', cx); circle.setAttribute('cy', cy); circle.setAttribute('r', r);
-    circle.setAttribute('fill', 'none');
-    circle.style.stroke = s.color;
-    circle.setAttribute('stroke-width', strokeWidth);
-    circle.setAttribute('stroke-dasharray', `${dash} ${circumference - dash}`);
-    circle.setAttribute('stroke-dashoffset', String(-cumulative));
-    circle.setAttribute('transform', `rotate(-90 ${cx} ${cy})`);
-    circle.style.cursor = 'pointer';
-    circle.addEventListener('mouseenter', (e) => {
-      showOverviewTooltip(tooltip, wrap, e.clientX, e.clientY - 10,
-        `<strong>${count.toLocaleString('en-US')}</strong> (${Math.round(pct * 100)}%)<span class="tooltip-sub">${escapeHtml(s.label)}</span>`);
-    });
-    circle.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
-    svg.appendChild(circle);
-    cumulative += dash;
-  });
-
-  const totalText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  totalText.setAttribute('x', cx); totalText.setAttribute('y', cy - 2);
-  totalText.setAttribute('text-anchor', 'middle');
-  totalText.setAttribute('font-size', '20');
-  totalText.setAttribute('font-weight', '800');
-  totalText.style.fill = 'var(--text)';
-  totalText.textContent = total.toLocaleString('en-US');
-  svg.appendChild(totalText);
-  const subText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  subText.setAttribute('x', cx); subText.setAttribute('y', cy + 15);
-  subText.setAttribute('text-anchor', 'middle');
-  subText.setAttribute('font-size', '8');
-  subText.style.fill = 'var(--muted)';
-  subText.textContent = 'active leads';
-  svg.appendChild(subText);
-
-  legend.innerHTML = PHASE_BREAKDOWN_STAGES.map(s => `
-    <div class="donut-legend-item">
-      <span class="donut-legend-dot" style="background:${s.color}"></span>
-      <span class="donut-legend-label">${s.label}</span>
-      <span class="donut-legend-count">${(counts[s.key] || 0).toLocaleString('en-US')}</span>
-    </div>`).join('');
+    const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+    return `
+      <div class="home-pipeline-legend-item">
+        <span class="donut-legend-dot" style="background:${s.color}"></span>
+        <span class="donut-legend-label">${s.label}</span>
+        <span class="home-pipeline-legend-pct muted">${pct}%</span>
+        <span class="donut-legend-count">${count.toLocaleString('en-US')}</span>
+      </div>`;
+  }).join('');
 }
 
-function renderSendsSparkline(series) {
-  const svg = $('#sends-sparkline');
-  const tooltip = $('#sends-sparkline-tooltip');
-  const wrap = $('#sends-sparkline-wrap');
-  svg.innerHTML = '';
-  tooltip.classList.add('hidden');
-  if (!series || series.length === 0) return;
-
-  const W = 300, H = 110, PAD_X = 20, PAD_Y = 16;
+// Two-tone stacked pill bars (Instagram below, LinkedIn above) — one per
+// of the last 7 days, tallest-day-relative height, with today's x-axis
+// label swapped for "Today" instead of its weekday.
+function renderSendsBarChart(series) {
+  const chart = $('#sends-bar-chart');
+  if (!series || series.length === 0) { chart.innerHTML = ''; return; }
   const max = Math.max(1, ...series.map(s => s.count));
-  const stepX = series.length > 1 ? (W - PAD_X * 2) / (series.length - 1) : 0;
-  const points = series.map((s, i) => ({
-    x: PAD_X + i * stepX,
-    y: H - PAD_Y - (s.count / max) * (H - PAD_Y * 2),
-    ...s
-  }));
-
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('d', points.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' '));
-  path.setAttribute('fill', 'none');
-  path.style.stroke = 'var(--accent)';
-  path.setAttribute('stroke-width', 2.5);
-  path.setAttribute('stroke-linecap', 'round');
-  path.setAttribute('stroke-linejoin', 'round');
-  svg.appendChild(path);
-
-  points.forEach(p => {
-    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    dot.setAttribute('cx', p.x); dot.setAttribute('cy', p.y); dot.setAttribute('r', 3);
-    dot.style.fill = 'var(--accent)';
-    svg.appendChild(dot);
-
-    const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-    label.setAttribute('x', p.x); label.setAttribute('y', H - 2);
-    label.setAttribute('text-anchor', 'middle');
-    label.setAttribute('font-size', '8');
-    label.style.fill = 'var(--muted)';
-    label.textContent = p.date.slice(5);
-    svg.appendChild(label);
-
-    // Oversized invisible hit target — the 3px dot alone is hard to hover precisely.
-    const hit = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    hit.setAttribute('cx', p.x); hit.setAttribute('cy', p.y); hit.setAttribute('r', 12);
-    hit.setAttribute('fill', 'transparent');
-    hit.style.cursor = 'pointer';
-    hit.addEventListener('mouseenter', (e) => {
-      showOverviewTooltip(tooltip, wrap, e.clientX, e.clientY - 10,
-        `<strong>${p.count}</strong> sent<span class="tooltip-sub">${escapeHtml(p.date.slice(5))}</span>`);
-    });
-    hit.addEventListener('mouseleave', () => tooltip.classList.add('hidden'));
-    svg.appendChild(hit);
-  });
+  const todayDs = series[series.length - 1].date;
+  chart.innerHTML = series.map((s, i) => {
+    const igH = max > 0 ? (s.instagram / max) * 100 : 0;
+    const liH = max > 0 ? (s.linkedin / max) * 100 : 0;
+    const dayLabel = i === series.length - 1
+      ? 'Today'
+      : new Date(s.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+    return `
+      <div class="home-bar-col" title="${escapeHtml(s.date)}: ${s.count} sent (${s.instagram} Instagram, ${s.linkedin} LinkedIn)">
+        <span class="home-bar-value">${s.count || ''}</span>
+        <div class="home-bar-stack">
+          <span class="home-bar-seg li" style="height:${liH}%"></span>
+          <span class="home-bar-seg ig" style="height:${igH}%"></span>
+        </div>
+        <span class="home-bar-day${dayLabel === 'Today' ? ' today' : ''}">${dayLabel}</span>
+      </div>`;
+  }).join('');
 }
 
-function renderSendsTrendDelta(pctChange) {
-  const el = $('#sends-trend-delta');
-  if (pctChange === null || pctChange === undefined) { el.textContent = ''; el.className = 'overview-chart-delta'; return; }
-  const sign = pctChange > 0 ? '+' : '';
-  el.textContent = `${sign}${pctChange}% vs last week`;
-  el.className = 'overview-chart-delta ' + (pctChange > 0 ? 'positive' : pctChange < 0 ? 'negative' : 'neutral');
+// Last-7-calendar-days day-dot strip on the streak card — filled for a day
+// the goal was met, hollow for one that wasn't (today, almost always).
+function renderStreakDots(streakDays) {
+  const wrap = $('#home-streak-dots');
+  if (!streakDays || streakDays.length === 0) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = streakDays.map(d => {
+    const label = new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'narrow' });
+    return `
+      <div class="home-streak-dot-col">
+        <span class="home-streak-dot${d.met ? ' met' : ''}"></span>
+        <span class="home-streak-dot-label muted">${label}</span>
+      </div>`;
+  }).join('');
 }
 
 let homePlatformFilter = 'all';
@@ -699,10 +636,34 @@ $('#home-platform-tabs').addEventListener('click', (e) => {
 // living in /api/home's response.
 function renderHomeGreeting() {
   const now = new Date();
-  $('#home-date').textContent = now.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
+  const weekday = now.toLocaleDateString('en-US', { weekday: 'long' });
+  const month = now.toLocaleDateString('en-US', { month: 'long' });
+  $('#home-date').textContent = `${weekday} ${now.getDate()} ${month}`;
   const hour = now.getHours();
-  const greeting = hour < 5 ? 'Still up?' : hour < 12 ? 'Good morning.' : hour < 18 ? 'Good afternoon.' : 'Good evening.';
-  $('#home-greeting').textContent = greeting;
+  const greeting = hour < 5 ? 'Still up' : hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening';
+  const ws = activeWorkspace();
+  $('#home-greeting').textContent = ws ? `${greeting}, ${ws.name}.` : `${greeting}.`;
+}
+
+// Home's Conversion card is deliberately independent of the page's own
+// platform filter tabs (always "All platforms", per its own label) and
+// scoped to the current calendar month rather than all-time — reuses
+// /api/analytics's existing range-scoped funnel instead of computing a
+// second, differently-scoped version of the same rates server-side.
+async function loadHomeConversion() {
+  try {
+    const data = await fetchJson('/api/analytics?range=month&platform=all');
+    const f = data.funnel;
+    $('#reply-rate-value').textContent = pctText(f.replyRate);
+    $('#prr-value').textContent = pctText(f.prr);
+    $('#asr-value').textContent = pctText(f.asr);
+    $('#connections-sent-value').textContent = f.connectionsSent.toLocaleString('en-US');
+    $('#connections-accepted-value').textContent = f.connectionsAccepted.toLocaleString('en-US');
+    $('#car-value').textContent = pctText(f.car);
+  } catch (e) {
+    ['reply-rate-value', 'prr-value', 'asr-value', 'connections-sent-value', 'connections-accepted-value', 'car-value']
+      .forEach(id => { $(`#${id}`).textContent = '–'; });
+  }
 }
 
 async function loadHome() {
@@ -710,31 +671,31 @@ async function loadHome() {
   try {
     const data = await fetchJson(`/api/home?platform=${homePlatformFilter}`);
     $('#streak-value').textContent = data.streak;
+    $('#streak-stat-value').textContent = data.streak;
     $('#streak-flame').classList.toggle('lit', !!data.streakTodayMet);
+    $('#home-streak-sub').textContent = data.streakTodayMet
+      ? `Today's goal is hit — keep it going.`
+      : `Hit today's goal to make it ${data.streak + 1}.`;
+    $('#longest-streak-sub').textContent = `Longest run: ${data.longestStreak} day${data.longestStreak === 1 ? '' : 's'}`;
     $('#week-value').textContent = data.last7Days;
+    const weekSign = data.last7DaysPctChange > 0 ? '+' : '';
+    $('#week-trend-sub').textContent = `${weekSign}${data.last7DaysPctChange}% on the week before`;
     $('#available-leads-value').textContent = data.availableLeads.toLocaleString('en-US');
-    $('#reply-rate-value').textContent = pctText(data.replyRate);
-    $('#prr-value').textContent = pctText(data.prr);
-    $('#asr-value').textContent = pctText(data.asr);
-    $('#connections-sent-value').textContent = data.connectionsSent.toLocaleString('en-US');
-    $('#connections-accepted-value').textContent = data.connectionsAccepted.toLocaleString('en-US');
-    $('#car-value').textContent = pctText(data.car);
-    renderSendsTrendDelta(data.last7DaysPctChange);
-    renderPipelineDonut(data.stageCounts);
-    renderSendsSparkline(data.sendsTrend);
+    renderStreakDots(data.streakDays);
+    renderPipelineStackedBar(data.stageCounts);
+    renderSendsBarChart(data.sendsTrend);
     renderDailyGoal(data.dailyGoal);
+    const igReady = data.availableLeadsByPlatform ? data.availableLeadsByPlatform.instagram : 0;
+    const liReady = data.availableLeadsByPlatform ? data.availableLeadsByPlatform.linkedin : 0;
+    $('#home-session-subtitle').textContent = `${igReady.toLocaleString('en-US')} Instagram · ${liReady.toLocaleString('en-US')} LinkedIn leads ready`;
   } catch (e) {
     $('#streak-value').textContent = '–';
+    $('#streak-stat-value').textContent = '–';
     $('#streak-flame').classList.remove('lit');
     $('#week-value').textContent = '–';
     $('#available-leads-value').textContent = '–';
-    $('#reply-rate-value').textContent = '–';
-    $('#prr-value').textContent = '–';
-    $('#asr-value').textContent = '–';
-    $('#connections-sent-value').textContent = '–';
-    $('#connections-accepted-value').textContent = '–';
-    $('#car-value').textContent = '–';
   }
+  loadHomeConversion();
 }
 
 // ---------- Daily goal ----------
@@ -749,7 +710,7 @@ function renderDailyGoal(dailyGoal) {
   const card = $('#daily-goal-card');
   const emptyState = $('#daily-goal-empty-state');
   const btn = $('#daily-goal-session-btn');
-  const restEls = [$('.home-goal-ring-wrap'), $('#daily-goal-stats'), $('#home-goal-streak'), btn];
+  const restEls = [$('.home-goal-row'), btn];
 
   if (totalGoal === 0) {
     restEls.forEach(el => el && el.classList.add('hidden'));
@@ -768,23 +729,16 @@ function renderDailyGoal(dailyGoal) {
   $('#daily-goal-ring-total').textContent = `of ${totalGoal.toLocaleString('en-US')} sent`;
 
   $('#daily-goal-ig-stat').classList.toggle('hidden', igGoal === 0);
-  $('#daily-goal-ig-text').textContent = `${igDone}/${igGoal}${dailyGoal.instagramSynced ? ' (synced)' : ''}`;
+  $('#daily-goal-ig-text').textContent = `${igDone} of ${igGoal}${dailyGoal.instagramSynced ? ' (synced)' : ''}`;
   $('#daily-goal-li-stat').classList.toggle('hidden', liGoal === 0);
-  $('#daily-goal-li-text').textContent = `${liDone}/${liGoal}`;
+  $('#daily-goal-li-text').textContent = `${liDone} of ${liGoal}`;
 
   const igRemaining = Math.max(0, igGoal - igDone);
   const liRemaining = Math.max(0, liGoal - liDone);
   const goalReached = igRemaining === 0 && liRemaining === 0;
   card.classList.toggle('goal-reached', goalReached);
-  if (goalReached) {
-    $('#daily-goal-ring-label').textContent = 'Goal reached';
-    btn.textContent = '🎉 Goal reached';
-    btn.disabled = true;
-  } else {
-    $('#daily-goal-ring-label').textContent = 'On track';
-    btn.disabled = false;
-    btn.textContent = dailyGoal.savedSession ? 'Continue daily goal session →' : 'Start daily goal session →';
-  }
+  btn.disabled = goalReached;
+  btn.title = goalReached ? 'Goal reached' : (dailyGoal.savedSession ? 'Continue daily goal session' : 'Start daily goal session');
 }
 
 // A daily-goal Instagram leg is sized to whichever is smaller: what's still
@@ -1091,6 +1045,46 @@ function applyAccountSelectionValidation(selectEl, btnEl, errorEl) {
 // sessions are notification- or selection-driven, never started from here).
 let homeSessionPlatform = 'instagram';
 
+// Home's "Send from" picker is a list of selectable rows (every account
+// visible at once, each showing its own warmup/capacity status) rather
+// than a <select> — the mid-session account-limit picker elsewhere still
+// uses the dropdown version (populateAccountSelect/applyAccountSelectionValidation
+// above), since only this one spot in the redesign shows the full list.
+let selectedHomeAccountId = null;
+
+function homeAccountRowHtml(a) {
+  const seq = timingSequenceForAccount(a);
+  const warming = a.phase === 'warming_up' || a.phase === 'ramping_up';
+  const subtitle = warming ? 'New account warmup' : (seq ? seq.name : 'No timing sequence');
+  const statusHtml = a.dailyLimit === 0
+    ? `<span class="home-account-row-status warming">Warming up</span>`
+    : `<span class="home-account-row-status">${a.effectiveRemainingForNewSends} left today</span>`;
+  return `
+    <button type="button" class="home-account-row${a.id === selectedHomeAccountId ? ' selected' : ''}" data-account-id="${a.id}">
+      <span class="lc-avatar" style="background:${toneForId(a.id)}">${escapeHtml(initialsFor(a.username))}</span>
+      <span class="home-account-row-text">
+        <strong>@${escapeHtml(a.username)}</strong>
+        <span class="muted">Day ${a.ageDays} · ${escapeHtml(subtitle)}</span>
+      </span>
+      ${statusHtml}
+    </button>`;
+}
+
+function applyHomeAccountValidation() {
+  const account = findIgAccount(selectedHomeAccountId);
+  const startBtn = $('#start-session-btn');
+  const errorEl = $('#home-session-account-error');
+  const canSend = accountCanSendToday(account);
+  startBtn.disabled = !canSend;
+  if (account && !canSend) {
+    errorEl.textContent = accountBlockedReason(account);
+    errorEl.classList.remove('hidden');
+  } else {
+    errorEl.classList.add('hidden');
+  }
+  return canSend;
+}
+
 async function refreshHomeSessionAccountRow() {
   const needsAccount = homeSessionPlatform === 'instagram' || homeSessionPlatform === 'combi';
   $('#home-session-account-row').classList.toggle('hidden', !needsAccount);
@@ -1105,19 +1099,26 @@ async function refreshHomeSessionAccountRow() {
   // confirmed selected, not even for the brief moment while this loads.
   startBtn.disabled = true;
   const accounts = await loadIgAccounts();
-  const select = $('#home-session-account-select');
-  const usable = populateAccountSelect(select, accounts);
-  $('#home-session-no-accounts').classList.toggle('hidden', usable.length > 0);
-  select.classList.toggle('hidden', usable.length === 0);
-  if (usable.length === 0) {
+  const listEl = $('#home-session-account-list');
+  $('#home-session-no-accounts').classList.toggle('hidden', accounts.length > 0);
+  listEl.classList.toggle('hidden', accounts.length === 0);
+  if (accounts.length === 0) {
     $('#home-session-account-error').classList.add('hidden');
     return;
   }
-  applyAccountSelectionValidation(select, startBtn, $('#home-session-account-error'));
+  if (!accounts.some(a => a.id === selectedHomeAccountId)) {
+    selectedHomeAccountId = accounts[0].id;
+  }
+  listEl.innerHTML = accounts.map(homeAccountRowHtml).join('');
+  applyHomeAccountValidation();
 }
 
-$('#home-session-account-select').addEventListener('change', () => {
-  applyAccountSelectionValidation($('#home-session-account-select'), $('#start-session-btn'), $('#home-session-account-error'));
+$('#home-session-account-list').addEventListener('click', (e) => {
+  const row = e.target.closest('.home-account-row');
+  if (!row) return;
+  selectedHomeAccountId = row.dataset.accountId;
+  $all('#home-session-account-list .home-account-row').forEach(r => r.classList.toggle('selected', r === row));
+  applyHomeAccountValidation();
 });
 
 $('#home-session-platform-tabs').addEventListener('click', (e) => {
@@ -1200,7 +1201,7 @@ $('#start-session-btn').addEventListener('click', async () => {
   }
   let accountId = null;
   if (needsAccount) {
-    accountId = $('#home-session-account-select').value;
+    accountId = selectedHomeAccountId;
     if (!accountId) {
       showHomeError(0, 0, 'Add an Instagram account in Settings before starting an Instagram session.');
       return;
