@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=33">
+<link rel="stylesheet" href="style.css?v=35">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -117,49 +117,62 @@
           <h1 class="home-greeting" id="home-greeting">Welcome back.</h1>
         </div>
         <div class="range-tabs" id="home-platform-tabs">
+          <button type="button" class="range-tab active" data-platform="all">All</button>
           <button type="button" class="range-tab" data-platform="instagram">Instagram</button>
           <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
-          <button type="button" class="range-tab active" data-platform="all">All</button>
         </div>
       </div>
 
       <section class="home-hero-row">
-        <div class="home-goal-card" id="daily-goal-card">
-          <span class="home-goal-ghost" aria-hidden="true">Today</span>
-          <div class="home-goal-ring-wrap">
-            <svg class="home-goal-ring-svg" viewBox="0 0 360 360">
-              <circle cx="180" cy="180" r="150" class="home-goal-ring-track"></circle>
-              <circle cx="180" cy="180" r="150" class="home-goal-ring-fill" id="daily-goal-ring-fill" stroke-dasharray="942.5" stroke-dashoffset="942.5"></circle>
-            </svg>
-            <div class="home-goal-ring-center">
-              <span class="home-goal-ring-label" id="daily-goal-ring-label">Set a goal</span>
-              <span class="home-goal-ring-done" id="daily-goal-ring-done">0</span>
-              <span class="home-goal-ring-total" id="daily-goal-ring-total">of 0 sent</span>
+        <div class="home-hero-left">
+          <div class="home-goal-card" id="daily-goal-card">
+            <span class="home-goal-ghost" aria-hidden="true">Today</span>
+            <div class="home-goal-row">
+              <div class="home-goal-ring-wrap">
+                <svg class="home-goal-ring-svg" viewBox="0 0 360 360">
+                  <circle cx="180" cy="180" r="150" class="home-goal-ring-track"></circle>
+                  <circle cx="180" cy="180" r="150" class="home-goal-ring-fill" id="daily-goal-ring-fill" stroke-dasharray="942.5" stroke-dashoffset="942.5"></circle>
+                </svg>
+                <div class="home-goal-ring-center">
+                  <span class="home-goal-ring-label" id="daily-goal-ring-label">Daily goal</span>
+                  <span class="home-goal-ring-done" id="daily-goal-ring-done">0</span>
+                  <span class="home-goal-ring-total" id="daily-goal-ring-total">of 0 sent</span>
+                </div>
+                <button id="daily-goal-session-btn" class="home-goal-ring-btn" title="Start daily goal session" aria-label="Start daily goal session">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"></path></svg>
+                </button>
+              </div>
+              <div class="home-goal-stats" id="daily-goal-stats">
+                <div class="home-goal-stat" id="daily-goal-ig-stat"><span>Instagram</span><strong id="daily-goal-ig-text">0/0</strong></div>
+                <div class="home-goal-stat" id="daily-goal-li-stat"><span>LinkedIn</span><strong id="daily-goal-li-text">0/0</strong></div>
+                <a href="#" id="home-followups-due-link" class="home-goal-followups-link hidden"><span id="home-followups-due-text">0 follow-ups due</span> →</a>
+              </div>
             </div>
+            <p class="muted hidden" id="daily-goal-empty-state">No daily goal set yet — <a href="#" data-nav="settings" class="inline-link">set one in Settings</a> to track today's progress here.</p>
           </div>
-          <div class="home-goal-stats" id="daily-goal-stats">
-            <div class="home-goal-stat" id="daily-goal-ig-stat"><span>Instagram</span><strong id="daily-goal-ig-text">0/0</strong></div>
-            <div class="home-goal-stat" id="daily-goal-li-stat"><span>LinkedIn</span><strong id="daily-goal-li-text">0/0</strong></div>
+
+          <div class="home-streak-card" id="home-streak-card">
+            <span class="home-streak-flame-wrap"><span id="streak-flame" class="streak-flame" title="Lights up once you hit today's daily goal">🔥</span></span>
+            <div class="home-streak-text">
+              <strong><span id="streak-value">0</span>-day streak</strong>
+              <span class="muted" id="home-streak-sub">Hit today's goal to make it 1.</span>
+            </div>
+            <div class="home-streak-dots" id="home-streak-dots"></div>
           </div>
-          <div class="home-goal-streak" id="home-goal-streak">
-            <span id="streak-flame" class="streak-flame" title="Lights up once you hit today's daily goal">🔥</span>
-            <span><strong id="streak-value">–</strong> day streak</span>
-          </div>
-          <button id="daily-goal-session-btn" class="home-goal-btn">Start daily goal session →</button>
-          <p class="muted hidden" id="daily-goal-empty-state">No daily goal set yet — <a href="#" data-nav="settings" class="inline-link">set one in Settings</a> to track today's progress here.</p>
         </div>
 
         <div class="card home-session-card">
-          <h2>Start new session</h2>
-          <p class="muted">Pulls the next leads from your <a href="#" data-nav="leads" class="inline-link">Leads</a> list that haven't been contacted yet.</p>
+          <h2>New session</h2>
+          <p class="muted" id="home-session-subtitle">Pulls the next leads from your <a href="#" data-nav="leads" class="inline-link">Leads</a> list that haven't been contacted yet.</p>
 
           <div class="range-tabs" id="home-session-platform-tabs">
-            <button type="button" class="range-tab active" data-session-platform="instagram">Instagram session</button>
-            <button type="button" class="range-tab" data-session-platform="linkedin">LinkedIn session</button>
-            <button type="button" class="range-tab" data-session-platform="combi">Combi session</button>
+            <button type="button" class="range-tab active" data-session-platform="instagram">Instagram</button>
+            <button type="button" class="range-tab" data-session-platform="linkedin">LinkedIn</button>
+            <button type="button" class="range-tab" data-session-platform="combi">Combined</button>
           </div>
 
           <div id="home-session-single">
+            <p class="home-session-label">Leads in this session</p>
             <div class="session-size-row">
               <div class="session-size-presets" id="session-size-presets">
                 <button type="button" class="preset-btn" data-size="10">10</button>
@@ -187,83 +200,71 @@
           </div>
 
           <div id="home-session-account-row" class="hidden">
-            <label>Instagram account
-              <select id="home-session-account-select"></select>
-            </label>
+            <p class="home-session-label">Send from</p>
+            <div id="home-session-account-list" class="home-account-list"></div>
             <p class="muted hidden" id="home-session-no-accounts">No Instagram accounts yet — <a href="#" data-nav="settings" class="inline-link">add one in Settings</a> first.</p>
             <p class="hidden" id="home-session-account-error" style="color: var(--red); font-size: 0.85rem; margin-top: 6px;"></p>
           </div>
 
           <p class="muted" id="home-session-cooldown-notice" style="display:none;"></p>
 
-          <div class="row-between">
-            <span class="muted">&nbsp;</span>
-            <button id="start-session-btn" class="btn-primary">Start session →</button>
-          </div>
+          <button id="start-session-btn" class="btn-primary home-session-start-btn">Start session →</button>
           <div id="home-session-error" class="import-error hidden"></div>
         </div>
       </section>
 
-      <div class="overview-grid overview-grid-2">
+      <div class="overview-grid overview-grid-3">
         <div class="overview-tile">
-          <div class="overview-tile-label">📤 Reach-outs (7d)</div>
-          <div class="overview-tile-value" id="week-value">–</div>
+          <div class="overview-tile-label">Day streak</div>
+          <div class="overview-tile-value" id="streak-stat-value">–</div>
+          <div class="overview-tile-sub" id="longest-streak-sub">–</div>
         </div>
         <div class="overview-tile">
-          <div class="overview-tile-label">🗂️ Leads ready</div>
+          <div class="overview-tile-label">Reach-outs, last 7 days</div>
+          <div class="overview-tile-value" id="week-value">–</div>
+          <div class="overview-tile-sub" id="week-trend-sub">–</div>
+        </div>
+        <div class="overview-tile">
+          <div class="overview-tile-label">Leads ready</div>
           <div class="overview-tile-value" id="available-leads-value">–</div>
+          <div class="overview-tile-sub">Not yet contacted</div>
+        </div>
+      </div>
+
+      <div class="card home-conversion-card">
+        <div class="row-between home-conversion-head">
+          <h3>Conversion</h3>
+          <span class="muted" id="home-conversion-range">This month · All platforms</span>
+        </div>
+        <div class="home-conversion-grid">
+          <div class="home-conversion-stat"><span>Reply rate</span><strong id="reply-rate-value">–</strong></div>
+          <div class="home-conversion-stat"><span>Positive reply rate</span><strong id="prr-value">–</strong></div>
+          <div class="home-conversion-stat"><span>Appointment set rate</span><strong id="asr-value">–</strong></div>
+          <div class="home-conversion-stat"><span>Connections sent</span><strong id="connections-sent-value">–</strong></div>
+          <div class="home-conversion-stat"><span>Accepted</span><strong id="connections-accepted-value">–</strong></div>
+          <div class="home-conversion-stat"><span>Accept rate</span><strong id="car-value">–</strong></div>
         </div>
       </div>
 
       <div class="overview-grid overview-grid-2">
-        <div class="overview-chart-tile">
-          <div class="overview-chart-title">Pipeline distribution</div>
-          <div class="overview-donut-row">
-            <div class="overview-donut-wrap" id="pipeline-donut-wrap">
-              <svg id="pipeline-donut" viewBox="0 0 120 120"></svg>
-              <div id="pipeline-donut-tooltip" class="chart-tooltip hidden"></div>
-            </div>
-            <div class="overview-donut-legend" id="pipeline-donut-legend"></div>
-          </div>
-        </div>
-
-        <div class="overview-chart-tile" id="sends-sparkline-wrap">
+        <div class="overview-chart-tile" id="sends-bar-wrap">
           <div class="overview-chart-title-row">
             <div class="overview-chart-title">Sends — last 7 days</div>
-            <span class="overview-chart-delta" id="sends-trend-delta"></span>
+            <div class="home-bar-legend">
+              <span class="home-bar-legend-item"><span class="home-bar-legend-dot ig"></span>Instagram</span>
+              <span class="home-bar-legend-item"><span class="home-bar-legend-dot li"></span>LinkedIn</span>
+            </div>
           </div>
-          <svg id="sends-sparkline" viewBox="0 0 300 110" preserveAspectRatio="none"></svg>
-          <div id="sends-sparkline-tooltip" class="chart-tooltip hidden"></div>
+          <div id="sends-bar-chart" class="home-bar-chart"></div>
         </div>
-      </div>
 
-      <div class="overview-grid overview-grid-3">
-        <div class="overview-tile">
-          <div class="overview-tile-label">💬 Reply rate</div>
-          <div class="overview-tile-value" id="reply-rate-value">–</div>
-        </div>
-        <div class="overview-tile">
-          <div class="overview-tile-label">✅ Positive reply rate</div>
-          <div class="overview-tile-value" id="prr-value">–</div>
-        </div>
-        <div class="overview-tile">
-          <div class="overview-tile-label">📅 Appointment set rate</div>
-          <div class="overview-tile-value" id="asr-value">–</div>
-        </div>
-      </div>
-
-      <div class="overview-grid overview-grid-3">
-        <div class="overview-tile">
-          <div class="overview-tile-label">🔗 Connection requests sent</div>
-          <div class="overview-tile-value" id="connections-sent-value">–</div>
-        </div>
-        <div class="overview-tile">
-          <div class="overview-tile-label">🤝 Connection requests accepted</div>
-          <div class="overview-tile-value" id="connections-accepted-value">–</div>
-        </div>
-        <div class="overview-tile">
-          <div class="overview-tile-label">📈 Connection accept rate</div>
-          <div class="overview-tile-value" id="car-value">–</div>
+        <div class="overview-chart-tile">
+          <div class="overview-chart-title-row">
+            <div class="overview-chart-title">Pipeline</div>
+            <span class="muted" id="pipeline-total-label">0 leads</span>
+          </div>
+          <div class="home-pipeline-bar" id="pipeline-stacked-bar"></div>
+          <div class="home-pipeline-legend" id="pipeline-legend"></div>
         </div>
       </div>
     </section>
@@ -1308,8 +1309,8 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=31"></script>
+<script src="app.js?v=32"></script>
 <script src="leads.js?v=28"></script>
-<script src="followups.js?v=27"></script>
+<script src="followups.js?v=28"></script>
 </body>
 </html>

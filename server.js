@@ -359,6 +359,48 @@ function computeGoalStreak(igByDate, liByDate, igGoal, liGoal) {
   return { streak, todayMet };
 }
 
+// The last 7 calendar days (today included), each tagged with whether the
+// goal was met that day — backs the Home streak card's day-dot strip.
+// Deliberately includes Sundays here (unlike the streak count itself, which
+// skips over them) so the strip always shows exactly 7 real calendar days.
+function computeStreakDays(igByDate, liByDate, igGoal, liGoal) {
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const ds = daysAgoStr(i);
+    days.push({ date: ds, met: goalMetOnDate(ds, igByDate, liByDate, igGoal, liGoal) });
+  }
+  return days;
+}
+
+// Longest-ever run of consecutive goal-met days (Sundays skipped, same as
+// computeGoalStreak), scanning the full history rather than just the
+// still-active streak — backs the streak card's "Longest run: N days"
+// subtext. Walks forward from the earliest date either platform has an
+// entry for, since a day with no entry on either side is just "not met",
+// identical to goalMetOnDate's own handling of missing dates.
+function computeLongestGoalStreak(igByDate, liByDate, igGoal, liGoal) {
+  if (igGoal <= 0 && liGoal <= 0) return 0;
+  const allDates = [...Object.keys(igByDate), ...Object.keys(liByDate)];
+  if (allDates.length === 0) return 0;
+  const earliest = allDates.reduce((min, d) => (d < min ? d : min), allDates[0]);
+  let cursor = new Date(earliest + 'T00:00:00');
+  const today = new Date(todayStr() + 'T00:00:00');
+  let longest = 0, current = 0;
+  while (cursor <= today) {
+    if (cursor.getDay() !== 0) {
+      const ds = todayStr(cursor);
+      if (goalMetOnDate(ds, igByDate, liByDate, igGoal, liGoal)) {
+        current++;
+        longest = Math.max(longest, current);
+      } else {
+        current = 0;
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return longest;
+}
+
 app.get('/api/home', asyncRoute(async (req, res) => {
   const workspaceId = await getWorkspaceId(req);
   const platform = ['instagram', 'linkedin'].includes(req.query.platform) ? req.query.platform : 'all';
@@ -375,15 +417,28 @@ app.get('/api/home', asyncRoute(async (req, res) => {
     ? (last7Days > 0 ? 100 : 0)
     : Math.round(((last7Days - prevWeek) / prevWeek) * 1000) / 10;
 
-  // Mini trend for the home overview sparkline — one point per of the last
-  // 7 days, oldest first.
+  // Mini trend for the home overview chart — one point per of the last 7
+  // days, oldest first. Always both platforms regardless of this endpoint's
+  // own platform filter (same reasoning as dailyGoal below) — the chart
+  // shows a per-platform breakdown of its own, so it needs both counts
+  // whichever tab is active.
+  const sevenDaysAgoDs = daysAgoStr(6);
+  const trendRows = await sql`SELECT platform, date, count(*) FROM outreaches WHERE workspace_id = ${workspaceId} AND status = 'sent' AND date >= ${sevenDaysAgoDs} GROUP BY platform, date`;
   const sendsTrend = [];
   for (let i = 6; i >= 0; i--) {
     const ds = daysAgoStr(i);
-    sendsTrend.push({ date: ds, count: sent.filter(o => o.date === ds).length });
+    const igCount = trendRows.filter(r => r.date === ds && r.platform === 'instagram').reduce((s, r) => s + Number(r.count), 0);
+    const liCount = trendRows.filter(r => r.date === ds && r.platform === 'linkedin').reduce((s, r) => s + Number(r.count), 0);
+    sendsTrend.push({ date: ds, count: igCount + liCount, instagram: igCount, linkedin: liCount });
   }
 
   const [{ count }] = await sql`SELECT count(*) FROM leads WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL AND stage = 'new' ${platformClause(platform)}`;
+  // Same independence from this endpoint's platform filter as sendsTrend
+  // above — "New session" shows both platforms' ready-lead counts in its
+  // subtitle no matter which tab is active.
+  const availableByPlatformRows = await sql`SELECT platform, count(*) FROM leads WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL AND stage = 'new' GROUP BY platform`;
+  const availableLeadsByPlatform = { instagram: 0, linkedin: 0 };
+  availableByPlatformRows.forEach(r => { if (r.platform in availableLeadsByPlatform) availableLeadsByPlatform[r.platform] = Number(r.count); });
   const stageRows = await sql`SELECT stage, count(*) FROM leads WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL ${platformClause(platform)} GROUP BY stage`;
   const stageCounts = { new: 0, engaged: 0, connection_sent: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0, cant_message: 0, in_conversation: 0 };
   stageRows.forEach(r => { if (r.stage in stageCounts) stageCounts[r.stage] = Number(r.count); });
@@ -509,9 +564,12 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   liEngagedByDateRows.forEach(r => { liEngagedByDate[r.date] = Number(r.count); });
 
   const { streak, todayMet: streakTodayMet } = computeGoalStreak(igSentByDate, liEngagedByDate, dailyGoalInstagram, dailyGoalLinkedin);
+  const longestStreak = computeLongestGoalStreak(igSentByDate, liEngagedByDate, dailyGoalInstagram, dailyGoalLinkedin);
+  const streakDays = computeStreakDays(igSentByDate, liEngagedByDate, dailyGoalInstagram, dailyGoalLinkedin);
 
   res.json({
-    streak, streakTodayMet, last7Days, last7DaysPctChange, availableLeads: Number(count), stageCounts,
+    streak, streakTodayMet, longestStreak, streakDays, last7Days, last7DaysPctChange,
+    availableLeads: Number(count), availableLeadsByPlatform, stageCounts,
     sendsTrend, replyRate, prr, asr,
     connectionsSent: eventCounts.connection_sent, connectionsAccepted: eventCounts.connection_accepted, car,
     dailyGoal: {
