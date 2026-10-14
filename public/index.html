@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=43">
+<link rel="stylesheet" href="style.css?v=44">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -1041,7 +1041,30 @@
         </div>
         <button id="followup-back-btn" class="btn-secondary">← Back</button>
       </div>
-      <div id="followup-list" class="followup-list"></div>
+      <div id="followup-split" class="followup-split">
+        <div id="followup-queue" class="followup-queue"></div>
+        <div id="followup-detail" class="followup-detail">
+          <div class="followup-detail-head">
+            <span class="followup-detail-avatar" id="followup-detail-avatar"></span>
+            <div class="followup-detail-identity">
+              <span class="followup-detail-name" id="followup-detail-name"></span>
+              <span class="muted" id="followup-detail-context"></span>
+            </div>
+            <span class="followup-detail-step-chip" id="followup-detail-step"></span>
+          </div>
+          <textarea id="followup-detail-message" class="followup-detail-message"></textarea>
+          <div class="followup-detail-actions">
+            <button type="button" id="followup-detail-copy-btn" class="btn-secondary">Copy message</button>
+            <a href="#" id="followup-detail-open-link" target="ig_preview" rel="noopener" class="btn-secondary">Open DM ↗</a>
+          </div>
+          <div class="followup-detail-divider"></div>
+          <div class="followup-detail-actions">
+            <button type="button" id="followup-detail-done-btn" class="btn-primary">Sent</button>
+            <button type="button" id="followup-detail-replied-btn" class="btn-secondary">They replied</button>
+            <button type="button" id="followup-detail-skip-btn" class="followup-detail-skip-btn">Delete lead</button>
+          </div>
+        </div>
+      </div>
       <div id="followup-empty" class="interstitial hidden">
         <span class="interstitial-ghost" aria-hidden="true">Done</span>
         <div class="eyebrow">Follow-ups</div>
@@ -1332,6 +1355,6 @@
 <script src="templates.js?v=23"></script>
 <script src="app.js?v=37"></script>
 <script src="leads.js?v=28"></script>
-<script src="followups.js?v=29"></script>
+<script src="followups.js?v=30"></script>
 </body>
 </html>

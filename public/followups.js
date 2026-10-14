@@ -274,30 +274,32 @@ $('#home-followups-due-link').addEventListener('click', (e) => {
 
 // ---------- Follow-up session ----------
 
-const followupState = { phase: null, platform: 'instagram', accountId: null, leads: [] };
+const followupState = { phase: null, platform: 'instagram', accountId: null, leads: [], selectedId: null };
 
 async function openFollowupSession(phase, platform, accountId = null) {
   followupState.phase = phase;
   followupState.platform = platform === 'linkedin' ? 'linkedin' : 'instagram';
   followupState.accountId = followupState.platform === 'instagram' ? accountId : null;
   $('#followup-title').textContent = `${PLATFORM_LABELS[followupState.platform]} ${PHASE_NAMES[phase]} Follow-ups`;
-  $('#followup-list').innerHTML = '<p class="muted">Loading…</p>';
+  $('#followup-queue').innerHTML = '<p class="muted" style="padding:14px;">Loading…</p>';
   $('#followup-sub').textContent = '';
   $('#followup-empty').classList.add('hidden');
+  $('#followup-split').classList.remove('hidden');
   showView('followup');
   try {
     const accountParam = followupState.accountId ? `&accountId=${encodeURIComponent(followupState.accountId)}` : '';
     const data = await fetchJson(`/api/followups/due?phase=${phase}&platform=${followupState.platform}${accountParam}`);
     followupState.leads = data.leads || [];
+    followupState.selectedId = followupState.leads[0] ? followupState.leads[0].id : null;
     // The notification that opened this session was already scoped to one
     // account (that's how it knew "8 leads to follow up with" in the first
     // place) — surfacing the username here is the "auto-select the right
     // account" requirement, since there's no separate picker step to skip.
     const accountUsername = followupState.leads[0]?.accountUsername;
     $('#followup-sub').textContent = accountUsername ? `Sending as @${accountUsername}` : '';
-    renderFollowupList();
+    renderFollowupQueue();
   } catch (e) {
-    $('#followup-list').innerHTML = `<p class="import-error">Could not load follow-ups: ${escapeHtml(e.message)}</p>`;
+    $('#followup-queue').innerHTML = `<p class="import-error" style="padding:14px;">Could not load follow-ups: ${escapeHtml(e.message)}</p>`;
   }
 }
 
@@ -318,152 +320,157 @@ async function openConnectionSession() {
   }
 }
 
-function followupCardHtml(lead) {
-  const isMedia = lead.type !== 'text';
-  // The message accompanying a media step is optional ("sent alongside the
-  // media"), so a GIF/meme step can have no message at all — the media note
-  // itself needs to be clickable-to-open-DM too, or a message-less media
-  // step renders with nothing to click anywhere on the card.
-  const mediaLine = isMedia
-    ? `<button type="button" class="followup-message followup-open-dm" data-id="${lead.id}">🎬 Send a ${escapeHtml(lead.type)}: ${escapeHtml(lead.mediaNote || '')}</button>`
-    : '';
-  const messageLine = lead.message
-    ? `<button type="button" class="followup-message followup-open-dm" data-id="${lead.id}">${escapeHtml(lead.message)}</button>`
-    : '';
-  // Belt-and-suspenders: if a step somehow has neither (shouldn't happen for
-  // text steps, which require a message), still give the card a way to open
-  // the DM rather than being silently unclickable.
-  const fallbackLine = (!mediaLine && !messageLine)
-    ? `<button type="button" class="followup-message followup-open-dm" data-id="${lead.id}">Open DM →</button>`
-    : '';
+function followupQueueRowHtml(lead) {
   const name = leadDisplayName(lead);
+  const sub = lead.type !== 'text' ? `🎬 ${lead.type}` : `Step ${lead.step}`;
+  const selected = lead.id === followupState.selectedId;
   return `
-    <div class="followup-card" data-id="${lead.id}">
-      <div class="followup-card-head">
-        <span class="followup-avatar" style="background:${toneForId(lead.id)}">${escapeHtml(initialsFor(name))}</span>
-        <span class="followup-username">${escapeHtml(name)}</span>
-        <span class="followup-step-chip">Step ${lead.step}</span>
-      </div>
-      ${mediaLine}
-      ${messageLine}
-      ${fallbackLine}
-      <div class="followup-card-divider"></div>
-      <div class="followup-card-actions">
-        <button type="button" class="btn-primary followup-sent-btn" data-id="${lead.id}">Sent</button>
-        <button type="button" class="btn-secondary followup-in-conversation-btn" data-id="${lead.id}">They replied</button>
-        <button type="button" class="followup-delete-btn" data-id="${lead.id}">Delete lead</button>
-      </div>
-    </div>`;
+    <button type="button" class="followup-queue-row${selected ? ' selected' : ''}" data-id="${lead.id}">
+      <span class="followup-queue-avatar" style="background:${toneForId(lead.id)}">${escapeHtml(initialsFor(name))}</span>
+      <span class="followup-queue-text">
+        <span class="followup-queue-name">${escapeHtml(name)}</span>
+        <span class="followup-queue-sub">${escapeHtml(sub)}</span>
+      </span>
+    </button>`;
 }
 
-function renderFollowupList() {
-  const list = $('#followup-list');
+function currentFollowupLead() {
+  return followupState.leads.find(l => l.id === followupState.selectedId) || null;
+}
+
+function renderFollowupQueue() {
+  const queue = $('#followup-queue');
   const n = followupState.leads.length;
   $('#followup-sub').textContent = n === 0
     ? ''
-    : `${n} lead${n === 1 ? '' : 's'} — click a message or media note to open the DM (and copy the message, if there is one), then mark it Sent or delete the lead.`;
+    : `${n} lead${n === 1 ? '' : 's'} — pick one from the queue, copy or open the DM, then mark it Sent, note they replied, or delete the lead.`;
 
   if (n === 0) {
-    list.innerHTML = '';
+    $('#followup-split').classList.add('hidden');
     $('#followup-empty').classList.remove('hidden');
     return;
   }
   $('#followup-empty').classList.add('hidden');
-  list.innerHTML = followupState.leads.map(followupCardHtml).join('');
+  $('#followup-split').classList.remove('hidden');
+  queue.innerHTML = followupState.leads.map(followupQueueRowHtml).join('');
+  renderFollowupDetail();
 }
 
-function removeFollowupCard(id) {
-  const card = document.querySelector(`.followup-card[data-id="${id}"]`);
-  if (card) card.classList.add('removing');
+function renderFollowupDetail() {
+  const lead = currentFollowupLead();
+  const detail = $('#followup-detail');
+  if (!lead) { detail.classList.add('hidden'); return; }
+  detail.classList.remove('hidden');
+  const name = leadDisplayName(lead);
+  $('#followup-detail-avatar').textContent = initialsFor(name);
+  $('#followup-detail-avatar').style.background = toneForId(lead.id);
+  $('#followup-detail-name').textContent = name;
+  $('#followup-detail-context').textContent = lead.accountUsername ? `Sending as @${lead.accountUsername}` : '';
+  $('#followup-detail-step').textContent = `Step ${lead.step}`;
+  // The message accompanying a media step is optional ("sent alongside the
+  // media"), so a GIF/meme step can have no message at all — falls back to
+  // a short instruction line so there's always something to read/copy.
+  const text = lead.message || (lead.type !== 'text' ? `Send a ${lead.type}: ${lead.mediaNote || ''}` : '');
+  $('#followup-detail-message').value = text;
+  $('#followup-detail-open-link').href = leadDmUrl(lead);
+  $('#followup-detail-replied-btn').classList.toggle('hidden', lead.platform === 'linkedin');
+}
+
+function advanceFollowupQueueAfter(id) {
+  const idx = followupState.leads.findIndex(l => l.id === id);
   followupState.leads = followupState.leads.filter(l => l.id !== id);
-  setTimeout(renderFollowupList, card ? 280 : 0);
+  if (followupState.selectedId === id) {
+    const next = followupState.leads[idx] || followupState.leads[idx - 1] || null;
+    followupState.selectedId = next ? next.id : null;
+  }
+  renderFollowupQueue();
 }
 
-$('#followup-list').addEventListener('click', async (e) => {
-  const openBtn = e.target.closest('.followup-open-dm');
-  if (openBtn) {
-    const lead = followupState.leads.find(l => l.id === openBtn.dataset.id);
-    if (lead) {
-      // Start the clipboard write (if there's a message to copy) BEFORE
-      // window.open() — Chrome throws "Document is not focused" if
-      // writeText() is called after the new tab already has focus, which is
-      // exactly what happened when this was ordered the other way: the DM
-      // tab opened but nothing got copied. We don't await the write itself;
-      // calling window.open() in the same synchronous tick (rather than
-      // after an await) keeps this click's user-gesture activation intact
-      // for the popup blocker, and the write still completes in the
-      // background since it was *initiated* while this document had focus.
-      if (lead.message) {
-        navigator.clipboard.writeText(lead.message)
-          .then(() => {
-            openBtn.classList.add('copied');
-            setTimeout(() => openBtn.classList.remove('copied'), 900);
-          })
-          .catch(err => console.error('Clipboard write failed', err));
-      }
-      window.open(leadDmUrl(lead), 'ig_preview');
-    }
-    return;
-  }
+$('#followup-queue').addEventListener('click', (e) => {
+  const row = e.target.closest('.followup-queue-row');
+  if (!row) return;
+  followupState.selectedId = row.dataset.id;
+  renderFollowupQueue();
+});
 
-  const sentBtn = e.target.closest('.followup-sent-btn');
-  if (sentBtn) {
-    const id = sentBtn.dataset.id;
-    const lead = followupState.leads.find(l => l.id === id);
-    if (!lead) return;
-    sentBtn.disabled = true;
-    try {
-      const result = await fetchJson(`/api/leads/${id}/followup-sent`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ phase: lead.phase, step: lead.step, message: lead.message || '' })
-      });
-      removeFollowupCard(id);
-      loadNotifications();
-      // Warn, don't block — the real prevention already happened up front
-      // via effectiveRemainingForNewSends when the session was started.
-      if (result.accountTodaySentCount != null && result.accountTodaySentCount >= result.accountDailyLimit) {
-        const account = findIgAccount(result.accountId);
-        const username = account ? account.username : 'This account';
-        alert(`⚠️ @${username} is now over its daily limit (${result.accountTodaySentCount}/${result.accountDailyLimit}) — no action needed, just a heads up.`);
-      }
-    } catch (err) {
-      alert(`Could not mark as sent: ${err.message}`);
-      sentBtn.disabled = false;
-    }
-    return;
-  }
+$('#followup-detail-copy-btn').addEventListener('click', () => {
+  const lead = currentFollowupLead();
+  if (!lead) return;
+  navigator.clipboard.writeText($('#followup-detail-message').value)
+    .then(() => {
+      const btn = $('#followup-detail-copy-btn');
+      const original = btn.textContent;
+      btn.textContent = 'Copied';
+      setTimeout(() => { btn.textContent = original; }, 900);
+    })
+    .catch(err => console.error('Clipboard write failed', err));
+});
 
-  const conversationBtn = e.target.closest('.followup-in-conversation-btn');
-  if (conversationBtn) {
-    const id = conversationBtn.dataset.id;
-    conversationBtn.disabled = true;
-    try {
-      await fetchJson(`/api/leads/${id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stage: 'in_conversation' })
-      });
-      removeFollowupCard(id);
-      loadNotifications();
-    } catch (err) {
-      alert(`Could not update stage: ${err.message}`);
-      conversationBtn.disabled = false;
-    }
-    return;
-  }
+$('#followup-detail-open-link').addEventListener('click', () => {
+  // Same "start the copy before the new tab steals focus" ordering as the
+  // copy button alone — the link's own default navigation already opens
+  // the tab, this just also fires off the clipboard write first.
+  const text = $('#followup-detail-message').value;
+  if (text) navigator.clipboard.writeText(text).catch(() => {});
+});
 
-  const delBtn = e.target.closest('.followup-delete-btn');
-  if (delBtn) {
-    const id = delBtn.dataset.id;
-    // deleteLeads() defers its actual server-side call by ~300ms for the row
-    // fade-out, so refreshing notifications right away would read stale
-    // pre-delete state and leave the bell badge wrong until the next
-    // unrelated reload. deleteLeads() returns a promise that resolves after
-    // the real delete completes, so await that instead.
-    deleteLeads([id]).then(() => loadNotifications());
-    removeFollowupCard(id);
+$('#followup-detail-done-btn').addEventListener('click', async () => {
+  const lead = currentFollowupLead();
+  if (!lead) return;
+  const btn = $('#followup-detail-done-btn');
+  btn.disabled = true;
+  try {
+    const result = await fetchJson(`/api/leads/${lead.id}/followup-sent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phase: lead.phase, step: lead.step, message: $('#followup-detail-message').value || '' })
+    });
+    advanceFollowupQueueAfter(lead.id);
+    loadNotifications();
+    // Warn, don't block — the real prevention already happened up front
+    // via effectiveRemainingForNewSends when the session was started.
+    if (result.accountTodaySentCount != null && result.accountTodaySentCount >= result.accountDailyLimit) {
+      const account = findIgAccount(result.accountId);
+      const username = account ? account.username : 'This account';
+      alert(`⚠️ @${username} is now over its daily limit (${result.accountTodaySentCount}/${result.accountDailyLimit}) — no action needed, just a heads up.`);
+    }
+  } catch (err) {
+    alert(`Could not mark as sent: ${err.message}`);
+  } finally {
+    btn.disabled = false;
   }
+});
+
+$('#followup-detail-replied-btn').addEventListener('click', async () => {
+  const lead = currentFollowupLead();
+  if (!lead) return;
+  const btn = $('#followup-detail-replied-btn');
+  btn.disabled = true;
+  try {
+    await fetchJson(`/api/leads/${lead.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ stage: 'in_conversation' })
+    });
+    advanceFollowupQueueAfter(lead.id);
+    loadNotifications();
+  } catch (err) {
+    alert(`Could not update stage: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#followup-detail-skip-btn').addEventListener('click', () => {
+  const lead = currentFollowupLead();
+  if (!lead) return;
+  // deleteLeads() defers its actual server-side call by ~300ms for the row
+  // fade-out, so refreshing notifications right away would read stale
+  // pre-delete state and leave the bell badge wrong until the next
+  // unrelated reload. deleteLeads() returns a promise that resolves after
+  // the real delete completes, so await that instead.
+  deleteLeads([lead.id]).then(() => loadNotifications());
+  advanceFollowupQueueAfter(lead.id);
 });
 
 $('#followup-back-btn').addEventListener('click', () => showView('home'));
