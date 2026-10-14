@@ -37,20 +37,19 @@ const PLATFORM_LABELS = { instagram: 'Instagram', linkedin: 'LinkedIn' };
 function renderSidebarFollowupCard(notifications) {
   const workItems = notifications.filter(n => n.type === 'followup' || n.type === 'connections');
   const card = $('#sidebar-fu-card');
-  const homeLink = $('#home-followups-due-link');
   if (workItems.length === 0) {
     card.classList.add('hidden');
-    homeLink.classList.add('hidden');
-    return;
+  } else {
+    const total = workItems.reduce((sum, n) => sum + (n.count || 0), 0);
+    $('#sidebar-fu-card-sub').textContent = `${total} lead${total === 1 ? '' : 's'} across ${workItems.length} group${workItems.length === 1 ? '' : 's'}`;
+    card.classList.remove('hidden');
   }
+  // Home's goal-card link to the same data — stays visible either way
+  // (just swaps to "No follow-ups due" at zero) rather than disappearing,
+  // kept in sync here alongside the sidebar card since both come from this
+  // one notifications payload.
   const total = workItems.reduce((sum, n) => sum + (n.count || 0), 0);
-  $('#sidebar-fu-card-sub').textContent = `${total} lead${total === 1 ? '' : 's'} across ${workItems.length} group${workItems.length === 1 ? '' : 's'}`;
-  card.classList.remove('hidden');
-  // Home's goal-card link to the same data — only shown on the Home view,
-  // but kept in sync here alongside the sidebar card since both come from
-  // this one notifications payload.
-  $('#home-followups-due-text').textContent = `${total} follow-up${total === 1 ? '' : 's'} due`;
-  homeLink.classList.remove('hidden');
+  $('#home-followups-due-text').textContent = total === 0 ? 'No follow-ups due' : `${total} follow-up${total === 1 ? '' : 's'} due`;
 }
 
 function renderNotifications(notifications) {

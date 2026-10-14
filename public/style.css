@@ -15,6 +15,11 @@
   --red: #ff3131;
   --red-dark: #e01e1e;
   --warn: #9A3A0A;
+  /* Goal-reached accent — the source design's own color for "daily goal
+     hit today" (ring fill, streak flame/badge, today's streak dot), kept
+     distinct from --red since it's a warmer, slightly more orange red. */
+  --goal-reached: #EF3B2D;
+  --goal-reached-soft: #FDE7E4;
   --link: #3860BE;
   --accent: var(--purple);
   --accent-dark: #300054;
@@ -397,139 +402,150 @@ input:focus, textarea:focus, select:focus {
 .home-greeting { margin: 0; font-size: 2.6rem; line-height: 1.05; letter-spacing: -0.02em; font-weight: 500; }
 
 .home-hero-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: stretch; margin-bottom: 24px; }
-.home-hero-left { flex: 7 1 420px; min-width: 0; display: flex; flex-direction: column; gap: 16px; }
 
+/* No card background of its own — sits directly on the page background,
+   matching the source design (only the "New session" card and the streak
+   pill inside here have their own fills). */
 .home-goal-card {
+  flex: 7 1 460px;
+  min-width: 0;
   position: relative;
   overflow: hidden;
-  background: var(--card-bg-alt);
-  border-radius: var(--r-xl);
-  padding: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 40px;
+  flex-wrap: wrap;
+  padding: 16px 0;
 }
 .home-goal-ghost {
   position: absolute;
   left: -4px;
-  top: -14px;
-  font-size: 100px;
+  top: -10px;
+  font-size: 140px;
   line-height: 1;
   font-weight: 500;
-  letter-spacing: -0.15em;
+  letter-spacing: -0.12em;
   color: var(--border);
   pointer-events: none;
   user-select: none;
   z-index: 0;
 }
-.home-goal-row { position: relative; z-index: 1; display: flex; align-items: center; gap: 32px; flex-wrap: wrap; }
-.home-goal-ring-wrap { position: relative; width: 220px; height: 220px; flex-shrink: 0; }
-/* A gauge, not a full circle — open ~50deg at the bottom. 115deg (vs. a
-   plain progress ring's -90deg) rotates the circle's default start point
-   (3 o'clock) around to just past 6 o'clock, so the dash pattern below
-   (811.58 drawn / 130.9 gap, an exact 310/50deg split of the r=150
-   circumference) lands its one gap centered on the bottom. */
-.home-goal-ring-svg { width: 100%; height: 100%; transform: rotate(115deg); overflow: visible; }
-.home-goal-ring-track { fill: none; stroke: var(--border); stroke-width: 14; stroke-linecap: round; }
+.home-goal-ring-wrap { position: relative; width: 340px; height: 340px; max-width: 100%; flex: none; }
+.home-goal-ring-svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.home-goal-ring-squiggle { fill: none; stroke: var(--accent); stroke-width: 1.25; stroke-linecap: round; }
+.home-goal-ring-squiggle-dot { fill: var(--accent); }
+.home-goal-ring-bg { fill: var(--card-bg-alt); }
+.home-goal-ring-track { fill: none; stroke: var(--border); stroke-width: 14; }
 .home-goal-ring-fill { fill: none; stroke: var(--text); stroke-width: 14; stroke-linecap: round; transition: stroke-dashoffset 0.6s cubic-bezier(0.4,0,0.2,1), stroke 0.3s; }
-.home-goal-card.goal-reached .home-goal-ring-fill { stroke: var(--green); }
-.home-goal-ring-dot { fill: var(--accent); stroke: var(--card-bg-alt); stroke-width: 3; transition: cx 0.6s cubic-bezier(0.4,0,0.2,1), cy 0.6s cubic-bezier(0.4,0,0.2,1); }
-.home-goal-ring-decoration { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
-.home-goal-ring-squiggle { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-linecap: round; opacity: 0.55; }
-.home-goal-ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; text-align: center; }
-.home-goal-ring-label { font-size: 12px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); }
-.home-goal-ring-done { font-size: 52px; line-height: 1; letter-spacing: -0.02em; font-weight: 500; }
-.home-goal-ring-total { font-size: 13px; color: var(--muted); }
+.home-goal-card.goal-reached .home-goal-ring-fill { stroke: var(--goal-reached); }
+.home-goal-ring-center { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center; }
+.home-goal-ring-label { font-size: 13px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); transition: color 0.3s; }
+.home-goal-card.goal-reached .home-goal-ring-label { color: var(--goal-reached); }
+.home-goal-ring-done { font-size: 80px; line-height: 1; letter-spacing: -0.02em; font-weight: 500; }
+.home-goal-ring-total { font-size: 15px; color: var(--muted); }
 .home-goal-ring-btn {
   position: absolute;
-  right: 4px;
-  bottom: 4px;
-  width: 40px;
-  height: 40px;
+  right: 8px;
+  bottom: 26px;
+  width: 64px;
+  height: 64px;
   border-radius: 50%;
   background: var(--card-bg);
-  border: 1px solid var(--border);
+  border: 0;
   color: var(--text);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow-lift);
+  transition: background 0.24s;
 }
-.home-goal-ring-btn:hover:not(:disabled) { background: var(--text); color: var(--bg); }
+.home-goal-ring-btn:hover:not(:disabled) { background: var(--card-bg-alt); }
 .home-goal-ring-btn:disabled { opacity: 0.5; cursor: default; }
-.home-goal-stats { flex: 1 1 160px; min-width: 160px; display: flex; flex-direction: column; gap: 10px; }
-.home-goal-stat { display: flex; flex-direction: column; gap: 1px; font-size: 13px; color: var(--muted); }
-.home-goal-stat strong { font-size: 20px; font-weight: 500; color: var(--text); }
-.home-goal-followups-link {
-  margin-top: 6px;
-  padding-top: 10px;
-  border-top: 1px solid var(--border);
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent);
-  text-decoration: none;
-}
-.home-goal-followups-link:hover { text-decoration: underline; }
-#daily-goal-empty-state { position: relative; z-index: 1; margin: 0; text-align: center; }
+.home-goal-stats { position: relative; flex: 1 1 180px; min-width: 180px; display: flex; flex-direction: column; gap: 18px; }
+.home-goal-stat { display: flex; flex-direction: column; gap: 2px; font-size: 14px; color: var(--muted); }
+.home-goal-stat strong { font-size: 24px; font-weight: 500; letter-spacing: -0.01em; color: var(--text); }
+.home-goal-divider { height: 1px; background: var(--border); }
+.home-goal-followups-link { font-size: 14px; font-weight: 500; color: var(--text); text-decoration: none; display: flex; align-items: center; gap: 4px; }
+.home-goal-followups-link:hover { color: var(--warn); text-decoration: none; }
+#daily-goal-empty-state { position: relative; z-index: 1; margin: 0; text-align: center; width: 100%; }
 
-.home-streak-card {
-  background: var(--card-bg);
-  border-radius: var(--r-xl);
-  padding: 20px 28px;
+/* The streak strip wraps to its own full-width row below the ring/stats
+   (flex-basis 100% inside the same flex-wrap goal card) rather than being
+   a separate outer card — a pill, not a rounded-rect. */
+.home-streak-pill {
+  position: relative;
+  flex: 1 1 100%;
   display: flex;
   align-items: center;
-  gap: 16px;
+  justify-content: center;
+  gap: 24px;
+  flex-wrap: wrap;
+  background: var(--card-bg-alt);
+  border-radius: var(--r-pill);
+  padding: 14px 28px 14px 14px;
 }
-.home-streak-flame-wrap { width: 40px; height: 40px; border-radius: 50%; background: var(--card-bg-alt); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 18px; }
-.home-streak-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 160px; min-width: 0; }
-.home-streak-text strong { font-size: 15px; font-weight: 600; }
+.home-streak-pill.hidden { display: none; }
+.home-streak-flame-wrap { width: 52px; height: 52px; border-radius: 50%; background: var(--bg); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 20px; transition: background 0.3s; }
+.home-streak-flame-wrap.lit { background: var(--goal-reached-soft); }
+.home-streak-text { display: flex; flex-direction: column; line-height: 1.15; gap: 2px; }
+.home-streak-text strong { font-size: 28px; font-weight: 500; letter-spacing: -0.01em; }
 .home-streak-text .muted { font-size: 13px; }
-.home-streak-dots { display: flex; gap: 10px; flex-shrink: 0; }
-.home-streak-dot-col { display: flex; flex-direction: column; align-items: center; gap: 6px; }
-.home-streak-dot { width: 18px; height: 18px; border-radius: 50%; background: var(--border); display: block; }
-.home-streak-dot.met { background: var(--text); }
+.home-streak-dots { display: flex; gap: 6px; flex-shrink: 0; }
+.home-streak-dot-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.home-streak-dot { width: 26px; height: 26px; border-radius: 50%; background: transparent; border: 1.5px solid var(--border); display: block; }
+.home-streak-dot.met { background: var(--text); border-color: var(--text); }
+.home-streak-dot.met.today { background: var(--goal-reached); border-color: var(--goal-reached); }
 .home-streak-dot-label { font-size: 11px; }
 
-.home-session-card { flex: 5 1 360px; min-width: 0; margin-bottom: 0; display: flex; flex-direction: column; gap: 14px; }
-.home-session-label { margin: 4px 0 -6px; font-size: 13px; font-weight: 600; color: var(--muted); }
+.home-session-card { flex: 5 1 360px; min-width: 0; margin-bottom: 0; border-radius: var(--r-xl); padding: 32px; display: flex; flex-direction: column; gap: 22px; box-shadow: var(--shadow-lift); }
+.home-session-title-group { display: flex; flex-direction: column; gap: 4px; }
+.home-session-card h2 { margin: 0; font-size: 24px; font-weight: 500; letter-spacing: -0.01em; }
+.home-session-card .muted { margin: 0; }
+.home-session-label { margin: 0; font-size: 13px; font-weight: 500; color: var(--muted); }
 .home-session-start-btn { width: 100%; margin-top: auto; }
 
-.home-account-list { display: flex; flex-direction: column; gap: 8px; }
+.home-account-list { display: flex; flex-direction: column; gap: 6px; }
 .home-account-row {
   display: flex;
   align-items: center;
   gap: 12px;
   width: 100%;
-  padding: 10px 14px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
+  padding: 5px 16px 5px 5px;
+  border: 1.5px solid rgba(20, 20, 19, 0.12);
+  border-radius: var(--r-pill);
   background: var(--card-bg);
   cursor: pointer;
   text-align: left;
   font-family: inherit;
+  transition: opacity 0.2s;
 }
-.home-account-row.selected { background: var(--card-bg-alt); border-color: var(--text); }
-.home-account-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.home-account-row-text strong { font-size: 14px; font-weight: 600; }
-.home-account-row-text .muted { font-size: 12.5px; }
-.home-account-row-status { font-size: 13px; color: var(--muted); font-weight: 600; flex-shrink: 0; }
+.home-account-row.selected { border-color: var(--text); }
+.home-account-row-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px; line-height: 1.25; }
+.home-account-row-text strong { font-size: 14px; font-weight: 500; }
+.home-account-row-text .muted { font-size: 12px; }
+.home-account-row-status { font-size: 13px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
 .home-account-row-status.warming { color: var(--warn); }
 
 /* ===== Home: overview grid ===== */
 
 .overview-grid { display: grid; gap: 14px; margin: 0 0 14px; }
-.overview-grid-3 { grid-template-columns: repeat(3, 1fr); }
+.overview-grid-3 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
 .overview-grid-2 { grid-template-columns: repeat(2, 1fr); }
 .overview-tile {
   background: var(--card-bg);
   border-radius: var(--r-lg);
-  padding: 20px 22px;
-  box-shadow: var(--shadow);
-  transition: transform 0.2s, box-shadow 0.2s;
+  padding: 22px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
-.overview-tile:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
-.overview-tile-label { font-size: 0.8rem; color: var(--muted); font-weight: 450; margin-bottom: 8px; }
+.overview-tile-label { font-size: 14px; color: var(--muted); }
+.overview-tile-value { font-size: 40px; line-height: 1.05; letter-spacing: -0.02em; font-weight: 500; }
+.overview-tile-sub { font-size: 13px; color: var(--muted); }
 .streak-flame { filter: grayscale(1); opacity: 0.45; transition: filter 0.3s, opacity 0.3s; }
 .streak-flame.lit { filter: none; opacity: 1; }
-.overview-tile-value { font-size: 1.9rem; font-weight: 500; line-height: 1; letter-spacing: -0.02em; }
 
 .overview-chart-tile {
   background: var(--card-bg);
@@ -567,39 +583,41 @@ input:focus, textarea:focus, select:focus {
 .donut-legend-label { color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .donut-legend-count { color: var(--muted); font-weight: 700; flex-shrink: 0; }
 
-.overview-tile-sub { font-size: 0.78rem; color: var(--muted); margin-top: 4px; }
-
 /* ===== Home: Conversion card ===== */
-.home-conversion-card { margin: 0 0 14px; }
-.home-conversion-head { margin-bottom: 16px; }
-.home-conversion-head h3 { margin: 0; font-size: 1.1rem; font-weight: 600; }
-.home-conversion-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 18px; }
-.home-conversion-stat { display: flex; flex-direction: column; gap: 6px; }
-.home-conversion-stat span { font-size: 0.78rem; color: var(--muted); }
-.home-conversion-stat strong { font-size: 1.3rem; font-weight: 500; letter-spacing: -0.01em; }
+.home-conversion-card { margin: 0 0 14px; background: var(--card-bg-alt); border-radius: var(--r-xl); padding: 28px 32px; box-shadow: none; display: flex; flex-direction: column; gap: 20px; }
+.home-conversion-head { margin-top: 0; margin-bottom: 0; align-items: baseline; }
+.home-conversion-head h3 { margin: 0; font-size: 20px; font-weight: 500; letter-spacing: -0.01em; }
+.home-conversion-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 150px), 1fr)); }
+.home-conversion-stat { display: flex; flex-direction: column; gap: 6px; padding-left: 20px; border-left: 1px solid var(--border); }
+.home-conversion-stat span { font-size: 13px; color: var(--muted); }
+.home-conversion-stat strong { font-size: 28px; font-weight: 500; letter-spacing: -0.01em; }
 
 /* ===== Home: sends bar chart ===== */
-.home-bar-legend { display: flex; gap: 14px; }
-.home-bar-legend-item { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--muted); }
+.home-bar-legend { display: flex; gap: 16px; }
+.home-bar-legend-item { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
 .home-bar-legend-dot { width: 8px; height: 8px; border-radius: 50%; }
 .home-bar-legend-dot.ig { background: var(--text); }
-.home-bar-legend-dot.li { background: var(--border); }
-.home-bar-chart { display: flex; align-items: flex-end; justify-content: space-between; gap: 10px; height: 160px; margin-top: 8px; }
-.home-bar-col { display: flex; flex-direction: column; align-items: center; gap: 6px; flex: 1; height: 100%; justify-content: flex-end; }
-.home-bar-value { font-size: 0.75rem; font-weight: 600; color: var(--muted); }
-.home-bar-stack { width: 60%; max-width: 32px; flex: 1; display: flex; flex-direction: column; justify-content: flex-end; border-radius: var(--r-pill); overflow: hidden; background: var(--bg); }
-.home-bar-seg { width: 100%; display: block; }
-.home-bar-seg.ig { background: var(--text); }
-.home-bar-seg.li { background: var(--border); }
-.home-bar-day { font-size: 0.75rem; color: var(--muted); }
-.home-bar-day.today { color: var(--text); font-weight: 600; }
+.home-bar-legend-dot.li { background: var(--stage-new); }
+.home-bar-chart { display: flex; align-items: flex-end; gap: 14px; height: 200px; margin-top: 8px; }
+.home-bar-col { display: flex; flex-direction: column; align-items: center; gap: 8px; flex: 1; height: 100%; justify-content: flex-end; }
+.home-bar-value { font-size: 13px; font-weight: 500; color: var(--muted); }
+.home-bar-value.today { color: var(--text); }
+/* Two independent rounded pills (not one fused stack) with a small gap —
+   LinkedIn's on top, Instagram's below, each its own standalone bar. */
+.home-bar-stack { width: 100%; max-width: 44px; flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 3px; }
+.home-bar-seg { width: 100%; display: block; border-radius: var(--r-pill); }
+.home-bar-seg.ig { background: #262627; }
+.home-bar-seg.ig.today { background: var(--text); }
+.home-bar-seg.li { background: var(--stage-new); }
+.home-bar-day { font-size: 13px; color: var(--muted); }
+.home-bar-day.today { color: var(--text); font-weight: 500; }
 
 /* ===== Home: pipeline stacked bar ===== */
-.home-pipeline-bar { display: flex; width: 100%; height: 14px; border-radius: var(--r-pill); overflow: hidden; background: var(--bg); margin-bottom: 16px; }
-.home-pipeline-bar-seg { display: block; height: 100%; }
-.home-pipeline-legend { display: flex; flex-direction: column; gap: 10px; }
-.home-pipeline-legend-item { display: flex; align-items: center; gap: 8px; font-size: 0.85rem; }
-.home-pipeline-legend-pct { flex: 1; text-align: right; font-size: 0.78rem; }
+.home-pipeline-bar { display: flex; width: 100%; height: 14px; border-radius: var(--r-pill); overflow: hidden; gap: 3px; margin-bottom: 16px; }
+.home-pipeline-bar-seg { display: block; height: 100%; min-width: 3px; }
+.home-pipeline-legend { display: flex; flex-direction: column; gap: 12px; }
+.home-pipeline-legend-item { display: flex; align-items: center; gap: 8px; font-size: 15px; }
+.home-pipeline-legend-pct { flex: 1; text-align: right; font-size: 13px; }
 
 @media (max-width: 1000px) {
   .overview-grid-3 { grid-template-columns: repeat(2, 1fr); }
