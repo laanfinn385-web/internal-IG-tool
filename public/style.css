@@ -1204,13 +1204,14 @@ kbd {
 .leads-header { margin-bottom: 18px; align-items: flex-start; }
 .leads-header h1 { margin: 0; font-size: 2.6rem; line-height: 1.05; letter-spacing: -0.02em; font-weight: 500; }
 .leads-header .muted { margin: 2px 0 0; }
-.leads-header-right { display: flex; flex-direction: column; align-items: flex-end; gap: 10px; }
 .leads-toolbar { display: flex; gap: 10px; flex-wrap: wrap; }
 
-.leads-search-row { margin-bottom: 14px; }
+.leads-controls-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.leads-controls-spacer { flex: 1; }
+.leads-search-row { flex: 0 1 320px; min-width: 220px; }
 .leads-search-input {
   width: 100%;
-  padding: 12px 18px;
+  padding: 11px 18px;
   border: 1px solid rgba(20, 20, 19, 0.15);
   border-radius: var(--r-pill);
   background: var(--card-bg);
@@ -1223,6 +1224,25 @@ kbd {
   border-color: var(--text);
 }
 .leads-empty-search { padding: 40px 20px; text-align: center; color: var(--muted); }
+
+.leads-stage-chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 18px; }
+.leads-stage-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 0;
+  background: var(--card-bg);
+  color: var(--text);
+  border-radius: var(--r-pill);
+  padding: 7px 14px 7px 12px;
+  font-size: 0.88rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+.leads-stage-chip:hover { background: var(--card-bg-alt); }
+.leads-stage-chip.active { background: var(--text); color: var(--bg); }
+.leads-stage-chip-dot { width: 8px; height: 8px; border-radius: 50%; border: 1px solid rgba(20, 20, 19, 0.08); flex-shrink: 0; }
+.leads-stage-chip-count { opacity: 0.55; font-weight: 450; }
 .btn-danger-outline { color: var(--warn); border-color: var(--warn); }
 .btn-danger-outline:hover { background: var(--warn); color: #fff; }
 
@@ -1332,82 +1352,7 @@ kbd {
 .lc-username { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; }
 .lc-avatar { flex: none; width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 600; }
 .lc-expand { width: 32px; flex-shrink: 0; justify-content: center; }
-.lc-stage { width: 150px; flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 6px; }
-
-.stage-filter-btn {
-  position: relative;
-  background: none;
-  border: none;
-  cursor: pointer;
-  font-size: 0.7rem;
-  color: var(--muted);
-  padding: 3px 5px;
-  border-radius: 6px;
-  line-height: 1;
-  transition: background 0.15s, color 0.15s;
-}
-.stage-filter-btn:hover { background: var(--border); color: var(--text); }
-.stage-filter-btn.active { color: var(--accent); background: var(--card-bg-alt); }
-.stage-filter-badge {
-  position: absolute;
-  top: -4px;
-  right: -4px;
-  min-width: 14px;
-  height: 14px;
-  padding: 0 3px;
-  border-radius: 7px;
-  background: var(--text);
-  color: white;
-  font-size: 0.6rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.stage-filter-dropdown {
-  /* Fixed + positioned via JS from the trigger button's own rect (see
-     leads.js) — deliberately NOT anchored inside the table's DOM, since
-     that always leaves it at the mercy of some ancestor's overflow:hidden
-     (the table needs that for its rounded corners; a short/filtered
-     table clips the dropdown right where the table itself ends). */
-  position: fixed;
-  width: 190px;
-  background: var(--card-bg);
-  border: none;
-  border-radius: var(--r-lg);
-  box-shadow: var(--shadow-lift);
-  padding: 8px;
-  z-index: 150;
-  text-transform: none;
-  letter-spacing: normal;
-  font-weight: 500;
-}
-.stage-filter-option {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 8px;
-  border-radius: var(--r-pill);
-  font-size: 0.85rem;
-  color: var(--text);
-  cursor: pointer;
-  margin-bottom: 0;
-}
-.stage-filter-option:hover { background: var(--card-bg-alt); }
-.stage-filter-option input { width: auto; margin: 0; flex-shrink: 0; }
-.stage-filter-clear-btn {
-  width: 100%;
-  margin-top: 6px;
-  padding: 8px;
-  background: var(--bg);
-  border: none;
-  border-radius: var(--r-pill);
-  color: var(--muted);
-  font-size: 0.82rem;
-  font-weight: 500;
-  cursor: pointer;
-}
-.stage-filter-clear-btn:hover { background: var(--border); color: var(--text); }
+.lc-stage { width: 150px; flex-shrink: 0; }
 .lc-trash { width: 32px; flex-shrink: 0; justify-content: center; }
 
 .note-dot {
@@ -1759,8 +1704,18 @@ kbd {
   justify-content: space-between;
   padding: 12px 8px 4px;
 }
-.leads-pagination-btns { display: flex; gap: 8px; }
-.leads-pagination-btns button:disabled { opacity: 0.4; cursor: not-allowed; }
+.leads-pagination-btns { display: flex; gap: 6px; }
+.leads-pagination-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(20, 20, 19, 0.2);
+  background: var(--card-bg);
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+.leads-pagination-btn:hover:not(:disabled) { border-color: var(--text); }
+.leads-pagination-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 @media (max-width: 700px) {
   .leads-row { flex-wrap: wrap; }

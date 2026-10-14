@@ -122,6 +122,12 @@ function stageLabel(lead) {
   return 'New';
 }
 
+// Same stage -> real pipeline-ramp color used everywhere else (Home's
+// pipeline bar, Analytics) — the stage filter chips' own dot reuses it too.
+function stageDotColor(stage) {
+  return `var(--stage-${stage.replace(/_/g, '-')})`;
+}
+
 // Maps a stage to the CSS class that colors its badge / row.
 function stageClass(stage) {
   if (stage === 'phase1' || stage === 'phase2' || stage === 'phase3') return stage;
@@ -317,6 +323,7 @@ function renderLeadsTable() {
   const wrap = $('#leads-table-wrap');
   const dropzone = $('#leads-dropzone');
   const searchRow = $('#leads-search-row');
+  const stageChips = $('#leads-stage-chips');
   const total = leadsState.leads.length;
 
   $('#leads-total-count').textContent = `${total} total lead${total === 1 ? '' : 's'}`;
@@ -324,9 +331,12 @@ function renderLeadsTable() {
   if (total === 0) {
     wrap.classList.add('hidden');
     searchRow.classList.add('hidden');
+    stageChips.classList.add('hidden');
     dropzone.classList.remove('hidden');
     return;
   }
+  stageChips.classList.remove('hidden');
+  renderStageFilterChips();
   dropzone.classList.add('hidden');
   searchRow.classList.remove('hidden');
   wrap.classList.remove('hidden');
@@ -393,78 +403,40 @@ $('#leads-platform-tabs').addEventListener('click', (e) => {
   // could silently hide everything, so it's cleared on every switch.
   leadsState.stageFilter.clear();
   leadsState.page = 0;
-  updateStageFilterButton();
   renderLeadsTable();
 });
 
 // ---------- Stage filter ----------
-
-function updateStageFilterButton() {
-  const n = leadsState.stageFilter.size;
-  const btn = $('#stage-filter-btn');
-  const badge = $('#stage-filter-badge');
-  btn.classList.toggle('active', n > 0);
-  badge.classList.toggle('hidden', n === 0);
-  badge.textContent = n;
-}
-
-function closeStageFilterDropdown() {
-  $('#stage-filter-dropdown').classList.add('hidden');
-}
-
-// The available stages depend on the active platform tab (LinkedIn has
-// engaged/connection_sent, Instagram doesn't) — rendered fresh whenever the
-// platform tab changes rather than a static list that would drift out of
-// sync with STAGE_OPTIONS_BY_PLATFORM.
-function renderStageFilterOptions() {
+// An always-visible row of toggleable chips (one per stage the active
+// platform tab can have, each showing its own live count) rather than a
+// hidden dropdown — multiple stay selectable at once (leadsState.stageFilter
+// is a Set), a real capability beyond the design's apparent single-pick
+// chip row, preserved since narrowing to e.g. "Phase 1 + Phase 2 at once"
+// is a real, useful filter this app already supported.
+function renderStageFilterChips() {
   const options = stageOptionsFor(leadsState.platformFilter);
-  $('#stage-filter-options').innerHTML = options.map(o => `
-    <label class="stage-filter-option">
-      <input type="checkbox" value="${o.value}"${leadsState.stageFilter.has(o.value) ? ' checked' : ''}> ${escapeHtml(o.label)}
-    </label>
-  `).join('');
+  const platformLeads = leadsState.platformFilter === 'all'
+    ? leadsState.leads
+    : leadsState.leads.filter(l => l.platform === leadsState.platformFilter);
+  const counts = {};
+  platformLeads.forEach(l => { counts[l.stage] = (counts[l.stage] || 0) + 1; });
+  $('#leads-stage-chips').innerHTML = options.map(o => {
+    const n = counts[o.value] || 0;
+    const active = leadsState.stageFilter.has(o.value);
+    return `
+      <button type="button" class="leads-stage-chip${active ? ' active' : ''}" data-stage="${o.value}">
+        <span class="leads-stage-chip-dot" style="background:${stageDotColor(o.value)}"></span>${escapeHtml(o.label)}<span class="leads-stage-chip-count">${n}</span>
+      </button>`;
+  }).join('');
 }
 
-$('#stage-filter-btn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  const dropdown = $('#stage-filter-dropdown');
-  if (!dropdown.classList.contains('hidden')) {
-    closeStageFilterDropdown();
-    return;
-  }
-  renderStageFilterOptions();
-  // position:fixed, placed from the button's own rect — independent of
-  // any ancestor's overflow/clipping, so a short or filtered-down table
-  // can never cut it off.
-  const btnRect = e.currentTarget.getBoundingClientRect();
-  const dropdownWidth = 190;
-  dropdown.style.top = `${btnRect.bottom + 8}px`;
-  dropdown.style.left = `${Math.max(8, btnRect.right - dropdownWidth)}px`;
-  dropdown.classList.remove('hidden');
-});
-document.addEventListener('click', (e) => {
-  if (!e.target.closest('#stage-filter-dropdown') && !e.target.closest('#stage-filter-btn')) {
-    closeStageFilterDropdown();
-  }
-});
-// A fixed-position dropdown would otherwise drift out of place under the
-// button if the page scrolls while it's open.
-window.addEventListener('scroll', closeStageFilterDropdown, true);
-
-$('#stage-filter-dropdown').addEventListener('change', (e) => {
-  if (e.target.type !== 'checkbox') return;
-  if (e.target.checked) leadsState.stageFilter.add(e.target.value);
-  else leadsState.stageFilter.delete(e.target.value);
+$('#leads-stage-chips').addEventListener('click', (e) => {
+  const chip = e.target.closest('.leads-stage-chip');
+  if (!chip) return;
+  const stage = chip.dataset.stage;
+  if (leadsState.stageFilter.has(stage)) leadsState.stageFilter.delete(stage);
+  else leadsState.stageFilter.add(stage);
   leadsState.page = 0;
-  updateStageFilterButton();
-  renderLeadsTable();
-});
-
-$('#stage-filter-clear').addEventListener('click', () => {
-  leadsState.stageFilter.clear();
-  $all('#stage-filter-dropdown input[type="checkbox"]').forEach(cb => { cb.checked = false; });
-  leadsState.page = 0;
-  updateStageFilterButton();
   renderLeadsTable();
 });
 
