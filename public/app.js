@@ -3778,19 +3778,25 @@ async function loadAnalyticsOpeners() {
     const data = await fetchJson('/api/analytics/openers');
     const openers = (data.openers || []).slice().sort((a, b) => (b.prr ?? -1) - (a.prr ?? -1));
     $('#analytics-openers-empty').classList.toggle('hidden', openers.length > 0);
-    $('#analytics-openers-tbody').innerHTML = openers.map(o => `
-      <tr>
-        <td>${escapeHtml(o.sequenceName)}</td>
-        <td>${ANALYTICS_OPENER_LABELS[o.position] || `Variant ${o.position + 1}`}</td>
-        <td class="analytics-openers-text">${escapeHtml(o.text || '(empty)')}</td>
-        <td>${o.sends}</td>
-        <td>${o.replies}</td>
-        <td>${o.replyRate != null ? o.replyRate + '%' : '–'}</td>
-        <td>${o.positiveReplies}</td>
-        <td>${o.prr != null ? o.prr + '%' : '–'}</td>
-        <td>${o.appointmentsSet}</td>
-        <td>${o.asr != null ? o.asr + '%' : '–'}</td>
-      </tr>`).join('');
+    $('#analytics-openers-list').innerHTML = openers.map(o => {
+      const label = ANALYTICS_OPENER_LABELS[o.position] || `Variant ${o.position + 1}`;
+      const letter = label.replace('Variant ', '');
+      return `
+      <div class="an-opener-row">
+        <span class="an-opener-avatar">${escapeHtml(letter)}</span>
+        <div class="an-opener-main">
+          <span class="an-opener-meta">${escapeHtml(o.sequenceName)} · variant ${escapeHtml(letter)}</span>
+          <span class="an-opener-line">"${escapeHtml(o.text || '(empty)')}"</span>
+          <div class="an-opener-bar-track"><div class="an-opener-bar-fill" style="width:${Math.min(100, o.replyRate || 0)}%"></div></div>
+        </div>
+        <div class="an-opener-stats">
+          <div class="an-opener-stat"><span>Sends</span><span>${o.sends}</span></div>
+          <div class="an-opener-stat"><span>Reply</span><span>${o.replyRate != null ? o.replyRate + '%' : '–'}</span></div>
+          <div class="an-opener-stat"><span>Positive</span><span>${o.prr != null ? o.prr + '%' : '–'}</span></div>
+          <div class="an-opener-stat"><span>Appts</span><span>${o.asr != null ? o.asr + '%' : '–'}</span></div>
+        </div>
+      </div>`;
+    }).join('');
   } catch (e) {
     alert(`Could not load opener performance: ${e.message}`);
   }
@@ -3805,33 +3811,27 @@ async function loadAnalyticsAccounts() {
 
     $('#analytics-accounts-empty').classList.toggle('hidden', totalAccounts > 0 && leaderboard.length > 0);
     $('#analytics-accounts-need-more').classList.toggle('hidden', leaderboard.length !== 1);
-    $('#analytics-accounts-leaderboard-card').classList.toggle('hidden', leaderboard.length < 2);
-    $('#analytics-accounts-table-card').classList.toggle('hidden', leaderboard.length === 0);
 
-    $('#analytics-accounts-leaderboard').innerHTML = leaderboard.map(a => {
+    $('#analytics-accounts-list').innerHTML = leaderboard.map(a => {
       const delta = a.vsOthersAvgPrr;
-      const deltaClass = delta == null ? 'neutral' : delta > 0 ? 'positive' : delta < 0 ? 'negative' : 'neutral';
-      const deltaText = delta == null ? '–' : `${delta > 0 ? '+' : ''}${delta} pts`;
+      const vsText = delta == null ? '' : `${delta > 0 ? '+' : ''}${delta} pts vs other accounts`;
+      const vsColor = delta == null ? 'var(--muted)' : delta > 0 ? 'var(--green-dark)' : delta < 0 ? 'var(--red-dark)' : 'var(--muted)';
       return `
-      <div class="analytics-leaderboard-row">
+      <div class="an-account-row">
         ${accountPhotoHtml(a)}
-        <div class="analytics-leaderboard-name">${escapeHtml(a.username)}</div>
-        <div class="analytics-leaderboard-prr">${a.prr != null ? a.prr + '%' : '–'} PRR</div>
-        <div class="overview-chart-delta ${deltaClass}">${deltaText}</div>
+        <div class="an-account-identity">
+          <span class="an-account-handle">@${escapeHtml(a.username)}</span>
+          <span class="an-account-vs" style="color:${vsColor}">${escapeHtml(vsText)}</span>
+        </div>
+        <div class="an-account-stats">
+          <div class="an-account-stat"><span>Sends</span><span>${a.sends}</span></div>
+          <div class="an-account-stat"><span>Reply rate</span><span>${a.replyRate != null ? a.replyRate + '%' : '–'}</span></div>
+          <div class="an-account-stat"><span>Positive</span><span>${a.positiveReplies}</span></div>
+          <div class="an-account-stat"><span>PRR</span><span>${a.prr != null ? a.prr + '%' : '–'}</span></div>
+          <div class="an-account-stat"><span>ASR</span><span>${a.asr != null ? a.asr + '%' : '–'}</span></div>
+        </div>
       </div>`;
     }).join('');
-
-    $('#analytics-accounts-tbody').innerHTML = leaderboard.map(a => `
-      <tr>
-        <td>${escapeHtml(a.username)}</td>
-        <td>${a.sends}</td>
-        <td>${a.replies}</td>
-        <td>${a.replyRate != null ? a.replyRate + '%' : '–'}</td>
-        <td>${a.positiveReplies}</td>
-        <td>${a.prr != null ? a.prr + '%' : '–'}</td>
-        <td>${a.appointmentsSet}</td>
-        <td>${a.asr != null ? a.asr + '%' : '–'}</td>
-      </tr>`).join('');
   } catch (e) {
     alert(`Could not load account performance: ${e.message}`);
   }
