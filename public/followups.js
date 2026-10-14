@@ -515,6 +515,7 @@ let pendingProfileSettingsImageUrl = null;
 function renderProfileSettingsCard() {
   const ws = activeWorkspace();
   if (!ws) return;
+  $('#settings-nav-title').textContent = `${ws.name}'s profile`;
   $('#profile-settings-avatar').innerHTML = workspacePhotoHtml(ws);
   $('#profile-settings-name').value = ws.name;
   $('#profile-settings-instagram').checked = ws.instagramEnabled;
