@@ -1406,6 +1406,37 @@ function openProfileTab(url) {
   window.open(url, 'ig_preview');
 }
 
+// One pill segment per lead in the session (dark = decided, accent = the
+// one currently on screen, light = still ahead) instead of a single fill
+// bar — in goal mode (no fixed-length queue) it's sized to the target
+// count instead, with "done" tracking sends rather than raw decisions.
+function renderSessionProgressDots(containerId, total, doneCount) {
+  const el = $(`#${containerId}`);
+  const safeTotal = Math.max(1, total);
+  let html = '';
+  for (let i = 0; i < safeTotal; i++) {
+    const cls = i < doneCount ? 'done' : i === doneCount ? 'current' : '';
+    html += `<span class="session-progress-dot${cls ? ' ' + cls : ''}"></span>`;
+  }
+  el.innerHTML = html;
+}
+
+// Shown whenever the session involves Instagram sends (not a pure LinkedIn
+// engagement/connection session) — the active account's handle and today's
+// remaining capacity, same data the Home account rows already show.
+function renderSessionAccountBadge(badgeId) {
+  const badge = $(`#${badgeId}`);
+  if (!badge) return;
+  if (!state.igAccountId || !state.igAccountUsername) { badge.classList.add('hidden'); return; }
+  const account = findIgAccount(state.igAccountId);
+  badge.classList.remove('hidden');
+  const avatar = badge.querySelector('.session-account-badge-avatar');
+  avatar.textContent = initialsFor(state.igAccountUsername);
+  avatar.style.background = toneForId(state.igAccountId);
+  badge.querySelector('.session-account-badge-handle').textContent = `@${state.igAccountUsername}`;
+  badge.querySelector('.session-account-badge-left').textContent = account ? `· ${account.effectiveRemainingForNewSends} left today` : '';
+}
+
 function renderProfile() {
   const p = currentProfile();
   if (!p) return;
@@ -1417,12 +1448,13 @@ function renderProfile() {
   if (state.sessionMode === 'goal') {
     $('#progress-current').textContent = state.sentCount;
     $('#progress-total').textContent = state.sessionTarget;
-    $('#progress-fill').style.width = `${Math.min(100, (state.sentCount / state.sessionTarget) * 100)}%`;
+    renderSessionProgressDots('dashboard-progress-dots', state.sessionTarget, state.sentCount);
   } else {
     $('#progress-current').textContent = state.index + 1;
     $('#progress-total').textContent = state.profiles.length;
-    $('#progress-fill').style.width = `${((state.index) / state.profiles.length) * 100}%`;
+    renderSessionProgressDots('dashboard-progress-dots', state.profiles.length, state.index);
   }
+  renderSessionAccountBadge('dashboard-account-badge');
 
   $('#profile-link').href = p.profileUrl;
   $('#profile-link').textContent = isLinkedin ? 'Open profile on LinkedIn ↗' : 'Open profile on Instagram ↗';
@@ -1529,8 +1561,40 @@ function updateMessage() {
   p.message = text;
   $('#f-message').value = text;
   $('#dm-link').href = leadDmUrl(p);
+  const variantIdx = openers && p.openerId ? openers.findIndex(o => o.id === p.openerId) : -1;
+  const chip = $('#f-variant-chip');
+  if (variantIdx >= 0) {
+    chip.textContent = `${ANALYTICS_OPENER_LABELS[variantIdx] || `Variant ${variantIdx + 1}`}${seq ? ' · ' + seq.name : ''}`;
+    chip.classList.remove('hidden');
+  } else {
+    chip.classList.add('hidden');
+  }
+  $('#reword-btn').classList.toggle('hidden', !opener);
+  updateMessageCharCount();
   saveSession();
 }
+
+function updateMessageCharCount() {
+  const el = $('#f-char-count');
+  if (el) el.textContent = `${$('#f-message').value.length} characters`;
+}
+
+// "Reword" re-rolls the spintax resolution for the lead's already-assigned
+// opener (doesn't pick a different opener/variant — just a fresh wording
+// within it), same spintax engine the opener itself already uses.
+$('#reword-btn').addEventListener('click', () => {
+  const p = currentProfile();
+  if (!p || p.platform === 'linkedin') return;
+  const seq = messageSequenceForAccount(findIgAccount(state.igAccountId));
+  const opener = seq && seq.openers ? seq.openers.find(o => o.id === p.openerId) : null;
+  if (!opener) return;
+  p.resolvedOpenerTemplate = resolveSpintax(opener.text);
+  const text = renderTemplateString(p.resolvedOpenerTemplate, buildPlaceholders(p));
+  p.message = text;
+  $('#f-message').value = text;
+  updateMessageCharCount();
+  saveSession();
+});
 
 // Renders p.template + p.partIds into #f-message by composing one wording per
 // slot (opener/hook/value/cta). Split out from updateMessage() so the
@@ -1564,7 +1628,14 @@ function renderMessageText() {
   // Hidden for LinkedIn (see renderProfile) — nothing to point it at anyway.
   if (p.platform !== 'linkedin') {
     $('#dm-link').href = leadDmUrl(p);
+  } else {
+    // No A/B-tested opener variants or manual reroll on LinkedIn's single
+    // always-the-same template — same reasoning the design itself only
+    // shows these in the Instagram session screen.
+    $('#f-variant-chip').classList.add('hidden');
+    $('#reword-btn').classList.add('hidden');
   }
+  updateMessageCharCount();
   saveSession();
 }
 
@@ -1583,7 +1654,7 @@ function renderMessageText() {
 $('#f-lastpost').addEventListener('input', () => { syncFieldsToState(); updateMessage(); });
 $('#f-postsperweek').addEventListener('input', syncFieldsToState);
 $('#f-avgviews').addEventListener('input', syncFieldsToState);
-$('#f-message').addEventListener('input', () => { currentProfile().message = $('#f-message').value; saveSession(); });
+$('#f-message').addEventListener('input', () => { currentProfile().message = $('#f-message').value; updateMessageCharCount(); saveSession(); });
 
 function syncFieldsToState() {
   const p = currentProfile();
@@ -2257,7 +2328,6 @@ function showEndScreen(opts = {}) {
   const cantMessage = state.results.filter(r => r.status === 'cant_message');
 
   clearSession();
-  $('#progress-fill').style.width = '100%';
   $('#end-sent-count').textContent = sent.length;
   $('#end-rejected-count').textContent = rejected.length;
   $('#end-cant-message-count').textContent = cantMessage.length;
@@ -2906,8 +2976,19 @@ $('#quit-save-btn').addEventListener('click', async () => {
 // negative button is always a soft-delete, same "not qualified" semantics
 // the message-session dashboard already uses.
 const SIMPLE_SESSION_CONFIG = {
-  li_engagement: { title: 'Engagement session', positiveLabel: 'Engaged', positiveKey: 'e', negativeLabel: 'Not qualified', negativeKey: 'n', positiveStage: 'engaged' },
-  li_connection: { title: 'Connection session', positiveLabel: 'Connected', positiveKey: 'c', negativeLabel: 'Delete', negativeKey: 'n', positiveStage: 'connection_sent' }
+  li_engagement: {
+    title: 'Engagement session', positiveLabel: 'Engaged', positiveKey: 'e', negativeLabel: 'Not qualified', negativeKey: 'n', positiveStage: 'engaged',
+    engageLabel: 'Engage before you connect',
+    steps: () => [
+      'Open the profile and read the latest post.',
+      'Leave a genuine comment or reaction — no pitch.',
+      `Mark as engaged. A connection-request reminder appears in ${state.liConnectionDelayDays} day${state.liConnectionDelayDays === 1 ? '' : 's'}.`
+    ]
+  },
+  li_connection: {
+    title: 'Connection session', positiveLabel: 'Connected', positiveKey: 'c', negativeLabel: 'Delete', negativeKey: 'n', positiveStage: 'connection_sent',
+    engageLabel: 'Ready to connect', steps: () => []
+  }
 };
 
 function currentSimpleConfigFor(kind) {
@@ -2930,20 +3011,33 @@ function renderSimpleSessionProfile() {
   if (state.sessionMode === 'goal') {
     $('#simple-progress-current').textContent = state.sentCount;
     $('#simple-progress-total').textContent = state.sessionTarget;
-    $('#simple-progress-fill').style.width = `${Math.min(100, (state.sentCount / state.sessionTarget) * 100)}%`;
+    renderSessionProgressDots('simple-progress-dots', state.sessionTarget, state.sentCount);
   } else {
     $('#simple-progress-current').textContent = state.index + 1;
     $('#simple-progress-total').textContent = state.profiles.length;
-    $('#simple-progress-fill').style.width = `${(state.index / state.profiles.length) * 100}%`;
+    renderSessionProgressDots('simple-progress-dots', state.profiles.length, state.index);
   }
 
   $('#simple-session-title').textContent = cfg.title;
   $('#simple-session-fullname').textContent = p.fullName || 'Unknown';
   $('#simple-session-link').href = p.profileUrl || '#';
+  $('#simple-session-avatar-link').href = p.profileUrl || '#';
+  const avatar = $('#simple-session-avatar');
+  avatar.textContent = initialsFor(p.fullName || p.username);
+  avatar.style.background = toneForId(p.leadId || p.username || p.fullName || '');
   $('#simple-session-headline').textContent = p.headline || '';
   $('#simple-session-headline').classList.toggle('hidden', !p.headline);
   $('#simple-session-bio').textContent = p.bio || '';
   $('#simple-session-bio').classList.toggle('hidden', !p.bio);
+  $('#simple-session-engage-label').textContent = cfg.engageLabel;
+  const steps = cfg.steps();
+  const stepsEl = $('#simple-session-steps');
+  stepsEl.classList.toggle('hidden', steps.length === 0);
+  stepsEl.innerHTML = steps.map((text, i) => `
+    <div class="session-li-step">
+      <span class="session-li-step-n">${i + 1}</span>
+      <span class="session-li-step-text">${escapeHtml(text)}</span>
+    </div>`).join('');
   $('#simple-positive-btn').innerHTML = `${escapeHtml(cfg.positiveLabel)} <kbd>${cfg.positiveKey.toUpperCase()}</kbd>`;
   $('#simple-negative-btn').innerHTML = `${escapeHtml(cfg.negativeLabel)} <kbd>${cfg.negativeKey.toUpperCase()}</kbd>`;
   updateSwitchAccountsButtonVisibility();
@@ -3035,7 +3129,6 @@ function showSimpleSessionEndScreen(opts = {}) {
   const negative = state.results.filter(r => r.status !== cfg.positiveStage);
 
   clearSession();
-  $('#simple-progress-fill').style.width = '100%';
   $('#simple-end-positive-count').textContent = positive.length;
   $('#simple-end-positive-label').textContent = cfg.positiveLabel.replace(/^[^\w]*/, '').toLowerCase();
   $('#simple-end-negative-count').textContent = negative.length;
@@ -3880,6 +3973,12 @@ async function loadViewsThreshold() {
     // genuinely missing.
     const raw = data.settings && data.settings.views_threshold;
     state.viewsThreshold = raw !== undefined && raw !== null && raw !== '' ? Number(raw) : 1000;
+    // Same response also carries the LinkedIn connection-delay setting —
+    // stashed here too (not just views_threshold) so the engagement
+    // session screen's step copy can cite the real delay without a
+    // second fetch.
+    const liDelayRaw = data.settings && data.settings.linkedin_connection_delay_days;
+    state.liConnectionDelayDays = liDelayRaw !== undefined && liDelayRaw !== null && liDelayRaw !== '' ? Number(liDelayRaw) : 2;
   } catch (e) {
     console.error('Could not load views threshold setting', e);
   }
