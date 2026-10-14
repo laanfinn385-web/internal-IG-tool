@@ -700,7 +700,11 @@ async function loadHome() {
 
 // ---------- Daily goal ----------
 let homeDailyGoalData = null;
-const DAILY_GOAL_RING_CIRCUMFERENCE = 2 * Math.PI * 150; // r=150, matches the SVG circle in index.html
+// The ring is a 310deg gauge (50deg gap at the bottom), not a full circle —
+// see the .home-goal-ring-svg comment in style.css for the rotation/dash
+// math this and the dot-position calc below both depend on.
+const DAILY_GOAL_RING_SWEEP_DEG = 310;
+const DAILY_GOAL_RING_ARC_LENGTH = 2 * Math.PI * 150 * (DAILY_GOAL_RING_SWEEP_DEG / 360); // r=150, matches the SVG circle in index.html
 
 function renderDailyGoal(dailyGoal) {
   homeDailyGoalData = dailyGoal;
@@ -724,7 +728,16 @@ function renderDailyGoal(dailyGoal) {
   const liDone = dailyGoal.todayEngagedLinkedin;
   const totalDone = igDone + liDone;
   const fraction = Math.min(1, totalGoal > 0 ? totalDone / totalGoal : 0);
-  $('#daily-goal-ring-fill').style.strokeDashoffset = `${DAILY_GOAL_RING_CIRCUMFERENCE * (1 - fraction)}`;
+  $('#daily-goal-ring-fill').style.strokeDashoffset = `${DAILY_GOAL_RING_ARC_LENGTH * (1 - fraction)}`;
+  // The dot marks the growing tip of the fill arc — same start point (the
+  // circle's default 0deg/3-o'clock position) and sweep direction as the
+  // dasharray trick above, walked by hand here since it's a plain filled
+  // circle rather than another dashed stroke. Its (cx,cy) are in the ring
+  // SVG's own pre-rotation coordinate space; the SVG's own CSS transform
+  // carries it to the right on-screen spot along with the arcs.
+  const dotAngleRad = (fraction * DAILY_GOAL_RING_SWEEP_DEG) * (Math.PI / 180);
+  $('#daily-goal-ring-dot').setAttribute('cx', 180 + 150 * Math.cos(dotAngleRad));
+  $('#daily-goal-ring-dot').setAttribute('cy', 180 + 150 * Math.sin(dotAngleRad));
   $('#daily-goal-ring-done').textContent = totalDone.toLocaleString('en-US');
   $('#daily-goal-ring-total').textContent = `of ${totalGoal.toLocaleString('en-US')} sent`;
 

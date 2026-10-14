@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=38">
+<link rel="stylesheet" href="style.css?v=39">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -129,9 +129,13 @@
             <span class="home-goal-ghost" aria-hidden="true">Today</span>
             <div class="home-goal-row">
               <div class="home-goal-ring-wrap">
+                <svg class="home-goal-ring-decoration" viewBox="0 0 220 220" aria-hidden="true">
+                  <path d="M18 92 C 10 60, 24 30, 52 16" class="home-goal-ring-squiggle"></path>
+                </svg>
                 <svg class="home-goal-ring-svg" viewBox="0 0 360 360">
-                  <circle cx="180" cy="180" r="150" class="home-goal-ring-track"></circle>
-                  <circle cx="180" cy="180" r="150" class="home-goal-ring-fill" id="daily-goal-ring-fill" stroke-dasharray="942.5" stroke-dashoffset="942.5"></circle>
+                  <circle cx="180" cy="180" r="150" class="home-goal-ring-track" stroke-dasharray="811.58 130.9"></circle>
+                  <circle cx="180" cy="180" r="150" class="home-goal-ring-fill" id="daily-goal-ring-fill" stroke-dasharray="811.58 9999" stroke-dashoffset="811.58"></circle>
+                  <circle cx="180" cy="30" r="7" class="home-goal-ring-dot" id="daily-goal-ring-dot"></circle>
                 </svg>
                 <div class="home-goal-ring-center">
                   <span class="home-goal-ring-label" id="daily-goal-ring-label">Daily goal</span>
@@ -1309,7 +1313,7 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=32"></script>
+<script src="app.js?v=33"></script>
 <script src="leads.js?v=28"></script>
 <script src="followups.js?v=28"></script>
 </body>
