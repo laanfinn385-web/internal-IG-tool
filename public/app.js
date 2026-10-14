@@ -579,42 +579,44 @@ function renderPipelineStackedBar(stageCounts) {
   }).join('');
 }
 
-// Two-tone stacked pill bars (Instagram below, LinkedIn above) — one per
-// of the last 7 days, tallest-day-relative height, with today's x-axis
-// label swapped for "Today" instead of its weekday.
+// Two independent rounded-pill bars per day (Instagram below, LinkedIn
+// above, a 3px gap between them — not one fused stack), tallest-day-
+// relative height, with today's x-axis label swapped for "Today".
 function renderSendsBarChart(series) {
   const chart = $('#sends-bar-chart');
   if (!series || series.length === 0) { chart.innerHTML = ''; return; }
   const max = Math.max(1, ...series.map(s => s.count));
-  const todayDs = series[series.length - 1].date;
   chart.innerHTML = series.map((s, i) => {
+    const isToday = i === series.length - 1;
     const igH = max > 0 ? (s.instagram / max) * 100 : 0;
     const liH = max > 0 ? (s.linkedin / max) * 100 : 0;
-    const dayLabel = i === series.length - 1
-      ? 'Today'
-      : new Date(s.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' });
+    const dayLabel = isToday ? 'Today' : new Date(s.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short' });
     return `
       <div class="home-bar-col" title="${escapeHtml(s.date)}: ${s.count} sent (${s.instagram} Instagram, ${s.linkedin} LinkedIn)">
-        <span class="home-bar-value">${s.count || ''}</span>
+        <span class="home-bar-value${isToday ? ' today' : ''}">${s.count || ''}</span>
         <div class="home-bar-stack">
           <span class="home-bar-seg li" style="height:${liH}%"></span>
-          <span class="home-bar-seg ig" style="height:${igH}%"></span>
+          <span class="home-bar-seg ig${isToday ? ' today' : ''}" style="height:${igH}%"></span>
         </div>
-        <span class="home-bar-day${dayLabel === 'Today' ? ' today' : ''}">${dayLabel}</span>
+        <span class="home-bar-day${isToday ? ' today' : ''}">${dayLabel}</span>
       </div>`;
   }).join('');
 }
 
-// Last-7-calendar-days day-dot strip on the streak card — filled for a day
-// the goal was met, hollow for one that wasn't (today, almost always).
+// Last-7-calendar-days day-dot strip on the streak pill — filled black for
+// a day the goal was met, hollow (just a border) for one that wasn't, and
+// today specifically turns the goal-reached red/orange when met (matching
+// the ring/flame's own "hit it today" color) instead of plain black.
 function renderStreakDots(streakDays) {
   const wrap = $('#home-streak-dots');
   if (!streakDays || streakDays.length === 0) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML = streakDays.map(d => {
+  wrap.innerHTML = streakDays.map((d, i) => {
+    const isToday = i === streakDays.length - 1;
     const label = new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'narrow' });
+    const cls = d.met ? (isToday ? ' met today' : ' met') : '';
     return `
       <div class="home-streak-dot-col">
-        <span class="home-streak-dot${d.met ? ' met' : ''}"></span>
+        <span class="home-streak-dot${cls}"></span>
         <span class="home-streak-dot-label muted">${label}</span>
       </div>`;
   }).join('');
@@ -673,6 +675,7 @@ async function loadHome() {
     $('#streak-value').textContent = data.streak;
     $('#streak-stat-value').textContent = data.streak;
     $('#streak-flame').classList.toggle('lit', !!data.streakTodayMet);
+    $('#home-streak-flame-wrap').classList.toggle('lit', !!data.streakTodayMet);
     $('#home-streak-sub').textContent = data.streakTodayMet
       ? `Today's goal is hit — keep it going.`
       : `Hit today's goal to make it ${data.streak + 1}.`;
@@ -700,11 +703,7 @@ async function loadHome() {
 
 // ---------- Daily goal ----------
 let homeDailyGoalData = null;
-// The ring is a 310deg gauge (50deg gap at the bottom), not a full circle —
-// see the .home-goal-ring-svg comment in style.css for the rotation/dash
-// math this and the dot-position calc below both depend on.
-const DAILY_GOAL_RING_SWEEP_DEG = 310;
-const DAILY_GOAL_RING_ARC_LENGTH = 2 * Math.PI * 150 * (DAILY_GOAL_RING_SWEEP_DEG / 360); // r=150, matches the SVG circle in index.html
+const DAILY_GOAL_RING_CIRCUMFERENCE = 2 * Math.PI * 150; // r=150, matches the SVG circle in index.html
 
 function renderDailyGoal(dailyGoal) {
   homeDailyGoalData = dailyGoal;
@@ -714,7 +713,7 @@ function renderDailyGoal(dailyGoal) {
   const card = $('#daily-goal-card');
   const emptyState = $('#daily-goal-empty-state');
   const btn = $('#daily-goal-session-btn');
-  const restEls = [$('.home-goal-row'), btn];
+  const restEls = [$('.home-goal-ring-wrap'), $('#daily-goal-stats'), btn, $('#home-streak-card')];
 
   if (totalGoal === 0) {
     restEls.forEach(el => el && el.classList.add('hidden'));
@@ -728,16 +727,7 @@ function renderDailyGoal(dailyGoal) {
   const liDone = dailyGoal.todayEngagedLinkedin;
   const totalDone = igDone + liDone;
   const fraction = Math.min(1, totalGoal > 0 ? totalDone / totalGoal : 0);
-  $('#daily-goal-ring-fill').style.strokeDashoffset = `${DAILY_GOAL_RING_ARC_LENGTH * (1 - fraction)}`;
-  // The dot marks the growing tip of the fill arc — same start point (the
-  // circle's default 0deg/3-o'clock position) and sweep direction as the
-  // dasharray trick above, walked by hand here since it's a plain filled
-  // circle rather than another dashed stroke. Its (cx,cy) are in the ring
-  // SVG's own pre-rotation coordinate space; the SVG's own CSS transform
-  // carries it to the right on-screen spot along with the arcs.
-  const dotAngleRad = (fraction * DAILY_GOAL_RING_SWEEP_DEG) * (Math.PI / 180);
-  $('#daily-goal-ring-dot').setAttribute('cx', 180 + 150 * Math.cos(dotAngleRad));
-  $('#daily-goal-ring-dot').setAttribute('cy', 180 + 150 * Math.sin(dotAngleRad));
+  $('#daily-goal-ring-fill').style.strokeDashoffset = `${DAILY_GOAL_RING_CIRCUMFERENCE * (1 - fraction)}`;
   $('#daily-goal-ring-done').textContent = totalDone.toLocaleString('en-US');
   $('#daily-goal-ring-total').textContent = `of ${totalGoal.toLocaleString('en-US')} sent`;
 
@@ -750,6 +740,7 @@ function renderDailyGoal(dailyGoal) {
   const liRemaining = Math.max(0, liGoal - liDone);
   const goalReached = igRemaining === 0 && liRemaining === 0;
   card.classList.toggle('goal-reached', goalReached);
+  $('#daily-goal-ring-label').textContent = goalReached ? 'Goal reached' : 'Daily goal';
   btn.disabled = goalReached;
   btn.title = goalReached ? 'Goal reached' : (dailyGoal.savedSession ? 'Continue daily goal session' : 'Start daily goal session');
 }
@@ -1067,19 +1058,18 @@ let selectedHomeAccountId = null;
 
 function homeAccountRowHtml(a) {
   const seq = timingSequenceForAccount(a);
-  const warming = a.phase === 'warming_up' || a.phase === 'ramping_up';
-  const subtitle = warming ? 'New account warmup' : (seq ? seq.name : 'No timing sequence');
-  const statusHtml = a.dailyLimit === 0
-    ? `<span class="home-account-row-status warming">Warming up</span>`
-    : `<span class="home-account-row-status">${a.effectiveRemainingForNewSends} left today</span>`;
+  const selected = a.id === selectedHomeAccountId;
+  const left = a.effectiveRemainingForNewSends;
+  const label = a.dailyLimit === 0 ? 'Warming up' : left === 0 ? 'Limit reached' : `${left} left today`;
+  const dimmed = left === 0 && !selected;
   return `
-    <button type="button" class="home-account-row${a.id === selectedHomeAccountId ? ' selected' : ''}" data-account-id="${a.id}">
+    <button type="button" class="home-account-row${selected ? ' selected' : ''}" data-account-id="${a.id}" style="opacity:${dimmed ? 0.6 : 1}">
       <span class="lc-avatar" style="background:${toneForId(a.id)}">${escapeHtml(initialsFor(a.username))}</span>
       <span class="home-account-row-text">
         <strong>@${escapeHtml(a.username)}</strong>
-        <span class="muted">Day ${a.ageDays} · ${escapeHtml(subtitle)}</span>
+        <span class="muted">Day ${a.ageDays + 1} · ${escapeHtml(seq ? seq.name : 'No timing sequence')}</span>
       </span>
-      ${statusHtml}
+      <span class="home-account-row-status${left === 0 ? ' warming' : ''}">${label}</span>
     </button>`;
 }
 
