@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=45">
+<link rel="stylesheet" href="style.css?v=46">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -975,45 +975,17 @@
       </div>
 
       <div id="analytics-openers-section" class="hidden">
-        <p class="muted" style="max-width:720px;">Instagram only. Cumulative across each opener's whole lifetime (not scoped to a date range) — a fresh lead randomly gets one of a sequence's variants, and this shows which wording is actually winning. Sorted by Positive Reply Rate.</p>
-        <div class="card">
-          <div class="analytics-openers-table-wrap">
-            <table class="analytics-openers-table">
-              <thead>
-                <tr>
-                  <th>Sequence</th><th>Variant</th><th>Opening line</th>
-                  <th>Sends</th><th>Replies</th><th>Reply Rate</th>
-                  <th>Positive</th><th>PRR</th><th>Appts</th><th>ASR</th>
-                </tr>
-              </thead>
-              <tbody id="analytics-openers-tbody"></tbody>
-            </table>
-          </div>
-          <p class="muted hidden" id="analytics-openers-empty">No opener variants yet — add some from Settings → Messaging sequences.</p>
+        <p class="muted" style="max-width:720px;">Instagram only, across each opener's whole lifetime. Every fresh lead randomly gets one variant of its account's sequence — this is which wording is actually winning, ranked by positive reply rate.</p>
+        <div class="an-openers-card">
+          <div id="analytics-openers-list" class="an-openers-list"></div>
+          <p class="muted hidden" id="analytics-openers-empty" style="padding:20px;">No opener variants yet — add some from Settings → Messaging sequences.</p>
         </div>
       </div>
 
       <div id="analytics-accounts-section" class="hidden">
-        <p class="muted" style="max-width:720px;">Instagram only. Cumulative across each account's whole lifetime (not scoped to a date range) — ranked by Positive Reply Rate, compared against the average of the profile's other accounts.</p>
+        <p class="muted" style="max-width:720px;">Instagram only, lifetime. Each account is ranked by positive reply rate and compared with the average of your other accounts.</p>
         <p class="muted hidden" id="analytics-accounts-need-more">Add a second Instagram account to compare performance between accounts.</p>
-        <div class="card hidden" id="analytics-accounts-leaderboard-card">
-          <h3>Leaderboard</h3>
-          <div id="analytics-accounts-leaderboard"></div>
-        </div>
-        <div class="card hidden" id="analytics-accounts-table-card">
-          <div class="analytics-openers-table-wrap">
-            <table class="analytics-openers-table">
-              <thead>
-                <tr>
-                  <th>Account</th>
-                  <th>Sends</th><th>Replies</th><th>Reply Rate</th>
-                  <th>Positive</th><th>PRR</th><th>Appts</th><th>ASR</th>
-                </tr>
-              </thead>
-              <tbody id="analytics-accounts-tbody"></tbody>
-            </table>
-          </div>
-        </div>
+        <div id="analytics-accounts-list" class="an-accounts-list"></div>
         <p class="muted hidden" id="analytics-accounts-empty">No accounts with data yet.</p>
       </div>
     </section>
@@ -1340,7 +1312,7 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=37"></script>
+<script src="app.js?v=38"></script>
 <script src="leads.js?v=29"></script>
 <script src="followups.js?v=30"></script>
 </body>
