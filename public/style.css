@@ -754,8 +754,6 @@ input:focus, textarea:focus, select:focus {
 }
 .btn-reject:hover { background: var(--warn); color: #fff; }
 
-.video-batch-row { display: flex; align-items: center; gap: 12px; margin: 0 0 14px; }
-
 .session-split { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; margin-bottom: 24px; }
 
 .session-lead-card {
@@ -922,7 +920,8 @@ input:focus, textarea:focus, select:focus {
   gap: 14px;
 }
 .session-mark-label { font-size: 0.88rem; color: #D1CDC7; padding: 0 6px; }
-.session-mark-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.session-mark-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.session-mark-spacer { flex: 1; }
 .session-mark-btn {
   background: transparent;
   color: var(--bg);

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=51">
+<link rel="stylesheet" href="style.css?v=52">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -490,11 +490,6 @@
         </div>
       </div>
 
-      <div class="video-batch-row">
-        <button id="video-batch-generate-btn" class="btn-secondary" type="button">🎬 Generate videos for this session</button>
-        <span class="muted" id="video-batch-status"></span>
-      </div>
-
       <div class="session-split">
         <div class="session-lead-card">
           <div class="session-lead-nav">
@@ -569,11 +564,12 @@
 
           <div class="session-mark-panel">
             <span class="session-mark-label">Mark this lead</span>
-            <div class="session-mark-grid">
+            <div class="session-mark-row">
               <button id="reject-btn" class="session-mark-btn">Not qualified <kbd>N</kbd></button>
-              <button id="next-unreachable-btn" class="session-mark-btn hidden">Next <span aria-hidden="true">→</span></button>
+              <span class="session-mark-spacer"></span>
+              <button id="accept-btn" class="session-mark-btn-primary">Sent — next lead → <kbd>S</kbd></button>
+              <button id="next-unreachable-btn" class="session-mark-btn-primary hidden">Next → <kbd>X</kbd></button>
             </div>
-            <button id="accept-btn" class="session-mark-btn-primary">Sent — next lead → <kbd>S</kbd></button>
           </div>
         </div>
       </div>
@@ -1328,8 +1324,8 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=38"></script>
-<script src="leads.js?v=29"></script>
+<script src="app.js?v=39"></script>
+<script src="leads.js?v=30"></script>
 <script src="followups.js?v=31"></script>
 </body>
 </html>

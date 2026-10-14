@@ -530,6 +530,24 @@ $('#leads-rows').addEventListener('change', (e) => {
   if (!field) return;
   const container = e.target.closest('[data-id], [data-detail-id]');
   const id = container.dataset.id || container.dataset.detailId;
+  // Phase 1/2/3 sit right next to each other in this dropdown, so a
+  // misclick easily lands one or two rows off and silently skips a whole
+  // phase's follow-ups (its due-date clock also resets, so that phase's
+  // notifications never show up for this lead at all). Confirm the skip
+  // rather than let it slide through, same as deleting.
+  if (field === 'stage') {
+    const lead = leadsState.leads.find(l => l.id === id);
+    const expectedPrev = { phase2: 'phase1', phase3: 'phase2' };
+    const required = expectedPrev[e.target.value];
+    if (lead && required && lead.stage !== required && lead.stage !== e.target.value) {
+      const fromLabel = stageLabel(lead);
+      const toLabel = e.target.value === 'phase2' ? 'Phase 2' : 'Phase 3';
+      if (!confirm(`This lead is at "${fromLabel}", not the end of the previous phase — jump straight to ${toLabel} and skip its remaining follow-ups?`)) {
+        e.target.value = lead.stage;
+        return;
+      }
+    }
+  }
   updateLeadField(id, field, e.target.value);
 });
 
