@@ -80,8 +80,12 @@ body {
 
 #app { display: flex; min-height: 100vh; }
 
-.main-wrap { flex: 1; min-width: 0; padding: 0 20px 60px; }
-.main-content { max-width: 900px; margin: 0 auto; padding-top: 28px; }
+/* Fills the available width next to the sidebar (minus a comfortable
+   gutter that itself scales a little with viewport) instead of sitting in
+   a fixed/capped centered column — matches the source design, which was
+   never a narrow centered card on a wide screen. */
+.main-wrap { flex: 1; min-width: 0; padding: 0 clamp(24px, 3vw, 64px) 60px; }
+.main-content { max-width: 100%; padding-top: 28px; }
 
 h1, h2, h3 { font-family: var(--font-display); font-weight: 500; letter-spacing: -0.01em; }
 
