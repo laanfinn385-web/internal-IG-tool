@@ -999,7 +999,7 @@ kbd {
 .session-li-identity { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 6px; }
 .session-li-name { margin: 0; font-size: 2rem; line-height: 1.1; letter-spacing: -0.02em; font-weight: 500; }
 .session-li-headline { font-size: 1rem; font-weight: 500; }
-.session-li-bio { margin: 0; font-size: 1.05rem; line-height: 1.5; color: #262627; max-width: 620px; }
+.session-li-bio { margin: 0; font-size: 1.05rem; line-height: 1.5; color: #262627; max-width: 620px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .session-li-card .btn-secondary { align-self: flex-start; }
 .session-li-engage {
   flex: 5 1 320px;
