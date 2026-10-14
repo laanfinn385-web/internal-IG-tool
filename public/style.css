@@ -2308,54 +2308,83 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 .reminder-picker-row-stage { flex-shrink: 0; font-size: 0.74rem; color: var(--muted); background: var(--bg); border: 1px solid var(--border); border-radius: 999px; padding: 2px 10px; }
 
 /* ===== Follow-up session ===== */
+/* A queue (left, every due lead as a small pill row) + a detail panel
+   (right, the currently-selected lead's message and actions) — matches
+   the rest of the app's "focus on one lead at a time" session screens,
+   replacing the earlier flat list-of-cards layout. */
 
-.followup-list { display: flex; flex-direction: column; gap: 16px; margin-top: 10px; }
-.followup-card {
+.followup-split { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; margin-top: 10px; }
+.followup-queue {
+  flex: 4 1 280px;
+  min-width: 0;
+  background: var(--card-bg-alt);
+  border-radius: var(--r-xl);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+.followup-queue-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  border-radius: var(--r-pill);
+  padding: 6px 16px 6px 6px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+}
+.followup-queue-row:hover { background: var(--card-bg); }
+.followup-queue-row.selected { background: var(--card-bg); box-shadow: var(--shadow); }
+.followup-queue-avatar { flex: none; width: 40px; height: 40px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600; }
+.followup-queue-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.followup-queue-name { font-size: 0.95rem; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.followup-queue-sub { font-size: 0.82rem; color: var(--muted); }
+
+.followup-detail {
+  flex: 8 1 460px;
+  min-width: 0;
   background: #fff;
   border-radius: var(--r-xl);
-  padding: 28px 32px;
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
   box-shadow: var(--shadow-lift);
-  transition: transform 0.28s ease, opacity 0.28s ease, max-height 0.28s ease;
-  max-height: 500px;
-  overflow: hidden;
 }
-.followup-card.removing { transform: translateX(30px); opacity: 0; max-height: 0; padding: 0; margin: 0; }
-.followup-card-head { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; flex-wrap: wrap; }
-.followup-avatar { flex: none; width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600; }
-.followup-username { flex: 1; font-size: 1.05rem; font-weight: 500; }
-.followup-step-chip { font-size: 0.8rem; background: var(--bg); border-radius: var(--r-pill); padding: 5px 12px; color: var(--muted); }
-.followup-message {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: var(--bg);
+.followup-detail-head { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+.followup-detail-avatar { flex: none; width: 72px; height: 72px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 26px; font-weight: 500; }
+.followup-detail-identity { flex: 1; min-width: 160px; display: flex; flex-direction: column; gap: 2px; }
+.followup-detail-name { font-size: 1.5rem; font-weight: 500; letter-spacing: -0.01em; }
+.followup-detail-step-chip { font-size: 0.82rem; background: var(--bg); border-radius: var(--r-pill); padding: 6px 14px; }
+.followup-detail-message {
   border: 1px solid transparent;
+  background: var(--bg);
   border-radius: var(--r-md);
-  padding: 16px 18px;
-  font-size: 0.98rem;
+  padding: 20px 24px;
+  font-size: 1.1rem;
   line-height: 1.5;
-  color: var(--text);
-  cursor: pointer;
+  min-height: 130px;
+  resize: vertical;
+  outline: none;
   font-family: inherit;
-  margin-bottom: 14px;
-  transition: background 0.15s;
 }
-.followup-message:hover { background: var(--card-bg-alt); }
-.followup-message.copied { background: rgba(31, 177, 92, 0.12); }
-.followup-message.copied::after { content: ' ✓ Copied — opening DM…'; color: var(--green-dark); font-weight: 600; }
-.followup-card-divider { height: 1px; background: var(--bg); margin-bottom: 14px; }
-.followup-card-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-.followup-in-conversation-btn, .followup-delete-btn {
+.followup-detail-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.followup-detail-divider { height: 1px; background: var(--bg); }
+.followup-detail-skip-btn {
   background: transparent;
   border: none;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.92rem;
   cursor: pointer;
-  padding: 9px 12px;
+  padding: 11px 14px;
   transition: color 0.15s;
 }
-.followup-in-conversation-btn:hover, .followup-delete-btn:hover { color: var(--text); }
-.followup-delete-btn:hover { color: var(--warn); }
+.followup-detail-skip-btn:hover { color: var(--warn); }
 
 /* ===== Analytics ===== */
 
