@@ -1466,6 +1466,7 @@ function renderProfile() {
   $('#f-headline').value = p.headline || '';
   $('#f-bio').value = p.bio;
   $('#f-bio-label').textContent = isLinkedin ? 'Additional info' : 'Bio';
+  autoResizeTextarea($('#f-bio'));
   $('#f-followers').value = p.followers;
   $('#f-lastpost').value = p.lastPostWeeks;
   $('#f-postsperweek').value = p.postsPerWeek;
@@ -1643,6 +1644,7 @@ function renderMessageText() {
 ['f-bio', 'f-followers', 'f-headline'].forEach(id => {
   $(`#${id}`).addEventListener('input', syncFieldsToState);
 });
+$('#f-bio').addEventListener('input', (e) => autoResizeTextarea(e.target));
 // naam placeholder in the message depends on these two, so re-render the message text
 ['f-fullname', 'f-username'].forEach(id => {
   $(`#${id}`).addEventListener('input', () => { syncFieldsToState(); updateMessage(); });
@@ -1793,8 +1795,7 @@ $('#video-generate-btn').addEventListener('click', () => {
 // concurrent ffmpeg cold starts is reasonable" rather than any hard limit.
 const VIDEO_BATCH_CONCURRENCY = 4;
 
-// Shared by the manual "Generate videos for this session" button and the
-// automatic preload screen shown when a session starts. Simple
+// Used by the automatic preload screen shown when a session starts. Simple
 // concurrency-limited worker pool: each worker pulls the next profile off
 // the shared queue as soon as it finishes its own render.
 async function renderVideoBatch(targets, onProgress) {
@@ -1814,25 +1815,6 @@ async function renderVideoBatch(targets, onProgress) {
   );
   return { done, failed };
 }
-
-$('#video-batch-generate-btn').addEventListener('click', async () => {
-  const btn = $('#video-batch-generate-btn');
-  const statusEl = $('#video-batch-status');
-  const targets = state.profiles.filter(p => p.videoStatus !== 'done' && p.videoStatus !== 'rendering');
-  if (targets.length === 0) {
-    statusEl.textContent = 'Every profile in this session already has a video.';
-    return;
-  }
-  btn.disabled = true;
-  statusEl.textContent = `Generating… 0/${targets.length}`;
-  const { done, failed } = await renderVideoBatch(targets, (d, f, total) => {
-    statusEl.textContent = `Generating… ${d + f}/${total}`;
-  });
-  statusEl.textContent = failed === 0
-    ? `Done — generated ${done} video${done === 1 ? '' : 's'}.`
-    : `Generated ${done}, ${failed} failed — check each profile's status.`;
-  btn.disabled = false;
-});
 
 // Shown between starting a session and the dashboard appearing — renders
 // every profile's video up front (with the auto-detected name, right most of
