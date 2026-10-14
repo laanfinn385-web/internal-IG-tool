@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=40">
+<link rel="stylesheet" href="style.css?v=43">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -414,7 +414,7 @@
       <div class="session-header">
         <div class="eyebrow" id="simple-session-title">LinkedIn session</div>
         <div class="session-progress">
-          <div class="session-progress-track"><div class="progress-fill" id="simple-progress-fill"></div></div>
+          <div class="session-progress-dots" id="simple-progress-dots"></div>
           <span class="session-progress-label"><span id="simple-progress-current">1</span> / <span id="simple-progress-total">15</span></span>
         </div>
         <div class="session-header-actions">
@@ -425,13 +425,23 @@
 
       <div class="session-li-split">
         <div class="session-li-card">
-          <h2 class="session-li-name" id="simple-session-fullname">–</h2>
-          <span class="session-li-headline hidden" id="simple-session-headline"></span>
+          <div class="session-li-header">
+            <div class="session-li-avatar-wrap">
+              <span class="session-li-avatar" id="simple-session-avatar"></span>
+              <a href="#" target="li_preview" rel="noopener" title="Open profile on LinkedIn" class="session-li-avatar-link" id="simple-session-avatar-link">↗</a>
+            </div>
+            <div class="session-li-identity">
+              <h2 class="session-li-name" id="simple-session-fullname">–</h2>
+              <span class="session-li-headline hidden" id="simple-session-headline"></span>
+            </div>
+          </div>
           <p class="session-li-bio hidden" id="simple-session-bio"></p>
           <a id="simple-session-link" href="#" target="li_preview" rel="noopener" class="btn-secondary">Open profile on LinkedIn ↗</a>
         </div>
         <div class="session-li-engage">
-          <span class="session-li-engage-label">Decide</span>
+          <span class="session-li-engage-label" id="simple-session-engage-label">Decide</span>
+          <div class="session-li-steps hidden" id="simple-session-steps"></div>
+          <div class="session-li-spacer"></div>
           <div class="session-li-engage-actions">
             <button id="simple-negative-btn" class="session-li-btn">Not qualified <kbd>N</kbd></button>
             <button id="simple-positive-btn" class="session-li-btn-primary">Engaged <kbd>E</kbd></button>
@@ -464,10 +474,15 @@
     <!-- DASHBOARD -->
     <section id="view-dashboard" class="view hidden">
       <div class="session-header">
-        <div class="eyebrow">Session</div>
+        <div class="eyebrow" id="dashboard-session-title">Session</div>
         <div class="session-progress">
-          <div class="session-progress-track"><div class="progress-fill" id="progress-fill"></div></div>
+          <div class="session-progress-dots" id="dashboard-progress-dots"></div>
           <span class="session-progress-label"><span id="progress-current">1</span> / <span id="progress-total">15</span></span>
+        </div>
+        <div class="session-account-badge hidden" id="dashboard-account-badge">
+          <span class="session-account-badge-avatar" id="dashboard-account-badge-avatar"></span>
+          <span class="session-account-badge-handle" id="dashboard-account-badge-handle"></span>
+          <span class="session-account-badge-left" id="dashboard-account-badge-left"></span>
         </div>
         <div class="session-header-actions">
           <button id="switch-accounts-btn" class="session-pill-btn hidden" type="button" title="Switch to a different account, or to LinkedIn">Switch account</button>
@@ -527,11 +542,16 @@
 
         <div class="session-action-col">
           <div class="session-message-card">
-            <div class="eyebrow">Opening message</div>
+            <div class="row-between session-message-head">
+              <div class="eyebrow">Opening message</div>
+              <span class="session-variant-chip hidden" id="f-variant-chip"></span>
+            </div>
             <textarea id="f-message" class="session-message-input" rows="7"></textarea>
             <div class="session-message-actions">
               <button id="copy-btn" class="btn-primary">Copy message</button>
               <a id="dm-link" href="#" target="_blank" rel="noopener" class="btn-secondary">Open Instagram DM ↗</a>
+              <button id="reword-btn" class="session-reword-btn hidden" type="button" title="Pick new spintax wording">Reword</button>
+              <span class="session-char-count muted" id="f-char-count"></span>
             </div>
           </div>
 
@@ -1310,7 +1330,7 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=34"></script>
+<script src="app.js?v=37"></script>
 <script src="leads.js?v=28"></script>
 <script src="followups.js?v=29"></script>
 </body>

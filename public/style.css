@@ -662,8 +662,15 @@ input:focus, textarea:focus, select:focus {
 
 .session-header { display: flex; align-items: center; gap: 20px; flex-wrap: wrap; margin: 14px 0 20px; }
 .session-progress { flex: 1; min-width: 180px; display: flex; align-items: center; gap: 14px; }
-.session-progress-track { flex: 1; height: 6px; border-radius: var(--r-pill); background: var(--border); overflow: hidden; }
+.session-progress-dots { flex: 1; display: flex; gap: 3px; }
+.session-progress-dot { flex: 1; height: 6px; border-radius: var(--r-pill); background: var(--border); transition: background 0.24s; }
+.session-progress-dot.done { background: var(--text); }
+.session-progress-dot.current { background: var(--accent); }
 .session-progress-label { font-size: 0.9rem; font-weight: 500; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.session-account-badge { display: flex; align-items: center; gap: 8px; background: var(--card-bg); border-radius: var(--r-pill); padding: 4px 14px 4px 4px; }
+.session-account-badge-avatar { width: 28px; height: 28px; border-radius: 50%; background: var(--border); display: flex; align-items: center; justify-content: center; font-size: 0.75rem; font-weight: 700; }
+.session-account-badge-handle { font-size: 0.88rem; font-weight: 500; }
+.session-account-badge-left { font-size: 0.82rem; color: var(--muted); white-space: nowrap; }
 .session-header-actions { display: flex; gap: 6px; }
 .session-pill-btn {
   background: transparent;
@@ -888,7 +895,12 @@ input:focus, textarea:focus, select:focus {
   outline: none;
   font-family: inherit;
 }
+.session-message-head { margin: 0; }
+.session-variant-chip { font-size: 0.82rem; color: var(--muted); background: var(--bg); border-radius: var(--r-pill); padding: 5px 12px; }
 .session-message-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.session-reword-btn { background: transparent; border: 0; padding: 9px 12px; font-size: 0.88rem; color: var(--muted); cursor: pointer; }
+.session-reword-btn:hover { color: var(--text); }
+.session-char-count { margin-left: auto; font-size: 0.82rem; }
 
 .session-video-card { background: #fff; border-radius: var(--r-lg); padding: 20px 24px; display: flex; flex-direction: column; gap: 10px; }
 .session-video-row { display: flex; align-items: flex-end; gap: 12px; flex-wrap: wrap; }
@@ -950,7 +962,7 @@ kbd {
 }
 
 /* LinkedIn simple session (engagement/connection) */
-.session-li-split { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start; }
+.session-li-split { display: flex; flex-wrap: wrap; gap: 24px; align-items: stretch; }
 .session-li-card {
   flex: 7 1 420px;
   min-width: 0;
@@ -959,11 +971,32 @@ kbd {
   padding: 36px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 22px;
 }
-.session-li-name { margin: 0; font-size: 1.7rem; line-height: 1.15; letter-spacing: -0.02em; font-weight: 500; }
-.session-li-headline { font-size: 0.95rem; font-weight: 500; margin-top: -8px; }
-.session-li-bio { margin: 0; font-size: 0.95rem; line-height: 1.5; color: #262627; max-width: 620px; }
+.session-li-header { display: flex; align-items: center; gap: 24px; flex-wrap: wrap; }
+.session-li-avatar-wrap { position: relative; width: 132px; height: 132px; flex: none; }
+.session-li-avatar { display: flex; align-items: center; justify-content: center; width: 132px; height: 132px; border-radius: 50%; font-size: 44px; font-weight: 500; letter-spacing: -0.02em; }
+.session-li-avatar-link {
+  position: absolute;
+  right: -12px;
+  bottom: -2px;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--card-bg);
+  box-shadow: var(--shadow-lift);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text);
+  font-size: 1.1rem;
+  text-decoration: none;
+}
+.session-li-avatar-link:hover { background: var(--bg); text-decoration: none; }
+.session-li-identity { flex: 1; min-width: 180px; display: flex; flex-direction: column; gap: 6px; }
+.session-li-name { margin: 0; font-size: 2rem; line-height: 1.1; letter-spacing: -0.02em; font-weight: 500; }
+.session-li-headline { font-size: 1rem; font-weight: 500; }
+.session-li-bio { margin: 0; font-size: 1.05rem; line-height: 1.5; color: #262627; max-width: 620px; }
 .session-li-card .btn-secondary { align-self: flex-start; }
 .session-li-engage {
   flex: 5 1 320px;
@@ -974,12 +1007,16 @@ kbd {
   padding: 32px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 22px;
 }
 .session-li-engage-label { font-size: 0.88rem; color: #D1CDC7; }
-.session-li-engage-actions { display: flex; gap: 8px; flex-wrap: wrap; }
-.session-li-engage-actions .session-li-btn,
-.session-li-engage-actions .session-li-btn-primary { flex: 1 1 130px; }
+.session-li-steps { display: flex; flex-direction: column; gap: 14px; }
+.session-li-steps.hidden { display: none; }
+.session-li-step { display: flex; gap: 14px; align-items: flex-start; }
+.session-li-step-n { flex: none; width: 28px; height: 28px; border-radius: 50%; border: 1px solid rgba(243, 240, 238, 0.35); display: flex; align-items: center; justify-content: center; font-size: 0.8rem; }
+.session-li-step-text { font-size: 1rem; line-height: 1.45; }
+.session-li-spacer { flex: 1; }
+.session-li-engage-actions { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; }
 .session-li-btn {
   background: transparent;
   color: var(--bg);
