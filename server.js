@@ -532,8 +532,18 @@ app.get('/api/home', asyncRoute(async (req, res) => {
           JOIN message_sequence_followups msf
             ON msf.sequence_id = COALESCE(la.message_sequence_id, ${defaultSeqId})
            AND msf.phase = 1 AND msf.step = l.phase_step + 1
+          LEFT JOIN message_sequence_followups msf_prev
+            ON msf_prev.sequence_id = msf.sequence_id AND msf_prev.phase = msf.phase AND msf_prev.step = msf.step - 1
+          LEFT JOIN LATERAL (
+            SELECT max(created_at) AS sent_at FROM followup_sends fs
+            WHERE fs.lead_id = l.id AND fs.phase = msf.phase AND fs.step = l.phase_step
+          ) prev_sent ON true
           WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
-            AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
+            AND due_at_normalized(
+              COALESCE(prev_sent.sent_at, l.phase_started_at),
+              msf.day_offset - COALESCE(msf_prev.day_offset, 0),
+              ${dueHour}
+            ) <= now()
           GROUP BY l.account_id
         ) pending ON pending.account_id = a.id
         WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL
@@ -1528,8 +1538,18 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
     JOIN message_sequence_followups msf
       ON msf.sequence_id = COALESCE(la.message_sequence_id, ${defaultMessageSeqId})
      AND msf.phase = 1 AND msf.step = l.phase_step + 1
+    LEFT JOIN message_sequence_followups msf_prev
+      ON msf_prev.sequence_id = msf.sequence_id AND msf_prev.phase = msf.phase AND msf_prev.step = msf.step - 1
+    LEFT JOIN LATERAL (
+      SELECT max(created_at) AS sent_at FROM followup_sends fs
+      WHERE fs.lead_id = l.id AND fs.phase = msf.phase AND fs.step = l.phase_step
+    ) prev_sent ON true
     WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
-      AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
+      AND due_at_normalized(
+        COALESCE(prev_sent.sent_at, l.phase_started_at),
+        msf.day_offset - COALESCE(msf_prev.day_offset, 0),
+        ${dueHour}
+      ) <= now()
     GROUP BY l.account_id
   `;
   const pendingByAccount = {};
@@ -2281,16 +2301,22 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
         CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END AS phase,
         l.account_id,
         a.username AS account_username,
-        due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) AS due_at
+        due_at_normalized(COALESCE(prev_sent.sent_at, l.phase_started_at), msf.day_offset - COALESCE(msf_prev.day_offset, 0), ${dueHour}) AS due_at
       FROM leads l
       LEFT JOIN ig_accounts a ON a.id = l.account_id
       JOIN message_sequence_followups msf
         ON msf.sequence_id = COALESCE(a.message_sequence_id, ${defaultMessageSeqId})
        AND msf.phase = CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END
        AND msf.step = l.phase_step + 1
+      LEFT JOIN message_sequence_followups msf_prev
+        ON msf_prev.sequence_id = msf.sequence_id AND msf_prev.phase = msf.phase AND msf_prev.step = msf.step - 1
+      LEFT JOIN LATERAL (
+        SELECT max(created_at) AS sent_at FROM followup_sends fs
+        WHERE fs.lead_id = l.id AND fs.phase = msf.phase AND fs.step = l.phase_step
+      ) prev_sent ON true
       WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = 'instagram'
         AND l.stage IN ('phase1', 'phase2', 'phase3')
-        AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
+        AND due_at_normalized(COALESCE(prev_sent.sent_at, l.phase_started_at), msf.day_offset - COALESCE(msf_prev.day_offset, 0), ${dueHour}) <= now()
     `,
     sql`
       SELECT
@@ -2298,16 +2324,23 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
         CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END AS phase,
         NULL::uuid AS account_id,
         NULL AS account_username,
-        due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) AS due_at
+        due_at_normalized(COALESCE(prev_sent.sent_at, l.phase_started_at), ft.day_offset - COALESCE(ft_prev.day_offset, 0), ${dueHour}) AS due_at
       FROM leads l
       JOIN followup_templates ft
         ON ft.workspace_id = ${workspaceId}
        AND ft.platform = 'linkedin'
        AND ft.phase = CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END
        AND ft.step = l.phase_step + 1
+      LEFT JOIN followup_templates ft_prev
+        ON ft_prev.workspace_id = ft.workspace_id AND ft_prev.platform = ft.platform
+       AND ft_prev.phase = ft.phase AND ft_prev.step = ft.step - 1
+      LEFT JOIN LATERAL (
+        SELECT max(created_at) AS sent_at FROM followup_sends fs
+        WHERE fs.lead_id = l.id AND fs.phase = ft.phase AND fs.step = l.phase_step
+      ) prev_sent ON true
       WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = 'linkedin'
         AND l.stage IN ('phase1', 'phase2', 'phase3')
-        AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
+        AND due_at_normalized(COALESCE(prev_sent.sent_at, l.phase_started_at), ft.day_offset - COALESCE(ft_prev.day_offset, 0), ${dueHour}) <= now()
     `
   ]);
   const followupRows = [...followupRowsIg, ...followupRowsLi];
@@ -2519,16 +2552,22 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
     rows = await sql`
       SELECT l.id, l.username, l.profile_url, l.full_name, l.account_id, a.username AS account_username,
              msf.step, msf.type, msf.message, msf.media_note,
-             due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) AS due_at
+             due_at_normalized(COALESCE(prev_sent.sent_at, l.phase_started_at), msf.day_offset - COALESCE(msf_prev.day_offset, 0), ${dueHour}) AS due_at
       FROM leads l
       LEFT JOIN ig_accounts a ON a.id = l.account_id
       JOIN message_sequence_followups msf
         ON msf.sequence_id = COALESCE(a.message_sequence_id, ${defaultSeqId})
        AND msf.phase = ${phase} AND msf.step = l.phase_step + 1
+      LEFT JOIN message_sequence_followups msf_prev
+        ON msf_prev.sequence_id = msf.sequence_id AND msf_prev.phase = msf.phase AND msf_prev.step = msf.step - 1
+      LEFT JOIN LATERAL (
+        SELECT max(created_at) AS sent_at FROM followup_sends fs
+        WHERE fs.lead_id = l.id AND fs.phase = msf.phase AND fs.step = l.phase_step
+      ) prev_sent ON true
       WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL
         AND l.platform = 'instagram'
         AND l.stage = ${stageVal}
-        AND due_at_normalized(l.phase_started_at, msf.day_offset, ${dueHour}) <= now()
+        AND due_at_normalized(COALESCE(prev_sent.sent_at, l.phase_started_at), msf.day_offset - COALESCE(msf_prev.day_offset, 0), ${dueHour}) <= now()
         AND (${accountId}::uuid IS NULL OR l.account_id = ${accountId}::uuid)
       ORDER BY due_at ASC
     `;
@@ -2540,13 +2579,20 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
     const liRows = await sql`
       SELECT l.id, l.username, l.profile_url, l.full_name,
              ft.step, ft.type, ft.message, ft.media_note,
-             due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) AS due_at
+             due_at_normalized(COALESCE(prev_sent.sent_at, l.phase_started_at), ft.day_offset - COALESCE(ft_prev.day_offset, 0), ${dueHour}) AS due_at
       FROM leads l
       JOIN followup_templates ft ON ft.workspace_id = ${workspaceId} AND ft.platform = 'linkedin' AND ft.phase = ${phase} AND ft.step = l.phase_step + 1
+      LEFT JOIN followup_templates ft_prev
+        ON ft_prev.workspace_id = ft.workspace_id AND ft_prev.platform = ft.platform
+       AND ft_prev.phase = ft.phase AND ft_prev.step = ft.step - 1
+      LEFT JOIN LATERAL (
+        SELECT max(created_at) AS sent_at FROM followup_sends fs
+        WHERE fs.lead_id = l.id AND fs.phase = ft.phase AND fs.step = l.phase_step
+      ) prev_sent ON true
       WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL
         AND l.platform = 'linkedin'
         AND l.stage = ${stageVal}
-        AND due_at_normalized(l.phase_started_at, ft.day_offset, ${dueHour}) <= now()
+        AND due_at_normalized(COALESCE(prev_sent.sent_at, l.phase_started_at), ft.day_offset - COALESCE(ft_prev.day_offset, 0), ${dueHour}) <= now()
       ORDER BY due_at ASC
     `;
     const leads = liRows.map(r => ({
