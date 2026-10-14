@@ -2203,19 +2203,27 @@ async function decide(status) {
     return;
   }
 
+  const goalReached = state.sessionMode === 'goal' && state.sentCount >= state.sessionTarget;
+  const hasNext = state.index < state.profiles.length - 1;
+  // Advance to the next profile *before* a pacing break might interrupt —
+  // otherwise Continue re-rendered the lead that was just decided (index
+  // never moved), which looked like nothing happened and, if re-decided,
+  // quietly ate the pacing counters' next natural threshold along with it.
+  // That's also why this used to only ever show one break per session.
+  if (!goalReached && hasNext) state.index++;
+
   // Lower priority than the account limit (a maxed-out account is the more
   // urgent fact either way) but still ahead of the normal end-of-session
   // branching — a pacing break can land on what would otherwise have been
-  // the very last profile too.
+  // the very last profile too, in which case there's nothing left to
+  // resume to once it's over.
   if (needsPacingBreak) {
+    if (goalReached || !hasNext) state.pacingBreakIsFinal = true;
     showSendPacingBreak();
     return;
   }
 
-  const goalReached = state.sessionMode === 'goal' && state.sentCount >= state.sessionTarget;
-  const hasNext = state.index < state.profiles.length - 1;
   if (!goalReached && hasNext) {
-    state.index++;
     renderProfile();
   } else if (shouldForceEndOfSessionBreak()) {
     // The session's about to end without ever having naturally hit the
