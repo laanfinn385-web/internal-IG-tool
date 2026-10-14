@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=46">
+<link rel="stylesheet" href="style.css?v=50">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -1035,10 +1035,21 @@
 
     <!-- SETTINGS -->
     <section id="view-settings" class="view hidden">
-      <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:18px;">
+    <div class="settings-layout">
+      <nav class="settings-nav">
         <div class="eyebrow">Settings</div>
-        <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Settings</h1>
-      </div>
+        <h1 class="settings-nav-title" id="settings-nav-title">Settings</h1>
+        <div class="settings-nav-links">
+          <a href="#settings-profile-card" class="settings-nav-link">Profile</a>
+          <a href="#settings-sequences-grid" class="settings-nav-link">Sequences</a>
+          <a href="#settings-accounts-card" class="settings-nav-link">Instagram accounts</a>
+          <a href="#settings-goal-card" class="settings-nav-link">Daily goal</a>
+          <a href="#settings-reminders-card" class="settings-nav-link">Reminders</a>
+          <a href="#settings-general-card" class="settings-nav-link">General</a>
+          <a href="#settings-linkedin-followups-card" class="settings-nav-link">LinkedIn follow-ups</a>
+        </div>
+      </nav>
+      <div class="settings-content">
 
       <div class="card" id="settings-profile-card">
         <h3>Profile</h3>
@@ -1066,19 +1077,27 @@
         </div>
       </div>
 
+      <div class="settings-sequences-grid" id="settings-sequences-grid">
+        <button type="button" id="open-message-sequences-btn" class="settings-seq-nav-card settings-seq-nav-dark">
+          <span class="settings-seq-nav-kicker">Messaging</span>
+          <span class="settings-seq-nav-title">Messaging sequences</span>
+          <p class="settings-seq-nav-sub">Named, reusable presets for Instagram's first message and phase1/2/3 follow-up steps — since your messaging keeps changing, edit these instead of digging through code. Assign one to each account below.</p>
+          <span class="settings-seq-nav-link">Edit openers &amp; follow-ups →</span>
+        </button>
+        <button type="button" id="open-timing-sequences-btn" class="settings-seq-nav-card settings-seq-nav-light">
+          <span class="settings-seq-nav-kicker">Timing</span>
+          <span class="settings-seq-nav-title">Timing sequences</span>
+          <p class="settings-seq-nav-sub">Named, reusable presets for how an account ramps up its daily send limit and paces itself in-session — since Instagram's rules shift, edit these instead of digging through code. Assign one to each account below.</p>
+          <span class="settings-seq-nav-link">Edit ramp &amp; pacing →</span>
+        </button>
+      </div>
+
       <div class="card" id="settings-accounts-card">
         <h3>Instagram accounts</h3>
         <p class="muted" style="margin-top:-8px;">Rotate between accounts to keep Instagram from flagging any one of them for high-volume DMing. Each account's daily limit and in-session pacing come from its assigned Timing sequence below.</p>
         <div id="accounts-list" class="accounts-list"></div>
         <button id="accounts-add-btn" class="btn-secondary">+ Add account</button>
       </div>
-
-      <button type="button" id="open-timing-sequences-btn" class="settings-seq-nav-card settings-seq-nav-light">
-        <span class="settings-seq-nav-kicker">Timing</span>
-        <span class="settings-seq-nav-title">Timing sequences</span>
-        <p class="settings-seq-nav-sub">Named, reusable presets for how an account ramps up its daily send limit and paces itself in-session — since Instagram's rules shift, edit these instead of digging through code. Assign one to each account above.</p>
-        <span class="settings-seq-nav-link">Edit ramp &amp; pacing →</span>
-      </button>
 
       <!-- Add account modal -->
       <div id="add-account-modal" class="modal-overlay hidden">
@@ -1102,7 +1121,7 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" id="settings-goal-card">
         <h3>Daily goal</h3>
         <p class="muted" style="margin-top:-8px;">Powers the progress bar and "Start/Continue daily goal session" button on the homepage. 0 means that platform is skipped — set both to run Instagram-only or LinkedIn-only, set one to 0 for a single-platform goal.</p>
         <div class="combi-size-row">
@@ -1163,7 +1182,7 @@
         </div>
       </div>
 
-      <div class="card">
+      <div class="card" id="settings-general-card">
         <h3>General</h3>
         <label>Booking link
           <input type="text" id="settings-calendar-link" placeholder="https://cal.com/yourname">
@@ -1182,12 +1201,6 @@
         <button id="settings-general-save" class="btn-secondary">Save</button>
       </div>
 
-      <button type="button" id="open-message-sequences-btn" class="settings-seq-nav-card settings-seq-nav-dark">
-        <span class="settings-seq-nav-kicker">Messaging</span>
-        <span class="settings-seq-nav-title">Messaging sequences</span>
-        <p class="settings-seq-nav-sub">Named, reusable presets for Instagram's first message and phase1/2/3 follow-up steps — since your messaging keeps changing, edit these instead of digging through code. Assign one to each account above.</p>
-        <span class="settings-seq-nav-link">Edit openers &amp; follow-ups →</span>
-      </button>
 
       <div class="card" id="settings-linkedin-followups-card">
         <h3>Follow-up sequence (LinkedIn)</h3>
@@ -1200,17 +1213,18 @@
         </div>
         <div id="settings-followups"></div>
       </div>
+
+      </div>
+    </div>
     </section>
 
     <!-- TIMING SEQUENCES — named, reusable ramp-curve + in-session pacing
          presets, assignable per Instagram account. -->
     <section id="view-timing-sequences" class="view hidden">
-      <div class="row-between leads-header" style="align-items:flex-end;">
-        <div style="display:flex;flex-direction:column;gap:14px;">
-          <div class="eyebrow">Timing sequences</div>
-          <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Timing sequences</h1>
-        </div>
-        <button type="button" id="timing-seq-back-btn" class="btn-ghost">← Back to Settings</button>
+      <button type="button" id="timing-seq-back-btn" class="settings-editor-back-link">← Settings</button>
+      <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:18px;">
+        <div class="eyebrow">Timing sequences</div>
+        <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Ramp up slowly. Pace like a person.</h1>
       </div>
 
       <div class="card">
@@ -1226,36 +1240,38 @@
         <p class="muted" id="timing-seq-empty" style="margin-top:8px;">No sequences yet — click "+ New" to create one.</p>
       </div>
 
-      <div class="card hidden" id="timing-seq-editor">
-        <h3>Daily limit ramp curve</h3>
-        <p class="muted" style="margin-top:-8px;">One row per day the limit changes, each timed as "+N days after the previous row" — it holds steady until then, and forever after the last row. Day 1 at 0 is what "warmup" is.</p>
-        <div id="timing-ramp-days-list" class="timing-ramp-days-list"></div>
-        <button type="button" id="timing-ramp-day-add-btn" class="btn-secondary">+ Add day</button>
-
-        <h3 style="margin-top:24px;">In-session pacing pattern</h3>
-        <p class="muted" style="margin-top:-8px;">Drag to reorder. Loops back to the top once it reaches the end, for as long as a sending session runs.</p>
-        <div id="timing-pacing-blocks-list" class="timing-pacing-blocks-list"></div>
-        <div class="modal-actions" style="justify-content:flex-start; gap:12px;">
-          <button type="button" id="timing-pacing-add-send-btn" class="btn-secondary">+ Add send block</button>
-          <button type="button" id="timing-pacing-add-pause-btn" class="btn-secondary">+ Add pause block</button>
+      <div class="settings-editor-split hidden" id="timing-seq-editor">
+        <div class="card settings-editor-col">
+          <h3>Daily limit ramp curve</h3>
+          <p class="muted" style="margin-top:-8px;">One row per day the limit changes, each timed as "+N days after the previous row" — it holds steady until then, and forever after the last row. Day 1 at 0 is what "warmup" is.</p>
+          <div id="timing-ramp-days-list" class="timing-ramp-days-list"></div>
+          <button type="button" id="timing-ramp-day-add-btn" class="btn-secondary">+ Add day</button>
         </div>
-        <label class="toggle-row" style="margin-top:14px;">
-          <span class="toggle-switch"><input type="checkbox" id="timing-guarantee-pause-checkbox"><span class="toggle-switch-track"></span></span>
-          Always include at least one scroll break
-        </label>
-        <p class="muted" style="margin-top:-4px;">For a session whose volume is too low to ever naturally hit the send-block threshold above (e.g. warming up, or a small daily goal) — forces one pause in right before the session ends, so you're never just opening Instagram to send and immediately closing it again. Only applies to a session where at least one message was actually sent.</p>
+
+        <div class="card settings-editor-col">
+          <h3>In-session pacing pattern</h3>
+          <p class="muted" style="margin-top:-8px;">Drag to reorder. Loops back to the top once it reaches the end, for as long as a sending session runs.</p>
+          <div id="timing-pacing-blocks-list" class="timing-pacing-blocks-list"></div>
+          <div class="modal-actions" style="justify-content:flex-start; gap:12px;">
+            <button type="button" id="timing-pacing-add-send-btn" class="btn-secondary">+ Add send block</button>
+            <button type="button" id="timing-pacing-add-pause-btn" class="btn-secondary">+ Add pause block</button>
+          </div>
+          <label class="toggle-row" style="margin-top:14px;">
+            <span class="toggle-switch"><input type="checkbox" id="timing-guarantee-pause-checkbox"><span class="toggle-switch-track"></span></span>
+            Always include at least one scroll break
+          </label>
+          <p class="muted" style="margin-top:-4px;">For a session whose volume is too low to ever naturally hit the send-block threshold above (e.g. warming up, or a small daily goal) — forces one pause in right before the session ends, so you're never just opening Instagram to send and immediately closing it again. Only applies to a session where at least one message was actually sent.</p>
+        </div>
       </div>
     </section>
 
     <!-- MESSAGING SEQUENCES — named, reusable first-message + phase1/2/3
          follow-up-step presets, assignable per Instagram account. -->
     <section id="view-message-sequences" class="view hidden">
-      <div class="row-between leads-header" style="align-items:flex-end;">
-        <div style="display:flex;flex-direction:column;gap:14px;">
-          <div class="eyebrow">Messaging sequences</div>
-          <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Messaging sequences</h1>
-        </div>
-        <button type="button" id="message-seq-back-btn" class="btn-ghost">← Back to Settings</button>
+      <button type="button" id="message-seq-back-btn" class="settings-editor-back-link">← Settings</button>
+      <div style="display:flex;flex-direction:column;gap:14px;margin-bottom:18px;">
+        <div class="eyebrow">Messaging sequences</div>
+        <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Write it once. Let the variants compete.</h1>
       </div>
 
       <div class="card">
@@ -1314,6 +1330,6 @@
 <script src="templates.js?v=23"></script>
 <script src="app.js?v=38"></script>
 <script src="leads.js?v=29"></script>
-<script src="followups.js?v=30"></script>
+<script src="followups.js?v=31"></script>
 </body>
 </html>
