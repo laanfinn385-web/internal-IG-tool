@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=44">
+<link rel="stylesheet" href="style.css?v=45">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -706,23 +706,26 @@
           <h1>Leads</h1>
           <p class="muted" id="leads-total-count"></p>
         </div>
-        <div class="leads-header-right">
-          <div class="range-tabs" id="leads-platform-tabs">
-            <button type="button" class="range-tab" data-platform="instagram">Instagram</button>
-            <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
-            <button type="button" class="range-tab active" data-platform="all">All</button>
-          </div>
-          <div class="leads-toolbar" id="leads-toolbar-actions">
-            <button id="leads-delete-btn" class="btn-ghost">🗑 Delete leads</button>
-            <button id="leads-import-btn" class="btn-secondary">⬆ Import CSV</button>
-            <button id="leads-add-btn" class="btn-primary">+ Add lead</button>
-          </div>
+        <div class="leads-toolbar" id="leads-toolbar-actions">
+          <button id="leads-delete-btn" class="btn-ghost">Delete leads</button>
+          <button id="leads-import-btn" class="btn-secondary">Import CSV</button>
+          <button id="leads-add-btn" class="btn-primary">Add lead</button>
         </div>
       </div>
 
-      <div class="leads-search-row" id="leads-search-row">
-        <input type="text" id="leads-search" class="leads-search-input" placeholder="🔍 Search by username...">
+      <div class="leads-controls-row">
+        <div class="range-tabs" id="leads-platform-tabs">
+          <button type="button" class="range-tab" data-platform="instagram">Instagram</button>
+          <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
+          <button type="button" class="range-tab active" data-platform="all">All</button>
+        </div>
+        <div class="leads-controls-spacer"></div>
+        <div class="leads-search-row" id="leads-search-row">
+          <input type="text" id="leads-search" class="leads-search-input" placeholder="Search name or username">
+        </div>
       </div>
+
+      <div class="leads-stage-chips" id="leads-stage-chips"></div>
 
       <div id="leads-dropzone" class="dropzone">
         <div class="dropzone-icon">📄</div>
@@ -749,12 +752,7 @@
             <div class="lc lc-url">Profile URL</div>
             <div class="lc lc-username">Name</div>
             <div class="lc lc-expand"></div>
-            <div class="lc lc-stage">
-              <span>Stage</span>
-              <button type="button" id="stage-filter-btn" class="stage-filter-btn" title="Filter by stage">
-                ⏷<span class="stage-filter-badge hidden" id="stage-filter-badge">0</span>
-              </button>
-            </div>
+            <div class="lc lc-stage">Stage</div>
             <div class="lc lc-trash"></div>
           </div>
           <div id="leads-rows"></div>
@@ -762,21 +760,10 @@
         <div class="leads-pagination" id="leads-pagination">
           <span class="muted" id="leads-pagination-info"></span>
           <div class="leads-pagination-btns">
-            <button id="leads-prev-page" class="btn-secondary">← Prev</button>
-            <button id="leads-next-page" class="btn-secondary">Next →</button>
+            <button id="leads-prev-page" class="leads-pagination-btn" title="Previous page">←</button>
+            <button id="leads-next-page" class="leads-pagination-btn" title="Next page">→</button>
           </div>
         </div>
-      </div>
-
-      <!-- Positioned via JS (fixed, computed from the filter button's own
-           rect) instead of CSS-anchored inside the table, so it can never
-           get clipped by the table's own rounded-corner overflow:hidden.
-           Checkbox options are rendered by JS (renderStageFilterOptions) —
-           the available stages depend on the active platform tab, so a
-           static list here would drift out of sync with STAGE_OPTIONS_BY_PLATFORM. -->
-      <div id="stage-filter-dropdown" class="stage-filter-dropdown hidden">
-        <div id="stage-filter-options"></div>
-        <button type="button" id="stage-filter-clear" class="stage-filter-clear-btn">Clear filter</button>
       </div>
 
       <!-- CSV mapping modal -->
@@ -1354,7 +1341,7 @@
 
 <script src="templates.js?v=23"></script>
 <script src="app.js?v=37"></script>
-<script src="leads.js?v=28"></script>
+<script src="leads.js?v=29"></script>
 <script src="followups.js?v=30"></script>
 </body>
 </html>
