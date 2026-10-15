@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=52">
+<link rel="stylesheet" href="style.css?v=53">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -1117,6 +1117,30 @@
         </div>
       </div>
 
+      <!-- Daily max override modal — temporarily pins an account's daily
+           limit, overriding whatever its assigned Timing sequence's ramp
+           curve would otherwise compute, for a set number of days. -->
+      <div id="account-limit-override-modal" class="modal-overlay hidden">
+        <div class="modal">
+          <h3>Daily max override — <span id="limit-override-username"></span></h3>
+          <p class="muted" style="margin-top:-8px;">Overrides the Timing sequence's own ramp for a set number of days, then automatically reverts back to it.</p>
+          <p class="muted hidden" id="limit-override-active-note"></p>
+          <label>Daily max
+            <input type="number" id="limit-override-daily-max" min="0" placeholder="e.g. 10">
+          </label>
+          <label>For how many days
+            <input type="number" id="limit-override-days" min="1" value="7">
+          </label>
+          <p class="muted" id="limit-override-error" style="display:none; color: var(--red);"></p>
+          <div class="modal-actions" style="justify-content:space-between;">
+            <button id="limit-override-clear-btn" class="btn-secondary hidden">Clear override</button>
+            <span style="flex:1;"></span>
+            <button id="limit-override-cancel-btn" class="btn-secondary">Cancel</button>
+            <button id="limit-override-save-btn" class="btn-primary">Save</button>
+          </div>
+        </div>
+      </div>
+
       <div class="card" id="settings-goal-card">
         <h3>Daily goal</h3>
         <p class="muted" style="margin-top:-8px;">Powers the progress bar and "Start/Continue daily goal session" button on the homepage. 0 means that platform is skipped — set both to run Instagram-only or LinkedIn-only, set one to 0 for a single-platform goal.</p>
@@ -1326,6 +1350,6 @@
 <script src="templates.js?v=23"></script>
 <script src="app.js?v=42"></script>
 <script src="leads.js?v=31"></script>
-<script src="followups.js?v=31"></script>
+<script src="followups.js?v=32"></script>
 </body>
 </html>
