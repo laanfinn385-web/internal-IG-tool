@@ -505,78 +505,52 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   // and would otherwise silently blow past it (same accounting as
   // effectiveRemainingForNewSends in GET /api/accounts, just summed).
   //
-  // Only the *pending* half is locked once per day (at the same due-hour
-  // boundary — 4am by default — follow-ups themselves use, via
-  // amsterdam_day_index) — total_limit is always recomputed live. Originally
-  // both were frozen together, but that meant a legitimate same-day change
-  // to an account's real capacity (fixing a misconfigured account, a
-  // ramp-up day advancing, warmup finishing) stayed invisible until the
-  // next day too — happened twice in testing before this split. Freezing
-  // just `pending` is enough on its own to fix the actual bug this was
-  // built for: every follow-up due today already counts as pending as soon
-  // as it's past today's due-hour (due_at_normalized always normalizes to
-  // that exact hour, never spreads later in the day), so pending only ever
-  // *shrinks* through the day as follow-ups get sent — recomputing it live
-  // was what let the goal silently grow mid-day with no new cold sends
-  // having happened. total_limit has no such one-directional pattern, so
-  // there's nothing to protect by freezing it too.
+  // Both halves are recomputed live on every call — pending used to be
+  // snapshotted once per day (frozen at the first /api/home call) on the
+  // assumption that every follow-up due today was already due the moment
+  // today's due-hour passed, so pending could only ever shrink from there.
+  // That assumption broke once due dates started anchoring to when a
+  // lead's *previous* step was actually sent (see the follow-up due-date
+  // fix) rather than to a fixed per-day boundary — a follow-up can now
+  // become newly due at any point during the day, as a predecessor step
+  // gets sent at whatever time that happens to be. A snapshot taken early
+  // (before anything was due yet) then stayed frozen near zero all day,
+  // silently ignoring real pending work and inflating the synced goal to
+  // just the raw sum of every account's limit. Computing it live avoids
+  // that; the tradeoff — the goal number can shift during the day purely
+  // from follow-ups being sent or newly becoming due, no new cold sends
+  // required — reflects a real, legitimate change in actual capacity.
   if (dailyGoalInstagramSynced) {
     const [dueHour, defaultSeqId] = await Promise.all([getFollowupDueHour(workspaceId), getDefaultMessageSequenceId(workspaceId)]);
-    // ::text — amsterdam_day_index() returns a Postgres `date`, which the
-    // driver hands back as a JS Date object; String()-ing that produces a
-    // verbose, environment-dependent locale string (and Vercel's UTC
-    // serverless runtime would stringify it differently than this app's
-    // other date/day-index math expects), not a stable comparison key.
-    const [{ day_index }] = await sql`SELECT amsterdam_day_index(now(), ${dueHour})::text AS day_index`;
-    const snapshotKey = day_index;
-    const [snapshotRows, [{ total_limit, total_pending }]] = await Promise.all([
-      sql`SELECT key, value FROM app_settings WHERE workspace_id = ${workspaceId} AND key IN ('daily_goal_instagram_snapshot_day', 'daily_goal_instagram_snapshot_pending')`,
-      sql`
-        SELECT
-          COALESCE(SUM(a.daily_limit), 0) AS total_limit,
-          COALESCE(SUM(pending.cnt), 0) AS total_pending
-        FROM ig_accounts a
-        LEFT JOIN (
-          SELECT l.account_id, count(*) AS cnt
-          FROM leads l
-          JOIN ig_accounts la ON la.id = l.account_id
-          JOIN message_sequence_followups msf
-            ON msf.sequence_id = COALESCE(la.message_sequence_id, ${defaultSeqId})
-           AND msf.phase = 1 AND msf.step = l.phase_step + 1
-          LEFT JOIN message_sequence_followups msf_prev
-            ON msf_prev.sequence_id = msf.sequence_id AND msf_prev.phase = msf.phase AND msf_prev.step = msf.step - 1
-          LEFT JOIN LATERAL (
-            SELECT max(created_at) AS sent_at FROM followup_sends fs
-            WHERE fs.lead_id = l.id AND fs.phase = msf.phase AND fs.step = l.phase_step
-          ) prev_sent ON true
-          WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
-            AND due_at_normalized(
-              COALESCE(prev_sent.sent_at, l.phase_started_at),
-              msf.day_offset - COALESCE(msf_prev.day_offset, 0),
-              ${dueHour}
-            ) <= now()
-          GROUP BY l.account_id
-        ) pending ON pending.account_id = a.id
-        WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL
-      `
-    ]);
-    const snapshot = {};
-    snapshotRows.forEach(r => { snapshot[r.key] = r.value; });
-    let pendingForGoal;
-    if (snapshot.daily_goal_instagram_snapshot_day === snapshotKey && snapshot.daily_goal_instagram_snapshot_pending !== undefined) {
-      pendingForGoal = Number(snapshot.daily_goal_instagram_snapshot_pending) || 0;
-    } else {
-      pendingForGoal = Number(total_pending);
-      await sql`
-        INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'daily_goal_instagram_snapshot_day', ${snapshotKey})
-        ON CONFLICT (workspace_id, key) DO UPDATE SET value = ${snapshotKey}
-      `;
-      await sql`
-        INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'daily_goal_instagram_snapshot_pending', ${String(pendingForGoal)})
-        ON CONFLICT (workspace_id, key) DO UPDATE SET value = ${String(pendingForGoal)}
-      `;
-    }
-    dailyGoalInstagram = Math.max(0, Number(total_limit) - pendingForGoal);
+    const [{ total_limit, total_pending }] = await sql`
+      SELECT
+        COALESCE(SUM(a.daily_limit), 0) AS total_limit,
+        COALESCE(SUM(pending.cnt), 0) AS total_pending
+      FROM ig_accounts a
+      LEFT JOIN (
+        SELECT l.account_id, count(*) AS cnt
+        FROM leads l
+        JOIN ig_accounts la ON la.id = l.account_id
+        JOIN message_sequence_followups msf
+          ON msf.sequence_id = COALESCE(la.message_sequence_id, ${defaultSeqId})
+         AND msf.phase = 1 AND msf.step = l.phase_step + 1
+        LEFT JOIN message_sequence_followups msf_prev
+          ON msf_prev.sequence_id = msf.sequence_id AND msf_prev.phase = msf.phase AND msf_prev.step = msf.step - 1
+        LEFT JOIN LATERAL (
+          SELECT max(created_at) AS sent_at FROM followup_sends fs
+          WHERE fs.lead_id = l.id AND fs.phase = msf.phase AND fs.step = l.phase_step
+        ) prev_sent ON true
+        WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
+          AND due_at_normalized(
+            COALESCE(prev_sent.sent_at, l.phase_started_at),
+            msf.day_offset - COALESCE(msf_prev.day_offset, 0),
+            ${dueHour}
+          ) <= now()
+        GROUP BY l.account_id
+      ) pending ON pending.account_id = a.id
+      WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL
+    `;
+    dailyGoalInstagram = Math.max(0, Number(total_limit) - Number(total_pending));
   }
 
   const igSentByDate = {};
