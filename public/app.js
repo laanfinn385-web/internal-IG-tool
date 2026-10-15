@@ -745,13 +745,15 @@ function renderDailyGoal(dailyGoal) {
   btn.title = goalReached ? 'Goal reached' : (dailyGoal.savedSession ? 'Continue daily goal session' : 'Start daily goal session');
 }
 
-// A daily-goal Instagram leg is sized to whichever is smaller: what's still
-// needed to hit today's combined goal, or this one account's own remaining
-// capacity for today — so a leg always ends exactly when one of those runs
-// out, never partway through an oversized shared batch.
-async function startLegForAccount(accountId, igRemaining, liRemaining) {
+// A daily-goal Instagram leg is sized to whichever is smaller: this
+// account's share of the goal (the full remaining goal on a handoff, or an
+// even split across every usable account on the first call — see
+// beginOrContinueDailyGoalIg), or this one account's own remaining capacity
+// for today — so a leg always ends exactly when one of those runs out,
+// never partway through an oversized shared batch.
+async function startLegForAccount(accountId, accountTarget, liRemaining) {
   const account = findIgAccount(accountId);
-  const legTarget = Math.min(igRemaining, account ? account.effectiveRemainingForNewSends : igRemaining);
+  const legTarget = Math.min(accountTarget, account ? account.effectiveRemainingForNewSends : accountTarget);
   if (liRemaining > 0) {
     await startCombiSession(legTarget, liRemaining, true, accountId);
   } else {
@@ -799,11 +801,22 @@ async function beginOrContinueDailyGoalIg(liRemaining, isHandoff) {
   // with no way to instead start a different account or a fresh leg, is
   // exactly the "stuck on yesterday/last session with no way out" bug.
   const savedSession = !isHandoff ? homeDailyGoalData.savedSession : null;
+
+  // Split the goal evenly across every usable account up front, rather than
+  // one account absorbing the whole remaining target — a 30-send goal with
+  // 2 usable accounts aims each at 15 (still capped by that account's own
+  // remaining capacity, same as before). Only done on the *first* call: a
+  // handoff after one leg finishes just offers whatever's actually left to
+  // whichever account gets picked next, so an even split that already
+  // played out as intended (each account naturally used up its own share)
+  // doesn't get needlessly re-divided into smaller and smaller fractions.
+  const perAccountTarget = isHandoff ? igRemaining : Math.ceil(igRemaining / usable.length);
+
   if (!isHandoff && usable.length === 1 && !savedSession) {
-    await startLegForAccount(usable[0].id, igRemaining, liRemaining);
+    await startLegForAccount(usable[0].id, perAccountTarget, liRemaining);
     return true;
   }
-  showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable, savedSession });
+  showIgAccountPickerScreen({ isHandoff, igRemaining, perAccountTarget, liRemaining, usable, savedSession });
   return true;
 }
 
@@ -812,8 +825,8 @@ async function beginOrContinueDailyGoalIg(liRemaining, isHandoff) {
 // shown, read once by the click handler.
 let igAccountPickerState = null;
 
-function showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable, savedSession }) {
-  igAccountPickerState = { igRemaining, liRemaining, savedSession };
+function showIgAccountPickerScreen({ isHandoff, igRemaining, perAccountTarget, liRemaining, usable, savedSession }) {
+  igAccountPickerState = { perAccountTarget, liRemaining, savedSession };
   const banner = $('#ig-account-picker-banner');
   const title = $('#ig-account-picker-title');
   const emoji = $('#ig-account-picker-emoji');
@@ -841,6 +854,7 @@ function showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable
     const seq = (messageSequencesCache || []).find(s => s.id === a.messageSequenceId);
     const seqName = seq ? seq.name : 'No sequence assigned';
     const isResumable = savedSession && savedSession.igCooldownAccountId === a.id;
+    const legSize = Math.min(perAccountTarget, a.effectiveRemainingForNewSends);
     return `
       <button type="button" class="daily-goal-account-card" data-id="${a.id}">
         ${accountPhotoHtml(a)}
@@ -848,7 +862,7 @@ function showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable
           <div class="daily-goal-account-card-username">@${escapeHtml(a.username)}</div>
           <div class="daily-goal-account-card-meta">
             ${escapeHtml(seqName)} · ${formatAccountAge(a.ageDays)}<br>
-            ${isResumable ? 'Resume paused session →' : `${a.todaySentCount}/${a.dailyLimit} sent today · ${a.effectiveRemainingForNewSends} left today`}
+            ${isResumable ? 'Resume paused session →' : `${a.todaySentCount}/${a.dailyLimit} sent today · ${legSize} planned this leg`}
           </div>
         </div>
       </button>`;
@@ -859,14 +873,14 @@ function showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable
 $('#ig-account-picker-list').addEventListener('click', async (e) => {
   const card = e.target.closest('.daily-goal-account-card');
   if (!card || !igAccountPickerState) return;
-  const { igRemaining, liRemaining, savedSession } = igAccountPickerState;
+  const { perAccountTarget, liRemaining, savedSession } = igAccountPickerState;
   if (savedSession && savedSession.igCooldownAccountId === card.dataset.id) {
     resumeSavedSession(savedSession);
     return;
   }
   $all('.daily-goal-account-card').forEach(c => c.disabled = true);
   try {
-    await startLegForAccount(card.dataset.id, igRemaining, liRemaining);
+    await startLegForAccount(card.dataset.id, perAccountTarget, liRemaining);
   } catch (err) {
     alert(`Could not start this account's session: ${err.message}`);
     $all('.daily-goal-account-card').forEach(c => c.disabled = false);
