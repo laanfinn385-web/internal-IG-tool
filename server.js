@@ -478,7 +478,18 @@ app.get('/api/home', asyncRoute(async (req, res) => {
     sql`SELECT key, value FROM app_settings WHERE workspace_id = ${workspaceId} AND key IN ('daily_goal_instagram', 'daily_goal_linkedin', 'daily_goal_instagram_sync')`,
     sql`SELECT date, count(*) FROM outreaches WHERE workspace_id = ${workspaceId} AND platform = 'instagram' AND status = 'sent' GROUP BY date`,
     sql`SELECT e.date, count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'engaged' AND l.platform = 'linkedin' GROUP BY e.date`,
-    sql`SELECT * FROM saved_sessions WHERE workspace_id = ${workspaceId} AND is_daily_goal = true ORDER BY created_at DESC LIMIT 1`
+    // Only a session actually saved *today* counts as "still going" — without
+    // this, the single most-recent is_daily_goal row stays authoritative
+    // forever, so "Start/Continue daily goal session" on Home kept silently
+    // resuming yesterday's (or older) leftover leads/account instead of
+    // starting the new day fresh. It's still visible/resumable by hand from
+    // Saved Sessions regardless of age — this only stops the automatic pickup.
+    sql`
+      SELECT * FROM saved_sessions
+      WHERE workspace_id = ${workspaceId} AND is_daily_goal = true
+        AND (created_at AT TIME ZONE 'Europe/Amsterdam')::date = (now() AT TIME ZONE 'Europe/Amsterdam')::date
+      ORDER BY created_at DESC LIMIT 1
+    `
   ]);
   const goalSettings = {};
   goalSettingRows.forEach(r => { goalSettings[r.key] = r.value; });
