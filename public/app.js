@@ -751,13 +751,13 @@ function renderDailyGoal(dailyGoal) {
 // beginOrContinueDailyGoalIg), or this one account's own remaining capacity
 // for today — so a leg always ends exactly when one of those runs out,
 // never partway through an oversized shared batch.
-async function startLegForAccount(accountId, accountTarget, liRemaining) {
+async function startLegForAccount(accountId, accountTarget, liRemaining, isHandoff) {
   const account = findIgAccount(accountId);
   const legTarget = Math.min(accountTarget, account ? account.effectiveRemainingForNewSends : accountTarget);
   if (liRemaining > 0) {
-    await startCombiSession(legTarget, liRemaining, true, accountId);
+    await startCombiSession(legTarget, liRemaining, true, accountId, isHandoff);
   } else {
-    await startSinglePlatformSession('instagram', legTarget, true, accountId);
+    await startSinglePlatformSession('instagram', legTarget, true, accountId, isHandoff);
   }
   // Both of the above silently write an insufficient-leads message into
   // #home-session-error and return (instead of throwing) when there aren't
@@ -813,7 +813,7 @@ async function beginOrContinueDailyGoalIg(liRemaining, isHandoff) {
   const perAccountTarget = isHandoff ? igRemaining : Math.ceil(igRemaining / usable.length);
 
   if (!isHandoff && usable.length === 1 && !savedSession) {
-    await startLegForAccount(usable[0].id, perAccountTarget, liRemaining);
+    await startLegForAccount(usable[0].id, perAccountTarget, liRemaining, false);
     return true;
   }
   showIgAccountPickerScreen({ isHandoff, igRemaining, perAccountTarget, liRemaining, usable, savedSession });
@@ -826,7 +826,7 @@ async function beginOrContinueDailyGoalIg(liRemaining, isHandoff) {
 let igAccountPickerState = null;
 
 function showIgAccountPickerScreen({ isHandoff, igRemaining, perAccountTarget, liRemaining, usable, savedSession }) {
-  igAccountPickerState = { perAccountTarget, liRemaining, savedSession };
+  igAccountPickerState = { perAccountTarget, liRemaining, savedSession, isHandoff };
   const banner = $('#ig-account-picker-banner');
   const title = $('#ig-account-picker-title');
   const emoji = $('#ig-account-picker-emoji');
@@ -873,14 +873,14 @@ function showIgAccountPickerScreen({ isHandoff, igRemaining, perAccountTarget, l
 $('#ig-account-picker-list').addEventListener('click', async (e) => {
   const card = e.target.closest('.daily-goal-account-card');
   if (!card || !igAccountPickerState) return;
-  const { perAccountTarget, liRemaining, savedSession } = igAccountPickerState;
+  const { perAccountTarget, liRemaining, savedSession, isHandoff } = igAccountPickerState;
   if (savedSession && savedSession.igCooldownAccountId === card.dataset.id) {
     resumeSavedSession(savedSession);
     return;
   }
   $all('.daily-goal-account-card').forEach(c => c.disabled = true);
   try {
-    await startLegForAccount(card.dataset.id, perAccountTarget, liRemaining);
+    await startLegForAccount(card.dataset.id, perAccountTarget, liRemaining, isHandoff);
   } catch (err) {
     alert(`Could not start this account's session: ${err.message}`);
     $all('.daily-goal-account-card').forEach(c => c.disabled = false);
@@ -1172,7 +1172,7 @@ $('#home-session-platform-tabs').addEventListener('click', (e) => {
   refreshHomeSessionAccountRow();
 });
 
-async function startSinglePlatformSession(platform, explicitCount, isDailyGoal, accountId) {
+async function startSinglePlatformSession(platform, explicitCount, isDailyGoal, accountId, isHandoff) {
   // `|| 15` would treat an explicit "0" in the field as unset and silently
   // start a 15-profile session instead of rejecting/clamping it.
   const rawCount = explicitCount ?? Number($('#session-size-input').value);
@@ -1195,13 +1195,13 @@ async function startSinglePlatformSession(platform, explicitCount, isDailyGoal, 
   // decideSimple() keeps topping this session up with fresh leads on every
   // disqualify until sentCount hits `count`, or the available-leads pool
   // runs dry.
-  await beginSessionWithLeads(leads, { mode: 'goal', target: count, kind: platform === 'linkedin' ? 'li_engagement' : 'ig_message', isDailyGoal, accountId });
+  await beginSessionWithLeads(leads, { mode: 'goal', target: count, kind: platform === 'linkedin' ? 'li_engagement' : 'ig_message', isDailyGoal, accountId, isHandoff });
 }
 
 // Fetches both batches up front (rather than pulling LinkedIn leads only once
 // the Instagram portion finishes) so "Save LinkedIn leads for later" on the
 // interstitial screen has concrete leads to save — not just a number.
-async function startCombiSession(explicitIgCount, explicitLiCount, isDailyGoal, accountId) {
+async function startCombiSession(explicitIgCount, explicitLiCount, isDailyGoal, accountId, isHandoff) {
   const rawIgCount = explicitIgCount ?? Number($('#combi-ig-size-input').value);
   const igCount = Math.max(1, Number.isFinite(rawIgCount) && rawIgCount > 0 ? Math.round(rawIgCount) : 15);
   const rawLiCount = explicitLiCount ?? Number($('#combi-li-size-input').value);
@@ -1228,7 +1228,7 @@ async function startCombiSession(explicitIgCount, explicitLiCount, isDailyGoal, 
   // from a saved session) — untouched until the Instagram portion ends (see
   // the goalReached/hasNext branch in decide()).
   state.combi = { liLeads: liLeads.map(leadToProfile) };
-  await beginSessionWithLeads(igLeads, { mode: 'goal', target: igCount, kind: 'ig_message', isDailyGoal, accountId });
+  await beginSessionWithLeads(igLeads, { mode: 'goal', target: igCount, kind: 'ig_message', isDailyGoal, accountId, isHandoff });
 }
 
 $('#start-session-btn').addEventListener('click', async () => {
@@ -1399,13 +1399,24 @@ async function beginSessionWithLeads(leads, opts = {}) {
   state.isDailyGoal = !!opts.isDailyGoal;
   state.igCooldownUntil = null;
   state.igCooldownAccountId = null;
-  state.pacingBlockIndex = 0;
-  state.sendsInCurrentBlock = 0;
-  state.currentBlockThreshold = null;
-  state.pacingBreakUntil = null;
-  state.activePauseBlockIndex = null;
-  state.hadPacingBreakThisSession = false;
-  state.pacingBreakIsFinal = false;
+  // A handoff to the next account within the same daily-goal session keeps
+  // the pacing clock running instead of restarting it at 0 — otherwise,
+  // with each account's leg now sized to its even split of the goal (often
+  // close to the pacing pattern's own send-block range), a leg could
+  // easily end before ever reaching its threshold, and the next leg would
+  // just restart the countdown from scratch — the real bug behind "went
+  // 13 sends with zero scroll breaks" despite an 8-12 pattern. The pacing
+  // pattern is meant to simulate one continuous human session regardless
+  // of which account is currently sending, not reset per account.
+  if (!opts.isHandoff) {
+    state.pacingBlockIndex = 0;
+    state.sendsInCurrentBlock = 0;
+    state.currentBlockThreshold = null;
+    state.pacingBreakUntil = null;
+    state.activePauseBlockIndex = null;
+    state.hadPacingBreakThisSession = false;
+    state.pacingBreakIsFinal = false;
+  }
   if (opts.accountId && state.sessionKind === 'ig_message') {
     const account = findIgAccount(opts.accountId);
     state.igAccountId = opts.accountId;
@@ -3373,7 +3384,10 @@ async function switchToInstagramAccount(accountId, count, existingSession) {
     if (existingSession) {
       resumeSavedSession(existingSession);
     } else {
-      await startSinglePlatformSession('instagram', count, state.isDailyGoal, accountId);
+      // Manually switching accounts is still the same continuous sending
+      // session from a pacing standpoint — isHandoff:true keeps the pacing
+      // clock running instead of restarting it at 0 for the new account.
+      await startSinglePlatformSession('instagram', count, state.isDailyGoal, accountId, true);
       // startSinglePlatformSession silently writes an insufficient-leads
       // message into #home-session-error and returns (rather than
       // throwing) when there aren't enough leads — invisible here since
