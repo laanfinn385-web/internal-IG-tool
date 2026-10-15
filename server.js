@@ -324,20 +324,40 @@ function isSundayAmsterdam(dateStr = todayStr()) {
 // are met (0 = that platform isn't part of the goal, so it's always
 // satisfied). If neither platform has a goal configured, there's nothing to
 // have hit, so no day ever counts — see computeGoalStreak below.
-function goalMetOnDate(date, igByDate, liByDate, igGoal, liGoal) {
+//
+// The threshold itself is looked up per-date from goalHistoryByDate (see
+// GET /api/home, which records each day's actual resolved goal the first
+// time it's computed that day and never touches a past day's row again) —
+// falling back to today's current goal only for a date with no recorded
+// history (old data from before this table existed). Using today's goal
+// for every past day used to be the only option, which meant a goal that
+// legitimately was met on some past day under *that* day's target could
+// later show as a miss the moment the goal changed — a fixed goal edited
+// upward, an account ramping up its capacity, or (while "sync to accounts"
+// is on) pending follow-ups shifting the computed target from one day to
+// the next. A day's goal is locked in once it's no longer today.
+function goalMetOnDate(date, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
+  const hist = goalHistoryByDate[date];
+  const igGoal = hist ? hist.igGoal : fallbackIgGoal;
+  const liGoal = hist ? hist.liGoal : fallbackLiGoal;
   const igOk = igGoal <= 0 || (igByDate[date] || 0) >= igGoal;
   const liOk = liGoal <= 0 || (liByDate[date] || 0) >= liGoal;
   return igOk && liOk;
+}
+
+function anyGoalEverConfigured(goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
+  if (fallbackIgGoal > 0 || fallbackLiGoal > 0) return true;
+  return Object.values(goalHistoryByDate).some(h => h.igGoal > 0 || h.liGoal > 0);
 }
 
 // Streak = consecutive days the daily goal was hit, walking backward from
 // today, never broken by Sundays (they just don't count either way). Today
 // not having hit the goal *yet* doesn't break the streak — there's still
 // time left in the day — it just isn't counted until it's actually hit.
-function computeGoalStreak(igByDate, liByDate, igGoal, liGoal) {
-  if (igGoal <= 0 && liGoal <= 0) return { streak: 0, todayMet: false };
+function computeGoalStreak(igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
+  if (!anyGoalEverConfigured(goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) return { streak: 0, todayMet: false };
   const today = todayStr();
-  const todayMet = goalMetOnDate(today, igByDate, liByDate, igGoal, liGoal);
+  const todayMet = goalMetOnDate(today, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal);
   let cursor = new Date(today + 'T00:00:00');
   if (!todayMet) {
     cursor.setDate(cursor.getDate() - 1);
@@ -349,7 +369,7 @@ function computeGoalStreak(igByDate, liByDate, igGoal, liGoal) {
       continue;
     }
     const ds = todayStr(cursor);
-    if (goalMetOnDate(ds, igByDate, liByDate, igGoal, liGoal)) {
+    if (goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) {
       streak++;
       cursor.setDate(cursor.getDate() - 1);
     } else {
@@ -363,11 +383,11 @@ function computeGoalStreak(igByDate, liByDate, igGoal, liGoal) {
 // goal was met that day — backs the Home streak card's day-dot strip.
 // Deliberately includes Sundays here (unlike the streak count itself, which
 // skips over them) so the strip always shows exactly 7 real calendar days.
-function computeStreakDays(igByDate, liByDate, igGoal, liGoal) {
+function computeStreakDays(igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
   const days = [];
   for (let i = 6; i >= 0; i--) {
     const ds = daysAgoStr(i);
-    days.push({ date: ds, met: goalMetOnDate(ds, igByDate, liByDate, igGoal, liGoal) });
+    days.push({ date: ds, met: goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) });
   }
   return days;
 }
@@ -378,8 +398,8 @@ function computeStreakDays(igByDate, liByDate, igGoal, liGoal) {
 // subtext. Walks forward from the earliest date either platform has an
 // entry for, since a day with no entry on either side is just "not met",
 // identical to goalMetOnDate's own handling of missing dates.
-function computeLongestGoalStreak(igByDate, liByDate, igGoal, liGoal) {
-  if (igGoal <= 0 && liGoal <= 0) return 0;
+function computeLongestGoalStreak(igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
+  if (!anyGoalEverConfigured(goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) return 0;
   const allDates = [...Object.keys(igByDate), ...Object.keys(liByDate)];
   if (allDates.length === 0) return 0;
   const earliest = allDates.reduce((min, d) => (d < min ? d : min), allDates[0]);
@@ -389,7 +409,7 @@ function computeLongestGoalStreak(igByDate, liByDate, igGoal, liGoal) {
   while (cursor <= today) {
     if (cursor.getDay() !== 0) {
       const ds = todayStr(cursor);
-      if (goalMetOnDate(ds, igByDate, liByDate, igGoal, liGoal)) {
+      if (goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) {
         current++;
         longest = Math.max(longest, current);
       } else {
@@ -473,11 +493,13 @@ app.get('/api/home', asyncRoute(async (req, res) => {
     goalSettingRows,
     igSentByDateRows,
     liEngagedByDateRows,
+    goalHistoryRows,
     [dailyGoalSession]
   ] = await Promise.all([
     sql`SELECT key, value FROM app_settings WHERE workspace_id = ${workspaceId} AND key IN ('daily_goal_instagram', 'daily_goal_linkedin', 'daily_goal_instagram_sync')`,
     sql`SELECT date, count(*) FROM outreaches WHERE workspace_id = ${workspaceId} AND platform = 'instagram' AND status = 'sent' GROUP BY date`,
     sql`SELECT e.date, count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'engaged' AND l.platform = 'linkedin' GROUP BY e.date`,
+    sql`SELECT date, ig_goal, li_goal FROM daily_goal_history WHERE workspace_id = ${workspaceId}`,
     // Only a session actually saved *today* counts as "still going" — without
     // this, the single most-recent is_daily_goal row stays authoritative
     // forever, so "Start/Continue daily goal session" on Home kept silently
@@ -558,9 +580,25 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   const liEngagedByDate = {};
   liEngagedByDateRows.forEach(r => { liEngagedByDate[r.date] = Number(r.count); });
 
-  const { streak, todayMet: streakTodayMet } = computeGoalStreak(igSentByDate, liEngagedByDate, dailyGoalInstagram, dailyGoalLinkedin);
-  const longestStreak = computeLongestGoalStreak(igSentByDate, liEngagedByDate, dailyGoalInstagram, dailyGoalLinkedin);
-  const streakDays = computeStreakDays(igSentByDate, liEngagedByDate, dailyGoalInstagram, dailyGoalLinkedin);
+  // Lock in today's resolved goal so it can never change retroactively —
+  // upserted on every call (today's value can still move, e.g. while "sync
+  // to accounts" is live-recomputing through the day), but a past day's row
+  // is never written again once it's no longer today, so goalMetOnDate
+  // always judges a day against what its own goal actually was.
+  const goalHistoryByDate = {};
+  goalHistoryRows.forEach(r => { goalHistoryByDate[r.date] = { igGoal: r.ig_goal, liGoal: r.li_goal }; });
+  if (goalHistoryByDate[today]?.igGoal !== dailyGoalInstagram || goalHistoryByDate[today]?.liGoal !== dailyGoalLinkedin) {
+    await sql`
+      INSERT INTO daily_goal_history (workspace_id, date, ig_goal, li_goal)
+      VALUES (${workspaceId}, ${today}, ${dailyGoalInstagram}, ${dailyGoalLinkedin})
+      ON CONFLICT (workspace_id, date) DO UPDATE SET ig_goal = ${dailyGoalInstagram}, li_goal = ${dailyGoalLinkedin}
+    `;
+    goalHistoryByDate[today] = { igGoal: dailyGoalInstagram, liGoal: dailyGoalLinkedin };
+  }
+
+  const { streak, todayMet: streakTodayMet } = computeGoalStreak(igSentByDate, liEngagedByDate, goalHistoryByDate, dailyGoalInstagram, dailyGoalLinkedin);
+  const longestStreak = computeLongestGoalStreak(igSentByDate, liEngagedByDate, goalHistoryByDate, dailyGoalInstagram, dailyGoalLinkedin);
+  const streakDays = computeStreakDays(igSentByDate, liEngagedByDate, goalHistoryByDate, dailyGoalInstagram, dailyGoalLinkedin);
 
   res.json({
     streak, streakTodayMet, longestStreak, streakDays, last7Days, last7DaysPctChange,
