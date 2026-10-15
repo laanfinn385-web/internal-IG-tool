@@ -794,27 +794,41 @@ async function beginOrContinueDailyGoalIg(liRemaining, isHandoff) {
       : "None of your Instagram accounts can send right now — they're either still warming up or already at today's limit.");
     return true;
   }
-  if (!isHandoff && usable.length === 1) {
+  // A saved session always goes through the picker (even with only one
+  // usable account) instead of being auto-resumed — resuming silently,
+  // with no way to instead start a different account or a fresh leg, is
+  // exactly the "stuck on yesterday/last session with no way out" bug.
+  const savedSession = !isHandoff ? homeDailyGoalData.savedSession : null;
+  if (!isHandoff && usable.length === 1 && !savedSession) {
     await startLegForAccount(usable[0].id, igRemaining, liRemaining);
     return true;
   }
-  showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable });
+  showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable, savedSession });
   return true;
 }
 
-// Stashed target numbers for whichever account card gets clicked next —
-// set fresh every time the picker is shown, read once by the click handler.
+// Stashed target numbers (+ the pending saved session, if any) for whichever
+// account card gets clicked next — set fresh every time the picker is
+// shown, read once by the click handler.
 let igAccountPickerState = null;
 
-function showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable }) {
-  igAccountPickerState = { igRemaining, liRemaining };
+function showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable, savedSession }) {
+  igAccountPickerState = { igRemaining, liRemaining, savedSession };
   const banner = $('#ig-account-picker-banner');
   const title = $('#ig-account-picker-title');
   const emoji = $('#ig-account-picker-emoji');
+  const savedAccount = savedSession ? usable.find(a => a.id === savedSession.igCooldownAccountId) : null;
   if (isHandoff) {
     emoji.textContent = 'Switching accounts';
     title.textContent = 'Switching accounts';
     banner.textContent = `Finished with @${state.igAccountUsername || 'that account'} for today — ${state.sentCount} sent. ${igRemaining} more needed to hit today's Instagram goal.`;
+    banner.classList.remove('hidden');
+  } else if (savedSession) {
+    emoji.textContent = 'Instagram';
+    title.textContent = 'Continue where you left off, or start fresh';
+    banner.textContent = savedAccount
+      ? `You have a paused session for @${savedAccount.username} — resume it below, or pick a different account to start fresh instead.`
+      : 'You have a paused session saved — resume it below, or pick an account to start fresh instead.';
     banner.classList.remove('hidden');
   } else {
     emoji.textContent = 'Instagram';
@@ -826,6 +840,7 @@ function showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable
   $('#ig-account-picker-list').innerHTML = usable.map(a => {
     const seq = (messageSequencesCache || []).find(s => s.id === a.messageSequenceId);
     const seqName = seq ? seq.name : 'No sequence assigned';
+    const isResumable = savedSession && savedSession.igCooldownAccountId === a.id;
     return `
       <button type="button" class="daily-goal-account-card" data-id="${a.id}">
         ${accountPhotoHtml(a)}
@@ -833,7 +848,7 @@ function showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable
           <div class="daily-goal-account-card-username">@${escapeHtml(a.username)}</div>
           <div class="daily-goal-account-card-meta">
             ${escapeHtml(seqName)} · ${formatAccountAge(a.ageDays)}<br>
-            ${a.todaySentCount}/${a.dailyLimit} sent today · ${a.effectiveRemainingForNewSends} left today
+            ${isResumable ? 'Resume paused session →' : `${a.todaySentCount}/${a.dailyLimit} sent today · ${a.effectiveRemainingForNewSends} left today`}
           </div>
         </div>
       </button>`;
@@ -844,7 +859,11 @@ function showIgAccountPickerScreen({ isHandoff, igRemaining, liRemaining, usable
 $('#ig-account-picker-list').addEventListener('click', async (e) => {
   const card = e.target.closest('.daily-goal-account-card');
   if (!card || !igAccountPickerState) return;
-  const { igRemaining, liRemaining } = igAccountPickerState;
+  const { igRemaining, liRemaining, savedSession } = igAccountPickerState;
+  if (savedSession && savedSession.igCooldownAccountId === card.dataset.id) {
+    resumeSavedSession(savedSession);
+    return;
+  }
   $all('.daily-goal-account-card').forEach(c => c.disabled = true);
   try {
     await startLegForAccount(card.dataset.id, igRemaining, liRemaining);
@@ -861,10 +880,6 @@ $('#ig-account-picker-home-btn').addEventListener('click', () => {
 
 $('#daily-goal-session-btn').addEventListener('click', async () => {
   if (!homeDailyGoalData) return;
-  if (homeDailyGoalData.savedSession) {
-    resumeSavedSession(homeDailyGoalData.savedSession);
-    return;
-  }
   const igRemaining = Math.max(0, homeDailyGoalData.instagram - homeDailyGoalData.todaySentInstagram);
   const liRemaining = Math.max(0, homeDailyGoalData.linkedin - homeDailyGoalData.todayEngagedLinkedin);
   if (igRemaining === 0 && liRemaining === 0) return;
@@ -878,7 +893,14 @@ $('#daily-goal-session-btn').addEventListener('click', async () => {
   btn.disabled = true;
   try {
     if (igRemaining > 0) {
+      // Goes through the account picker even when a saved session exists —
+      // see beginOrContinueDailyGoalIg, which surfaces it as a "Resume"
+      // option there instead of auto-resuming blind.
       await beginOrContinueDailyGoalIg(liRemaining, false);
+    } else if (homeDailyGoalData.savedSession) {
+      // Instagram's already done for today — only the saved session's
+      // LinkedIn leftovers remain, nothing to pick an account for.
+      resumeSavedSession(homeDailyGoalData.savedSession);
     } else {
       await startSinglePlatformSession('linkedin', liRemaining, true, null);
     }
