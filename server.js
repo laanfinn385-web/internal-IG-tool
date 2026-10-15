@@ -1481,7 +1481,9 @@ function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount, rampDays) 
     plateauLimit: lastDay != null ? curveLimitForDay(rampDays, lastDay) : null,
     rampDay,
     timingSequenceId: r.timing_sequence_id,
-    messageSequenceId: r.message_sequence_id
+    messageSequenceId: r.message_sequence_id,
+    dailyLimitOverride: r.daily_limit_override,
+    dailyLimitOverrideUntil: r.daily_limit_override_until
   };
 }
 
@@ -1575,6 +1577,23 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
   // longer auto-upgrades with the account's age, the curve is authoritative.
   const warmupJustEnded = [];
   for (const r of accounts) {
+    // A manual daily-max override (see PATCH .../limit-override) takes
+    // priority over the curve entirely through its stored end date —
+    // cleared automatically the first time this runs after that date has
+    // passed, at which point the account falls straight back to whatever
+    // the curve says for wherever its warmup/ramp clock actually is.
+    if (r.daily_limit_override != null && r.daily_limit_override_until) {
+      if (r.daily_limit_override_until >= today) {
+        if (r.daily_limit !== r.daily_limit_override) {
+          await sql`UPDATE ig_accounts SET daily_limit = ${r.daily_limit_override} WHERE id = ${r.id} AND workspace_id = ${workspaceId}`;
+          r.daily_limit = r.daily_limit_override;
+        }
+        continue;
+      }
+      await sql`UPDATE ig_accounts SET daily_limit_override = NULL, daily_limit_override_until = NULL WHERE id = ${r.id} AND workspace_id = ${workspaceId}`;
+      r.daily_limit_override = null;
+      r.daily_limit_override_until = null;
+    }
     if (r.rampup_skipped_at) continue; // parked at its curve's plateau already, nothing to recompute
     const rampDays = rampDaysBySequence[r.timing_sequence_id] || [];
     const { firstNonzeroDay } = curveBoundaries(rampDays);
@@ -1825,6 +1844,35 @@ app.patch('/api/accounts/:id', asyncRoute(async (req, res) => {
 app.delete('/api/accounts/:id', asyncRoute(async (req, res) => {
   const workspaceId = await getWorkspaceId(req);
   await sql`UPDATE ig_accounts SET archived_at = now() WHERE id = ${req.params.id} AND workspace_id = ${workspaceId}`;
+  res.json({ ok: true });
+}));
+
+// Manual daily-max override — temporarily pins daily_limit to a fixed
+// number for N days, regardless of what the assigned Timing sequence's
+// ramp curve would otherwise compute (see the override check at the top of
+// GET /api/accounts' recompute loop, which also auto-clears it once the
+// end date has passed). Applied immediately here too, not just on the next
+// GET /api/accounts, so it's reflected right away.
+app.put('/api/accounts/:id/limit-override', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  const { id } = req.params;
+  const dailyLimit = Math.max(0, Math.round(Number(req.body.dailyLimit)) || 0);
+  const days = Math.max(1, Math.round(Number(req.body.days)) || 1);
+  const until = daysAgoStr(-(days - 1));
+  await sql`
+    UPDATE ig_accounts
+    SET daily_limit_override = ${dailyLimit}, daily_limit_override_until = ${until}, daily_limit = ${dailyLimit}
+    WHERE id = ${id} AND workspace_id = ${workspaceId}
+  `;
+  res.json({ ok: true, until });
+}));
+
+app.delete('/api/accounts/:id/limit-override', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  await sql`
+    UPDATE ig_accounts SET daily_limit_override = NULL, daily_limit_override_until = NULL
+    WHERE id = ${req.params.id} AND workspace_id = ${workspaceId}
+  `;
   res.json({ ok: true });
 }));
 

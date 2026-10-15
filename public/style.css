@@ -2163,6 +2163,21 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
   transition: background 0.15s;
 }
 .account-archive-btn:hover { background: rgba(255, 49, 49, 0.12); }
+.account-override-btn {
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--card-bg);
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: var(--muted);
+  transition: background 0.15s, border-color 0.15s;
+}
+.account-override-btn:hover { background: var(--card-bg-alt); }
+.account-override-btn.active { border-color: var(--accent); color: var(--accent); }
 
 .timing-ramp-days-list, .timing-pacing-blocks-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
 .timing-ramp-day-row {

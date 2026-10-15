@@ -901,6 +901,13 @@ function formatAccountAge(ageDays) {
   return `${months} month${months === 1 ? '' : 's'} old`;
 }
 
+// dateStr is a plain 'YYYY-MM-DD' (no time component) — appending a local
+// midnight time avoids toLocaleDateString silently shifting it a day
+// depending on the viewer's timezone offset from UTC.
+function formatOverrideUntil(dateStr) {
+  return new Date(`${dateStr}T00:00:00`).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 function accountPhotoHtml(a) {
   if (a.profileImageUrl) return `<img class="account-photo" src="${escapeHtml(a.profileImageUrl)}" alt="">`;
   const letter = (a.username || '?').charAt(0).toUpperCase();
@@ -938,17 +945,20 @@ function renderAccountsList() {
     const messageSequenceOptions = messageSeqState.sequences.map(s =>
       `<option value="${s.id}"${s.id === a.messageSequenceId ? ' selected' : ''}>${escapeHtml(s.name)}</option>`
     ).join('');
+    const hasOverride = a.dailyLimitOverride != null && a.dailyLimitOverrideUntil;
+    const overrideNote = hasOverride ? ` · manual override through ${formatOverrideUntil(a.dailyLimitOverrideUntil)}` : '';
     return `
       <div class="account-row${isWarming ? ' account-row-warming' : ''}" data-id="${a.id}">
         <div class="account-row-main">
           ${accountPhotoHtml(a)}
           <div class="account-main">
             <div class="account-username">@${escapeHtml(a.username)}</div>
-            <div class="muted account-meta">${formatAccountAge(a.ageDays)} · recommended max ${a.tierCap}/day · sent ${a.todaySentCount} today · ${a.dailyLimit}/day limit</div>
+            <div class="muted account-meta">${formatAccountAge(a.ageDays)} · recommended max ${a.tierCap}/day · sent ${a.todaySentCount} today · ${a.dailyLimit}/day limit${overrideNote}</div>
           </div>
           <label class="account-limit-label">Timing sequence
             <select class="account-timing-seq-select" data-id="${a.id}">${sequenceOptions}</select>
           </label>
+          <button type="button" class="account-override-btn${hasOverride ? ' active' : ''}" data-id="${a.id}" title="Override daily max for a set number of days">⋮</button>
           <label class="account-limit-label">Messaging sequence
             <select class="account-message-seq-select" data-id="${a.id}">${messageSequenceOptions}</select>
           </label>
@@ -988,7 +998,87 @@ $('#accounts-list').addEventListener('change', async (e) => {
   }
 });
 
+// ---------- Daily max override modal ----------
+let limitOverrideAccountId = null;
+
+function openLimitOverrideModal(id) {
+  const account = settingsState.accounts.find(a => a.id === id);
+  if (!account) return;
+  limitOverrideAccountId = id;
+  $('#limit-override-username').textContent = `@${account.username}`;
+  $('#limit-override-error').style.display = 'none';
+  const hasOverride = account.dailyLimitOverride != null && account.dailyLimitOverrideUntil;
+  $('#limit-override-daily-max').value = hasOverride ? account.dailyLimitOverride : '';
+  $('#limit-override-days').value = 7;
+  const note = $('#limit-override-active-note');
+  if (hasOverride) {
+    note.textContent = `Currently overridden to ${account.dailyLimitOverride}/day through ${formatOverrideUntil(account.dailyLimitOverrideUntil)}.`;
+    note.classList.remove('hidden');
+  } else {
+    note.classList.add('hidden');
+  }
+  $('#limit-override-clear-btn').classList.toggle('hidden', !hasOverride);
+  $('#account-limit-override-modal').classList.remove('hidden');
+}
+
+function closeLimitOverrideModal() {
+  limitOverrideAccountId = null;
+  $('#account-limit-override-modal').classList.add('hidden');
+}
+
+$('#limit-override-cancel-btn').addEventListener('click', closeLimitOverrideModal);
+
+$('#limit-override-save-btn').addEventListener('click', async () => {
+  if (!limitOverrideAccountId) return;
+  const dailyMax = Number($('#limit-override-daily-max').value);
+  const days = Number($('#limit-override-days').value);
+  const errorEl = $('#limit-override-error');
+  if (!Number.isFinite(dailyMax) || dailyMax < 0 || !Number.isFinite(days) || days < 1) {
+    errorEl.textContent = 'Enter a daily max (0 or more) and at least 1 day.';
+    errorEl.style.display = 'block';
+    return;
+  }
+  const btn = $('#limit-override-save-btn');
+  btn.disabled = true;
+  try {
+    await fetchJson(`/api/accounts/${limitOverrideAccountId}/limit-override`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dailyLimit: dailyMax, days })
+    });
+    closeLimitOverrideModal();
+    await loadAccounts();
+  } catch (err) {
+    errorEl.textContent = `Could not save override: ${err.message}`;
+    errorEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#limit-override-clear-btn').addEventListener('click', async () => {
+  if (!limitOverrideAccountId) return;
+  const btn = $('#limit-override-clear-btn');
+  btn.disabled = true;
+  try {
+    await fetchJson(`/api/accounts/${limitOverrideAccountId}/limit-override`, { method: 'DELETE' });
+    closeLimitOverrideModal();
+    await loadAccounts();
+  } catch (err) {
+    $('#limit-override-error').textContent = `Could not clear override: ${err.message}`;
+    $('#limit-override-error').style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
 $('#accounts-list').addEventListener('click', async (e) => {
+  const overrideBtn = e.target.closest('.account-override-btn');
+  if (overrideBtn) {
+    openLimitOverrideModal(overrideBtn.dataset.id);
+    return;
+  }
+
   const archiveBtn = e.target.closest('.account-archive-btn');
   if (archiveBtn) {
     const id = archiveBtn.dataset.id;
