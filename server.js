@@ -2786,6 +2786,45 @@ app.get('/api/settings/templates', asyncRoute(async (req, res) => {
   });
 }));
 
+// Edits LinkedIn's single first-message opener — the one piece of the
+// (otherwise retired) message_templates/message_template_parts system
+// LinkedIn still actually depends on at send time (see the GET above and
+// templates.js/renderMessageText). It had no editing UI at all since the
+// Settings card for Instagram's old category system went away — this is a
+// dedicated endpoint for just this one template/slot rather than reviving
+// that whole generic editor for what's really a single message box.
+// Looked up by (workspace_id, platform) rather than a hardcoded template id
+// — message_templates.id is a bare, globally-unique text primary key (not
+// scoped per workspace), so a literal shared id like 'linkedin_opener'
+// would collide if another workspace ever needed its own row.
+app.put('/api/settings/templates/linkedin-opener', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  const text = String(req.body.text || '').trim();
+  if (!text) return res.status(400).json({ error: 'Message text is required.' });
+
+  const [template] = await sql`SELECT id FROM message_templates WHERE workspace_id = ${workspaceId} AND platform = 'linkedin' LIMIT 1`;
+  let templateId = template ? template.id : null;
+  if (!templateId) {
+    templateId = crypto.randomUUID();
+    await sql`INSERT INTO message_templates (id, workspace_id, platform, label, sort_order) VALUES (${templateId}, ${workspaceId}, 'linkedin', 'LinkedIn opener', 0)`;
+  }
+
+  const [existingPart] = await sql`
+    SELECT id FROM message_template_parts
+    WHERE workspace_id = ${workspaceId} AND template_id = ${templateId} AND slot = 'opener'
+    ORDER BY sort_order LIMIT 1
+  `;
+  if (existingPart) {
+    await sql`UPDATE message_template_parts SET text = ${text}, updated_at = now() WHERE id = ${existingPart.id} AND workspace_id = ${workspaceId}`;
+  } else {
+    await sql`
+      INSERT INTO message_template_parts (id, workspace_id, template_id, slot, text, sort_order)
+      VALUES (${crypto.randomUUID()}, ${workspaceId}, ${templateId}, 'opener', ${text}, 0)
+    `;
+  }
+  res.json({ ok: true, text });
+}));
+
 // Instagram's follow-up sequence now lives per Messaging sequence (see
 // /api/message-sequences) — these two endpoints are LinkedIn-only going
 // forward, its own global followup_templates set unchanged.

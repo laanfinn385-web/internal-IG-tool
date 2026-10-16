@@ -485,13 +485,22 @@ const settingsState = { followups: [], phase: 1, reminders: [], accounts: [] };
 async function loadSettingsPage() {
   renderProfileSettingsCard();
   try {
-    const [fuData, appData] = await Promise.all([
+    const [fuData, appData, , , templatesData] = await Promise.all([
       fetchJson('/api/settings/followups?platform=linkedin'),
       fetchJson('/api/settings/app'),
       loadReminders(),
-      loadAccounts()
+      loadAccounts(),
+      // TEMPLATES_LINKEDIN (app.js/templates.js) only keeps each part's
+      // *rendered* text (placeholders already substituted away) — fetched
+      // separately here for the raw, still-has-{naam}-in-it text this box
+      // needs to edit.
+      fetchJson('/api/settings/templates?platform=linkedin')
     ]);
     settingsState.followups = fuData.followups || [];
+    const openerTemplate = (templatesData.templates || [])[0];
+    const openerPart = openerTemplate && openerTemplate.parts.opener[0];
+    $('#settings-linkedin-opener-text').value = openerPart ? openerPart.text : '';
+    autoResizeTextarea($('#settings-linkedin-opener-text'));
     $('#settings-calendar-link').value = (appData.settings && appData.settings.calendar_link) || '';
     $('#settings-views-threshold').value = (appData.settings && appData.settings.views_threshold) || 1000;
     $('#settings-connection-delay').value = (appData.settings && appData.settings.linkedin_connection_delay_days) ?? 2;
@@ -505,6 +514,36 @@ async function loadSettingsPage() {
     alert(`Could not load settings: ${e.message}`);
   }
 }
+
+$('#settings-linkedin-opener-text').addEventListener('input', (e) => autoResizeTextarea(e.target));
+
+$('#settings-linkedin-opener-save-btn').addEventListener('click', async () => {
+  const text = $('#settings-linkedin-opener-text').value.trim();
+  const errorEl = $('#settings-linkedin-opener-error');
+  errorEl.style.display = 'none';
+  if (!text) {
+    errorEl.textContent = 'Message text is required.';
+    errorEl.style.display = 'block';
+    return;
+  }
+  const btn = $('#settings-linkedin-opener-save-btn');
+  btn.disabled = true;
+  try {
+    await fetchJson('/api/settings/templates/linkedin-opener', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text })
+    });
+    // Refresh the live-session cache so the new wording is actually what
+    // gets sent right away, not just what's shown here until next reload.
+    await loadTemplatesFromServer('linkedin');
+  } catch (err) {
+    errorEl.textContent = `Could not save: ${err.message}`;
+    errorEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 // ---------- Settings: Profile card (the active workspace's own name,
 // picture, and platform toggles — workspacePhotoHtml/activeWorkspace/
