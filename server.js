@@ -522,32 +522,41 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   // "Sync to Instagram combined accounts max sends" — instead of a manually
   // typed number, the Instagram goal becomes the combined ceiling across
   // every connected account: each account's current daily_limit (reflecting
-  // today's ramp-up step, if any) minus today's still-pending phase-1
-  // follow-ups for that account, since those draw from the same daily cap
-  // and would otherwise silently blow past it (same accounting as
-  // effectiveRemainingForNewSends in GET /api/accounts, just summed).
+  // today's ramp-up step, if any) minus its phase-1 follow-up footprint for
+  // today — both what's still *pending* and what's *already been sent* —
+  // since both draw from the same daily cap and would otherwise silently
+  // blow past it. Cold sends are deliberately NOT subtracted here (unlike
+  // effectiveRemainingForNewSends in GET /api/accounts, which subtracts
+  // todaySentCount — cold + follow-up combined — to size a session's
+  // *remaining* room right now): the goal is the day's stable target that
+  // todaySentInstagram counts up toward, so it can't shrink by the very
+  // thing it's supposed to measure progress against.
   //
-  // Both halves are recomputed live on every call — pending used to be
-  // snapshotted once per day (frozen at the first /api/home call) on the
-  // assumption that every follow-up due today was already due the moment
-  // today's due-hour passed, so pending could only ever shrink from there.
-  // That assumption broke once due dates started anchoring to when a
-  // lead's *previous* step was actually sent (see the follow-up due-date
-  // fix) rather than to a fixed per-day boundary — a follow-up can now
-  // become newly due at any point during the day, as a predecessor step
-  // gets sent at whatever time that happens to be. A snapshot taken early
-  // (before anything was due yet) then stayed frozen near zero all day,
-  // silently ignoring real pending work and inflating the synced goal to
-  // just the raw sum of every account's limit. Computing it live avoids
-  // that; the tradeoff — the goal number can shift during the day purely
-  // from follow-ups being sent or newly becoming due, no new cold sends
-  // required — reflects a real, legitimate change in actual capacity.
+  // Missing the "already sent today" half of this was the actual bug
+  // behind a synced goal that "doesn't make sense" — an account that had,
+  // say, sent 5 cold messages and already burned through 25 follow-ups
+  // today (fully maxed at a 30 limit) still contributed its full 30 to the
+  // sum, since only *pending* follow-ups were ever subtracted. The goal
+  // could come out well above what's actually achievable, exactly as
+  // reported: a plain session's own sizing (effectiveRemainingForNewSends)
+  // already got this right by subtracting todaySentCount outright; this
+  // sync path needs its own equivalent subtraction for the already-sent
+  // half specifically, not the "whole thing" subtraction a session uses.
+  //
+  // All three pieces are recomputed live on every call — see the follow-up
+  // due-date fix and the pending-staleness fix this already went through:
+  // a follow-up's due status, and now also what's already been sent, can
+  // both change at any point during the day, not just at a fixed boundary.
   if (dailyGoalInstagramSynced) {
     const [dueHour, defaultSeqId] = await Promise.all([getFollowupDueHour(workspaceId), getDefaultMessageSequenceId(workspaceId)]);
-    const [{ total_limit, total_pending }] = await sql`
-      SELECT
-        COALESCE(SUM(a.daily_limit), 0) AS total_limit,
-        COALESCE(SUM(pending.cnt), 0) AS total_pending
+    // Clamped per account (GREATEST(...,0)) before summing — same as
+    // effectiveRemainingForNewSends clamps each account individually in
+    // GET /api/accounts — so one account whose follow-up footprint happens
+    // to exceed its own limit (e.g. a daily-max override lowered mid-day,
+    // after sends already went out) can't drag the combined total below
+    // what another, perfectly healthy account can still contribute.
+    const [{ total_goal }] = await sql`
+      SELECT COALESCE(SUM(GREATEST(a.daily_limit - COALESCE(pending.cnt, 0) - COALESCE(sent_today.cnt, 0), 0)), 0) AS total_goal
       FROM ig_accounts a
       LEFT JOIN (
         SELECT l.account_id, count(*) AS cnt
@@ -570,9 +579,14 @@ app.get('/api/home', asyncRoute(async (req, res) => {
           ) <= now()
         GROUP BY l.account_id
       ) pending ON pending.account_id = a.id
+      LEFT JOIN (
+        SELECT account_id, count(*) AS cnt FROM followup_sends
+        WHERE workspace_id = ${workspaceId} AND phase = 1 AND date = ${today} AND account_id IS NOT NULL
+        GROUP BY account_id
+      ) sent_today ON sent_today.account_id = a.id
       WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL
     `;
-    dailyGoalInstagram = Math.max(0, Number(total_limit) - Number(total_pending));
+    dailyGoalInstagram = Number(total_goal);
   }
 
   const igSentByDate = {};
