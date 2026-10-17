@@ -21,6 +21,10 @@
   --goal-reached: #EF3B2D;
   --goal-reached-soft: #FDE7E4;
   --link: #3860BE;
+  /* A streak day saved by a streak freeze — reuses the app's existing blue
+     rather than introducing a new color, since nothing else in the streak
+     area is ever blue. */
+  --streak-freeze: var(--link);
   --accent: var(--purple);
   --accent-dark: #300054;
   --green: #1fb15c;
@@ -490,19 +494,43 @@ input:focus, textarea:focus, select:focus {
   background: var(--card-bg-alt);
   border-radius: var(--r-pill);
   padding: 14px 28px 14px 14px;
+  /* Now a <button> (clickable, opens the streak history modal) — reset the
+     native button chrome back to plain text/box styling. */
+  border: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.15s;
 }
+.home-streak-pill:hover { background: var(--border); }
 .home-streak-pill.hidden { display: none; }
 .home-streak-flame-wrap { width: 52px; height: 52px; border-radius: 50%; background: var(--bg); display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 20px; transition: background 0.3s; }
 .home-streak-flame-wrap.lit { background: var(--goal-reached-soft); }
 .home-streak-text { display: flex; flex-direction: column; line-height: 1.15; gap: 2px; }
 .home-streak-text strong { font-size: 28px; font-weight: 500; letter-spacing: -0.01em; }
 .home-streak-text .muted { font-size: 13px; }
+.home-streak-freezes { color: var(--streak-freeze); font-weight: 500; }
 .home-streak-dots { display: flex; gap: 6px; flex-shrink: 0; }
 .home-streak-dot-col { display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .home-streak-dot { width: 26px; height: 26px; border-radius: 50%; background: transparent; border: 1.5px solid var(--border); display: block; }
 .home-streak-dot.met { background: var(--text); border-color: var(--text); }
 .home-streak-dot.met.today { background: var(--goal-reached); border-color: var(--goal-reached); }
+/* A day the streak would otherwise have broken on, saved by spending a
+   streak freeze — a distinct blue rather than the normal black/orange so
+   it's clear at a glance which days were "real" vs covered. */
+.home-streak-dot.met.frozen, .home-streak-dot.met.frozen.today { background: var(--streak-freeze); border-color: var(--streak-freeze); }
 .home-streak-dot-label { font-size: 11px; }
+
+.streak-history-legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 0.82rem; color: var(--muted); margin: 4px 0 2px; }
+.streak-history-legend-item { display: flex; align-items: center; gap: 7px; }
+.streak-history-legend-item .home-streak-dot { width: 14px; height: 14px; border-width: 1px; }
+.streak-history-list { display: flex; flex-direction: column; gap: 2px; max-height: 340px; overflow-y: auto; margin: 6px 0; }
+.streak-history-row { display: flex; align-items: center; gap: 12px; padding: 9px 4px; border-bottom: 1px solid var(--border); }
+.streak-history-row:last-child { border-bottom: none; }
+.streak-history-row .home-streak-dot { width: 16px; height: 16px; border-width: 1px; flex-shrink: 0; }
+.streak-history-row-date { flex: 1; font-size: 0.92rem; }
+.streak-history-row-tag { font-size: 0.78rem; color: var(--streak-freeze); font-weight: 500; }
 
 .home-session-card { flex: 5 1 360px; min-width: 0; margin-bottom: 0; border-radius: var(--r-xl); padding: 32px; display: flex; flex-direction: column; gap: 22px; box-shadow: var(--shadow-lift); }
 .home-session-title-group { display: flex; flex-direction: column; gap: 4px; }

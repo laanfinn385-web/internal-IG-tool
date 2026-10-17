@@ -336,18 +336,120 @@ function isSundayAmsterdam(dateStr = todayStr()) {
 // upward, an account ramping up its capacity, or (while "sync to accounts"
 // is on) pending follow-ups shifting the computed target from one day to
 // the next. A day's goal is locked in once it's no longer today.
-function goalMetOnDate(date, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
+function metThreshold(countOnDate, goal) {
+  return goal <= 0 || countOnDate >= goal;
+}
+
+// Whether a date's goal was genuinely hit — no streak-freeze awareness.
+// Only used by resolveStreakFreezes (deciding whether a day *needs* a
+// freeze in the first place) and by goalMetOnDate below (which layers the
+// freeze on top of this for every other caller).
+function rawGoalMetOnDate(date, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
   const hist = goalHistoryByDate[date];
   const igGoal = hist ? hist.igGoal : fallbackIgGoal;
   const liGoal = hist ? hist.liGoal : fallbackLiGoal;
-  const igOk = igGoal <= 0 || (igByDate[date] || 0) >= igGoal;
-  const liOk = liGoal <= 0 || (liByDate[date] || 0) >= liGoal;
-  return igOk && liOk;
+  return metThreshold(igByDate[date] || 0, igGoal) && metThreshold(liByDate[date] || 0, liGoal);
+}
+
+function isFrozenDate(date, goalHistoryByDate) {
+  const hist = goalHistoryByDate[date];
+  return !!(hist && hist.freezeStatus === 'used');
+}
+
+// "Counts" toward streak continuity — genuinely met, OR covered by a
+// streak freeze (see resolveStreakFreezes). Every caller that cares about
+// the streak itself (not just display) goes through this one; isFrozenDate
+// separately tells the UI which counted days to draw as the blue "saved by
+// a freeze" dot instead of the normal black one.
+function goalMetOnDate(date, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
+  return isFrozenDate(date, goalHistoryByDate) || rawGoalMetOnDate(date, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal);
 }
 
 function anyGoalEverConfigured(goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
   if (fallbackIgGoal > 0 || fallbackLiGoal > 0) return true;
   return Object.values(goalHistoryByDate).some(h => h.igGoal > 0 || h.liGoal > 0);
+}
+
+function precedingBusinessDateStr(dateStr) {
+  const d = new Date(`${dateStr}T00:00:00`);
+  d.setDate(d.getDate() - 1);
+  while (d.getDay() === 0) d.setDate(d.getDate() - 1);
+  return todayStr(d);
+}
+
+const STREAK_FREEZE_MAX = 2;
+
+// Streak freezes: up to STREAK_FREEZE_MAX "skip a missed day without
+// breaking the streak" tokens, shown as a blue dot instead of black.
+// Resolved once per past day (never today, never re-litigated once set —
+// see freeze_status on daily_goal_history), in chronological order, right
+// here, immediately before the streak itself gets computed from the
+// results:
+//   - A day that genuinely met its goal needs nothing; every 7th
+//     consecutive *genuinely met* day earns a freeze back (capped at the
+//     max) — a day saved by a freeze does not itself count toward this,
+//     only real hits do, matching "a perfect 7-day streak".
+//   - A missed day only consumes a freeze if: there's an active streak
+//     going into it (the preceding business day was itself met or frozen
+//     — spending a freeze on a day that wouldn't have protected anything
+//     is just wasting it), at least 3 sends were logged that day ("still
+//     need to put something on the board"), and a freeze is actually
+//     available. Otherwise it's a real miss and the streak breaks there.
+// Processing strictly oldest-to-newest means each day's "active streak
+// coming in" check only ever looks at already-resolved history, and a
+// freeze earned back from a later perfect week can never reach backward
+// to cover an earlier gap it wasn't actually available for yet.
+async function resolveStreakFreezes(workspaceId, igByDate, liByDate, goalHistoryByDate) {
+  const today = todayStr();
+  const unresolvedDates = Object.keys(goalHistoryByDate)
+    .filter(d => d < today && goalHistoryByDate[d].freezeStatus == null)
+    .sort();
+
+  const settingsRows = await sql`SELECT key, value FROM app_settings WHERE workspace_id = ${workspaceId} AND key IN ('streak_freeze_count', 'streak_freeze_perfect_counter')`;
+  const settings = {};
+  settingsRows.forEach(r => { settings[r.key] = r.value; });
+  let freezeCount = settings.streak_freeze_count !== undefined ? Number(settings.streak_freeze_count) : STREAK_FREEZE_MAX;
+  let perfectCounter = Number(settings.streak_freeze_perfect_counter) || 0;
+
+  if (unresolvedDates.length > 0) {
+    for (const date of unresolvedDates) {
+      const isSunday = new Date(`${date}T00:00:00`).getDay() === 0;
+      let freezeStatus;
+      if (isSunday) {
+        // Never counted toward (or against) the streak either way — see
+        // goalMetOnDate's own callers — so a Sunday never needs or
+        // consumes a freeze, and doesn't touch the perfect-run counter.
+        freezeStatus = 'none';
+      } else if (rawGoalMetOnDate(date, igByDate, liByDate, goalHistoryByDate, 0, 0)) {
+        freezeStatus = 'none';
+        perfectCounter++;
+        if (perfectCounter % 7 === 0) freezeCount = Math.min(STREAK_FREEZE_MAX, freezeCount + 1);
+      } else {
+        const sentCount = (igByDate[date] || 0) + (liByDate[date] || 0);
+        const prevDate = precedingBusinessDateStr(date);
+        const prevHist = goalHistoryByDate[prevDate];
+        const prevActive = !!prevHist && (prevHist.freezeStatus === 'used' || rawGoalMetOnDate(prevDate, igByDate, liByDate, goalHistoryByDate, 0, 0));
+        if (prevActive && sentCount >= 3 && freezeCount > 0) {
+          freezeStatus = 'used';
+          freezeCount--;
+        } else {
+          freezeStatus = 'none';
+        }
+        perfectCounter = 0;
+      }
+      await sql`UPDATE daily_goal_history SET freeze_status = ${freezeStatus} WHERE workspace_id = ${workspaceId} AND date = ${date}`;
+      goalHistoryByDate[date].freezeStatus = freezeStatus;
+    }
+    await sql`
+      INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'streak_freeze_count', ${String(freezeCount)})
+      ON CONFLICT (workspace_id, key) DO UPDATE SET value = ${String(freezeCount)}
+    `;
+    await sql`
+      INSERT INTO app_settings (workspace_id, key, value) VALUES (${workspaceId}, 'streak_freeze_perfect_counter', ${String(perfectCounter)})
+      ON CONFLICT (workspace_id, key) DO UPDATE SET value = ${String(perfectCounter)}
+    `;
+  }
+  return freezeCount;
 }
 
 // Streak = consecutive days the daily goal was hit, walking backward from
@@ -383,11 +485,46 @@ function computeGoalStreak(igByDate, liByDate, goalHistoryByDate, fallbackIgGoal
 // goal was met that day — backs the Home streak card's day-dot strip.
 // Deliberately includes Sundays here (unlike the streak count itself, which
 // skips over them) so the strip always shows exactly 7 real calendar days.
+// `frozen` separately flags a met day that was actually saved by a streak
+// freeze, so the dot renders blue instead of black.
 function computeStreakDays(igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
   const days = [];
   for (let i = 6; i >= 0; i--) {
     const ds = daysAgoStr(i);
-    days.push({ date: ds, met: goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) });
+    days.push({
+      date: ds,
+      met: goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal),
+      frozen: isFrozenDate(ds, goalHistoryByDate)
+    });
+  }
+  return days;
+}
+
+// The full run of days behind the *current* active streak, oldest first —
+// mirrors computeGoalStreak's own walk/stopping condition exactly (so its
+// length always matches the reported streak count), but collects every day
+// along the way instead of just counting them. Backs the streak detail
+// view ("click the streak to see the full progress, including which days
+// used a freeze") — a plain 7-day strip isn't enough once a streak runs
+// past a week.
+function computeStreakHistoryDays(igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
+  const today = todayStr();
+  const days = [];
+  if (!anyGoalEverConfigured(goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) return days;
+  let cursor = new Date(`${today}T00:00:00`);
+  if (!goalMetOnDate(today, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) {
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  while (true) {
+    const ds = todayStr(cursor);
+    if (cursor.getDay() === 0) {
+      days.unshift({ date: ds, met: goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal), frozen: false, sunday: true });
+      cursor.setDate(cursor.getDate() - 1);
+      continue;
+    }
+    if (!goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) break;
+    days.unshift({ date: ds, met: true, frozen: isFrozenDate(ds, goalHistoryByDate), sunday: false });
+    cursor.setDate(cursor.getDate() - 1);
   }
   return days;
 }
@@ -499,7 +636,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
     sql`SELECT key, value FROM app_settings WHERE workspace_id = ${workspaceId} AND key IN ('daily_goal_instagram', 'daily_goal_linkedin', 'daily_goal_instagram_sync')`,
     sql`SELECT date, count(*) FROM outreaches WHERE workspace_id = ${workspaceId} AND platform = 'instagram' AND status = 'sent' GROUP BY date`,
     sql`SELECT e.date, count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'engaged' AND l.platform = 'linkedin' GROUP BY e.date`,
-    sql`SELECT date, ig_goal, li_goal FROM daily_goal_history WHERE workspace_id = ${workspaceId}`,
+    sql`SELECT date, ig_goal, li_goal, freeze_status FROM daily_goal_history WHERE workspace_id = ${workspaceId}`,
     // Only a session actually saved *today* counts as "still going" — without
     // this, the single most-recent is_daily_goal row stays authoritative
     // forever, so "Start/Continue daily goal session" on Home kept silently
@@ -600,22 +737,31 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   // is never written again once it's no longer today, so goalMetOnDate
   // always judges a day against what its own goal actually was.
   const goalHistoryByDate = {};
-  goalHistoryRows.forEach(r => { goalHistoryByDate[r.date] = { igGoal: r.ig_goal, liGoal: r.li_goal }; });
+  goalHistoryRows.forEach(r => { goalHistoryByDate[r.date] = { igGoal: r.ig_goal, liGoal: r.li_goal, freezeStatus: r.freeze_status }; });
   if (goalHistoryByDate[today]?.igGoal !== dailyGoalInstagram || goalHistoryByDate[today]?.liGoal !== dailyGoalLinkedin) {
     await sql`
       INSERT INTO daily_goal_history (workspace_id, date, ig_goal, li_goal)
       VALUES (${workspaceId}, ${today}, ${dailyGoalInstagram}, ${dailyGoalLinkedin})
       ON CONFLICT (workspace_id, date) DO UPDATE SET ig_goal = ${dailyGoalInstagram}, li_goal = ${dailyGoalLinkedin}
     `;
-    goalHistoryByDate[today] = { igGoal: dailyGoalInstagram, liGoal: dailyGoalLinkedin };
+    goalHistoryByDate[today] = { igGoal: dailyGoalInstagram, liGoal: dailyGoalLinkedin, freezeStatus: null };
   }
+
+  // Resolves any not-yet-decided past day's streak-freeze status (see
+  // resolveStreakFreezes) before the streak itself is computed from the
+  // results — goalMetOnDate treats a frozen day as met, so this has to run
+  // first or a just-resolved freeze wouldn't be reflected until the next
+  // load.
+  const streakFreezesAvailable = await resolveStreakFreezes(workspaceId, igSentByDate, liEngagedByDate, goalHistoryByDate);
 
   const { streak, todayMet: streakTodayMet } = computeGoalStreak(igSentByDate, liEngagedByDate, goalHistoryByDate, dailyGoalInstagram, dailyGoalLinkedin);
   const longestStreak = computeLongestGoalStreak(igSentByDate, liEngagedByDate, goalHistoryByDate, dailyGoalInstagram, dailyGoalLinkedin);
   const streakDays = computeStreakDays(igSentByDate, liEngagedByDate, goalHistoryByDate, dailyGoalInstagram, dailyGoalLinkedin);
+  const streakHistoryDays = computeStreakHistoryDays(igSentByDate, liEngagedByDate, goalHistoryByDate, dailyGoalInstagram, dailyGoalLinkedin);
 
   res.json({
-    streak, streakTodayMet, longestStreak, streakDays, last7Days, last7DaysPctChange,
+    streak, streakTodayMet, longestStreak, streakDays, streakHistoryDays, streakFreezesAvailable, streakFreezeMax: STREAK_FREEZE_MAX,
+    last7Days, last7DaysPctChange,
     availableLeads: Number(count), availableLeadsByPlatform, stageCounts,
     sendsTrend, replyRate, prr, asr,
     connectionsSent: eventCounts.connection_sent, connectionsAccepted: eventCounts.connection_accepted, car,

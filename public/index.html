@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=54">
+<link rel="stylesheet" href="style.css?v=55">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -107,6 +107,24 @@
     </div>
   </div>
 
+  <!-- STREAK HISTORY — the full run behind the current streak, opened by
+       clicking the streak pill on Home. A plain 7-day dot strip can't show
+       where a streak freeze was used once the streak runs past a week. -->
+  <div id="streak-history-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <h3><span id="streak-history-title">Streak</span></h3>
+      <p class="muted" id="streak-history-sub" style="margin-top:-8px;"></p>
+      <div class="streak-history-legend">
+        <span class="streak-history-legend-item"><span class="home-streak-dot met"></span> Goal met</span>
+        <span class="streak-history-legend-item"><span class="home-streak-dot met frozen"></span> Covered by a streak freeze</span>
+      </div>
+      <div class="streak-history-list" id="streak-history-list"></div>
+      <div class="modal-actions">
+        <button id="streak-history-close-btn" class="btn-secondary">Close</button>
+      </div>
+    </div>
+  </div>
+
   <div class="main-wrap"><main class="main-content">
 
     <!-- HOME -->
@@ -150,14 +168,15 @@
             <a href="#" id="home-followups-due-link" class="home-goal-followups-link"><span id="home-followups-due-text">No follow-ups due</span> →</a>
           </div>
           <p class="muted hidden" id="daily-goal-empty-state">No daily goal set yet — <a href="#" data-nav="settings" class="inline-link">set one in Settings</a> to track today's progress here.</p>
-          <div class="home-streak-pill" id="home-streak-card">
+          <button type="button" class="home-streak-pill" id="home-streak-card" title="Click to see the full streak history">
             <span class="home-streak-flame-wrap" id="home-streak-flame-wrap"><span id="streak-flame" class="streak-flame" title="Lights up once you hit today's daily goal">🔥</span></span>
             <div class="home-streak-text">
               <strong><span id="streak-value">0</span>-day streak</strong>
               <span class="muted" id="home-streak-sub">Hit today's goal to make it 1.</span>
+              <span class="muted home-streak-freezes" id="home-streak-freezes"></span>
             </div>
             <div class="home-streak-dots" id="home-streak-dots"></div>
-          </div>
+          </button>
         </div>
 
         <div class="card home-session-card">
@@ -1360,7 +1379,7 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=45"></script>
+<script src="app.js?v=46"></script>
 <script src="leads.js?v=32"></script>
 <script src="followups.js?v=33"></script>
 </body>

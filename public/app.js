@@ -614,14 +614,55 @@ function renderStreakDots(streakDays) {
   wrap.innerHTML = streakDays.map((d, i) => {
     const isToday = i === streakDays.length - 1;
     const label = new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'narrow' });
-    const cls = d.met ? (isToday ? ' met today' : ' met') : '';
+    let cls = '';
+    if (d.met) {
+      cls = d.frozen ? ' met frozen' : ' met';
+      if (isToday) cls += ' today';
+    }
     return `
       <div class="home-streak-dot-col">
-        <span class="home-streak-dot${cls}"></span>
+        <span class="home-streak-dot${cls}" title="${d.frozen ? 'Covered by a streak freeze' : ''}"></span>
         <span class="home-streak-dot-label muted">${label}</span>
       </div>`;
   }).join('');
 }
+
+// ---------- Streak history modal (click the streak pill on Home) ----------
+let streakHistoryCache = null;
+
+function formatStreakHistoryDate(dateStr) {
+  return new Date(`${dateStr}T00:00:00`).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function renderStreakHistoryModal() {
+  const cache = streakHistoryCache || { days: [], streak: 0, freezesAvailable: 0, freezeMax: 2 };
+  $('#streak-history-title').textContent = `${cache.streak}-day streak`;
+  $('#streak-history-sub').textContent = `${cache.freezesAvailable} of ${cache.freezeMax} streak freezes left — earn one back for every perfect 7-day run.`;
+  const list = $('#streak-history-list');
+  if (cache.days.length === 0) {
+    list.innerHTML = '<p class="muted">No active streak yet — hit today\'s goal to start one.</p>';
+    return;
+  }
+  // Newest first, easiest to scan "what happened most recently" first.
+  list.innerHTML = cache.days.slice().reverse().map(d => {
+    const cls = d.sunday ? (d.met ? ' met' : '') : (d.met ? (d.frozen ? ' met frozen' : ' met') : '');
+    const tag = d.frozen ? '<span class="streak-history-row-tag">🧊 Freeze used</span>' : (d.sunday ? '<span class="streak-history-row-tag muted">Sunday — doesn\'t count either way</span>' : '');
+    return `
+      <div class="streak-history-row">
+        <span class="home-streak-dot${cls}"></span>
+        <span class="streak-history-row-date">${formatStreakHistoryDate(d.date)}</span>
+        ${tag}
+      </div>`;
+  }).join('');
+}
+
+$('#home-streak-card').addEventListener('click', () => {
+  renderStreakHistoryModal();
+  $('#streak-history-modal').classList.remove('hidden');
+});
+$('#streak-history-close-btn').addEventListener('click', () => {
+  $('#streak-history-modal').classList.add('hidden');
+});
 
 let homePlatformFilter = 'all';
 
@@ -680,12 +721,20 @@ async function loadHome() {
     $('#home-streak-sub').textContent = data.streakTodayMet
       ? `Today's goal is hit — keep it going.`
       : `Hit today's goal to make it ${data.streak + 1}.`;
+    const freezes = data.streakFreezesAvailable ?? 0;
+    $('#home-streak-freezes').textContent = `🧊 ${freezes} freeze${freezes === 1 ? '' : 's'} left`;
     $('#longest-streak-sub').textContent = `Longest run: ${data.longestStreak} day${data.longestStreak === 1 ? '' : 's'}`;
     $('#week-value').textContent = data.last7Days;
     const weekSign = data.last7DaysPctChange > 0 ? '+' : '';
     $('#week-trend-sub').textContent = `${weekSign}${data.last7DaysPctChange}% on the week before`;
     $('#available-leads-value').textContent = data.availableLeads.toLocaleString('en-US');
     renderStreakDots(data.streakDays);
+    streakHistoryCache = {
+      days: data.streakHistoryDays || [],
+      streak: data.streak,
+      freezesAvailable: freezes,
+      freezeMax: data.streakFreezeMax ?? 2
+    };
     renderPipelineStackedBar(data.stageCounts);
     renderSendsBarChart(data.sendsTrend);
     renderDailyGoal(data.dailyGoal);
