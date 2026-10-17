@@ -52,6 +52,11 @@
   --stage-phase3: #430074;
   --stage-call-booked: #141413;
   --stage-dead: var(--red);
+  /* "Genuinely replied, conversation went nowhere" — related to 'dead' (it
+     is a dead end) but deliberately not the same red, since unlike plain
+     'dead' this lead did reply; a muted terracotta keeps it visually
+     distinct from both 'dead' red and in-conversation's warmer rust. */
+  --stage-dead-after-reply: #B5453A;
   /* Also outside the progression — an exclusion, not a rank or a rejection,
      so neither the ramp nor 'dead' red fits. Matches the design's own
      "Not qualified / Can't message" treatment (its lightest neutral). */
@@ -1302,6 +1307,7 @@ kbd {
 .leads-row-body.call-booked { background: rgba(31, 177, 92, 0.08); }
 .leads-row-body.call-booked:hover { background: rgba(31, 177, 92, 0.15); }
 .leads-row-body.dead { opacity: 0.55; }
+.leads-row-body.dead-after-reply { opacity: 0.55; }
 .leads-row-body.cant-message { opacity: 0.55; }
 .leads-row-body.selected { background: var(--card-bg-alt); }
 .leads-row.removing {
@@ -1488,6 +1494,7 @@ kbd {
 .stage-badge.call-booked { background-color: rgba(20, 20, 19, 0.08); color: var(--text); }
 .stage-badge.in-conversation { background-color: rgba(154, 58, 10, 0.12); color: var(--warn); }
 .stage-badge.dead { background-color: rgba(255, 49, 49, 0.12); color: var(--red); }
+.stage-badge.dead-after-reply { background-color: rgba(181, 69, 58, 0.12); color: var(--stage-dead-after-reply); }
 .stage-badge.cant-message { background-color: rgba(232, 226, 218, 0.6); color: #8f8879; }
 .stage-badge.engaged { background-color: rgba(105, 105, 105, 0.14); color: #696969; }
 .stage-badge.connection-sent { background-color: rgba(38, 38, 39, 0.1); color: #262627; }

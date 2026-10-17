@@ -538,6 +538,7 @@ const PHASE_BREAKDOWN_STAGES = [
   { key: 'in_conversation', label: 'In conversation', color: 'var(--stage-in-conversation)' },
   { key: 'call_booked', label: 'Call booked', color: 'var(--stage-call-booked)' },
   { key: 'dead', label: 'Dead', color: 'var(--stage-dead)' },
+  { key: 'dead_after_reply', label: 'Dead after conversation', color: 'var(--stage-dead-after-reply)' },
   { key: 'cant_message', label: "Can't receive messages", color: 'var(--stage-cant-message)' }
 ];
 
