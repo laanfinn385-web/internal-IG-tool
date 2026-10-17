@@ -460,7 +460,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   const availableLeadsByPlatform = { instagram: 0, linkedin: 0 };
   availableByPlatformRows.forEach(r => { if (r.platform in availableLeadsByPlatform) availableLeadsByPlatform[r.platform] = Number(r.count); });
   const stageRows = await sql`SELECT stage, count(*) FROM leads WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL ${platformClause(platform)} GROUP BY stage`;
-  const stageCounts = { new: 0, engaged: 0, connection_sent: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0, cant_message: 0, in_conversation: 0 };
+  const stageCounts = { new: 0, engaged: 0, connection_sent: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0, dead_after_reply: 0, cant_message: 0, in_conversation: 0 };
   stageRows.forEach(r => { if (r.stage in stageCounts) stageCounts[r.stage] = Number(r.count); });
 
   // All-time funnel rates — same definitions/formulas /api/analytics uses
@@ -1130,7 +1130,17 @@ const FOLLOWUP_STAGES = ['phase1', 'phase2', 'phase3'];
 // point of the stage — an active conversation, not silence), it's just
 // deliberately outside FOLLOWUP_STAGES so it stops the automated follow-up
 // clock instead of nagging someone you're already talking to.
-const POSITIVE_REPLY_STAGES = ['phase2', 'phase3', 'call_booked', 'in_conversation'];
+//
+// dead_after_reply belongs here too, deliberately — it's the "this lead
+// genuinely replied, the conversation just didn't go anywhere" terminal
+// stage (see the Leads page), as opposed to plain 'dead' (never really
+// engaged). Including it means moving a lead from in_conversation/phase2/
+// phase3/call_booked into dead_after_reply doesn't trip the "leaving a
+// positive stage" logic below and erase the Positive Replies credit for
+// something that actually happened — it still gets the lead out of the
+// follow-up sequence (it's outside FOLLOWUP_STAGES) exactly like 'dead'
+// does, it just doesn't rewrite history on the way there.
+const POSITIVE_REPLY_STAGES = ['phase2', 'phase3', 'call_booked', 'in_conversation', 'dead_after_reply'];
 
 app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   const workspaceId = await getWorkspaceId(req);
@@ -1203,7 +1213,10 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
         sets.push('ever_call_booked = true');
         await sql`INSERT INTO lead_events (id, workspace_id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id},'call_booked', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
       }
-      if (current.stage === 'call_booked' && b.stage !== 'call_booked') {
+      // dead_after_reply excluded for the same reason it's in
+      // POSITIVE_REPLY_STAGES above — a booked call that fell through
+      // afterward still genuinely happened.
+      if (current.stage === 'call_booked' && b.stage !== 'call_booked' && b.stage !== 'dead_after_reply') {
         sets.push('ever_call_booked = false');
         await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'call_booked'`;
       }

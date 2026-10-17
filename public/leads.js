@@ -76,6 +76,7 @@ const STAGE_OPTIONS_BY_PLATFORM = {
     { value: 'in_conversation', label: 'In conversation' },
     { value: 'call_booked', label: 'Call booked' },
     { value: 'dead', label: 'Dead' },
+    { value: 'dead_after_reply', label: 'Dead after conversation' },
     { value: 'cant_message', label: "Can't receive messages" }
   ],
   linkedin: [
@@ -88,6 +89,7 @@ const STAGE_OPTIONS_BY_PLATFORM = {
     { value: 'in_conversation', label: 'In conversation' },
     { value: 'call_booked', label: 'Call booked' },
     { value: 'dead', label: 'Dead' },
+    { value: 'dead_after_reply', label: 'Dead after conversation' },
     { value: 'cant_message', label: "Can't receive messages" }
   ]
 };
@@ -115,6 +117,7 @@ function stageLabel(lead) {
   }
   if (stage === 'call_booked') return 'Call booked';
   if (stage === 'dead') return 'Dead';
+  if (stage === 'dead_after_reply') return 'Dead after conversation';
   if (stage === 'cant_message') return "Can't receive messages";
   if (stage === 'in_conversation') return 'In conversation';
   if (stage === 'engaged') return 'Engaged';
@@ -133,6 +136,7 @@ function stageClass(stage) {
   if (stage === 'phase1' || stage === 'phase2' || stage === 'phase3') return stage;
   if (stage === 'call_booked') return 'call-booked';
   if (stage === 'dead') return 'dead';
+  if (stage === 'dead_after_reply') return 'dead-after-reply';
   if (stage === 'in_conversation') return 'in-conversation';
   if (stage === 'cant_message') return 'cant-message';
   if (stage === 'engaged') return 'engaged';
