@@ -3928,12 +3928,18 @@ function renderFunnel(funnel) {
 
 function showChartTooltip(barEl, s) {
   const tooltip = $('#an-tooltip');
-  const card = $('#an-chart').closest('.chart-card');
-  const cardBox = card.getBoundingClientRect();
+  // Positioned against the tooltip's own offset parent (.an-hero-chart),
+  // not the outer .chart-card — CSS resolves its `position: absolute`
+  // against its nearest positioned ancestor, which is the narrower chart
+  // wrapper, not the whole card (that also contains the stat block to its
+  // left). Using .chart-card's box here was offsetting the tooltip right
+  // by that stat block's width + padding, pushing it off toward the edge
+  // of the screen instead of sitting over the bar.
+  const containerBox = tooltip.parentElement.getBoundingClientRect();
   const barBox = barEl.getBoundingClientRect();
   tooltip.innerHTML = `${s.count} reach-out${s.count === 1 ? '' : 's'}<span class="tooltip-sub">${escapeHtml(s.label)}</span>`;
-  tooltip.style.left = `${barBox.left + barBox.width / 2 - cardBox.left}px`;
-  tooltip.style.top = `${barBox.top - cardBox.top}px`;
+  tooltip.style.left = `${barBox.left + barBox.width / 2 - containerBox.left}px`;
+  tooltip.style.top = `${barBox.top - containerBox.top}px`;
   tooltip.classList.remove('hidden');
 }
 
