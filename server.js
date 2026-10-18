@@ -356,12 +356,21 @@ function isFrozenDate(date, goalHistoryByDate) {
   return !!(hist && hist.freezeStatus === 'used');
 }
 
+function isSundayDate(dateStr) {
+  return new Date(`${dateStr}T00:00:00`).getDay() === 0;
+}
+
 // "Counts" toward streak continuity — genuinely met, OR covered by a
-// streak freeze (see resolveStreakFreezes). Every caller that cares about
-// the streak itself (not just display) goes through this one; isFrozenDate
-// separately tells the UI which counted days to draw as the blue "saved by
-// a freeze" dot instead of the normal black one.
+// streak freeze (see resolveStreakFreezes), OR a Sunday. No reach-outs go
+// out on Sundays at all, so one is never a real miss — unconditionally
+// "met" here rather than merely skipped during the streak walk (the old
+// approach) means every caller that renders a day (the 7-day dot strip,
+// the streak detail view, the longest-run scan) treats it the same way
+// too, not just the live streak count — a past Sunday with a real
+// (nonzero) locked-in goal and 0 sends no longer renders as a false
+// "missed" dot.
 function goalMetOnDate(date, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
+  if (isSundayDate(date)) return true;
   return isFrozenDate(date, goalHistoryByDate) || rawGoalMetOnDate(date, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal);
 }
 
@@ -771,7 +780,8 @@ app.get('/api/home', asyncRoute(async (req, res) => {
       linkedin: dailyGoalLinkedin,
       todaySentInstagram: igSentByDate[today] || 0,
       todayEngagedLinkedin: liEngagedByDate[today] || 0,
-      savedSession: dailyGoalSession ? mapSavedSessionRow(dailyGoalSession) : null
+      savedSession: dailyGoalSession ? mapSavedSessionRow(dailyGoalSession) : null,
+      isTodaySunday: isSundayDate(today)
     }
   });
 }));
