@@ -613,11 +613,16 @@ function renderStreakDots(streakDays) {
   if (!streakDays || streakDays.length === 0) { wrap.innerHTML = ''; return; }
   wrap.innerHTML = streakDays.map((d, i) => {
     const isToday = i === streakDays.length - 1;
+    const isSunday = new Date(d.date + 'T00:00:00').getDay() === 0;
     const label = new Date(d.date + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'narrow' });
     let cls = '';
     if (d.met) {
       cls = d.frozen ? ' met frozen' : ' met';
-      if (isToday) cls += ' today';
+      // The red "today, goal reached" treatment implies an actual send
+      // happened — misleading on a Sunday, where it's just trivially met
+      // (see goalMetOnDate) with nothing really sent. Reads as a plain
+      // "met" dot like any other Sunday in the strip instead.
+      if (isToday && !isSunday) cls += ' today';
     }
     return `
       <div class="home-streak-dot-col">
@@ -716,11 +721,20 @@ async function loadHome() {
     const data = await fetchJson(`/api/home?platform=${homePlatformFilter}`);
     $('#streak-value').textContent = data.streak;
     $('#streak-stat-value').textContent = data.streak;
-    $('#streak-flame').classList.toggle('lit', !!data.streakTodayMet);
-    $('#home-streak-flame-wrap').classList.toggle('lit', !!data.streakTodayMet);
-    $('#home-streak-sub').textContent = data.streakTodayMet
-      ? `Today's goal is hit — keep it going.`
-      : `Hit today's goal to make it ${data.streak + 1}.`;
+    // Sunday never breaks the streak (see goalMetOnDate, server-side) but
+    // nothing was actually sent either — the flame lighting up and "today's
+    // goal is hit" would both be misleading for a day that was never meant
+    // to be worked, so it gets its own neutral message instead of either of
+    // the normal hit/miss states.
+    const isTodaySunday = !!(data.dailyGoal && data.dailyGoal.isTodaySunday);
+    const todayMet = !isTodaySunday && !!data.streakTodayMet;
+    $('#streak-flame').classList.toggle('lit', todayMet);
+    $('#home-streak-flame-wrap').classList.toggle('lit', todayMet);
+    $('#home-streak-sub').textContent = isTodaySunday
+      ? 'Resting today — no reach-outs on Sundays.'
+      : todayMet
+        ? `Today's goal is hit — keep it going.`
+        : `Hit today's goal to make it ${data.streak + 1}.`;
     const freezes = data.streakFreezesAvailable ?? 0;
     $('#home-streak-freezes').textContent = `🧊 ${freezes} freeze${freezes === 1 ? '' : 's'} left`;
     $('#longest-streak-sub').textContent = `Longest run: ${data.longestStreak} day${data.longestStreak === 1 ? '' : 's'}`;
@@ -776,6 +790,26 @@ function renderDailyGoal(dailyGoal) {
   const igDone = dailyGoal.todaySentInstagram;
   const liDone = dailyGoal.todayEngagedLinkedin;
   const totalDone = igDone + liDone;
+
+  // No reach-outs go out on Sundays at all — showing a real "0 of 33 sent"
+  // count, or worse the ring reading as "missed", would be misleading for a
+  // day that was never meant to be worked. A plain dash instead, same spirit
+  // as the streak not breaking on Sundays (see goalMetOnDate server-side).
+  if (dailyGoal.isTodaySunday) {
+    $('#daily-goal-ring-fill').style.strokeDashoffset = `${DAILY_GOAL_RING_CIRCUMFERENCE}`;
+    $('#daily-goal-ring-done').textContent = '—';
+    $('#daily-goal-ring-total').textContent = 'Sunday — no reach-outs';
+    $('#daily-goal-ig-stat').classList.toggle('hidden', igGoal === 0);
+    $('#daily-goal-ig-text').textContent = '—';
+    $('#daily-goal-li-stat').classList.toggle('hidden', liGoal === 0);
+    $('#daily-goal-li-text').textContent = '—';
+    card.classList.remove('goal-reached');
+    $('#daily-goal-ring-label').textContent = 'Daily goal';
+    btn.disabled = false;
+    btn.title = dailyGoal.savedSession ? 'Continue daily goal session' : 'Start daily goal session';
+    return;
+  }
+
   const fraction = Math.min(1, totalGoal > 0 ? totalDone / totalGoal : 0);
   $('#daily-goal-ring-fill').style.strokeDashoffset = `${DAILY_GOAL_RING_CIRCUMFERENCE * (1 - fraction)}`;
   $('#daily-goal-ring-done').textContent = totalDone.toLocaleString('en-US');
