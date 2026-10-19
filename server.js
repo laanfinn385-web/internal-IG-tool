@@ -461,6 +461,23 @@ async function resolveStreakFreezes(workspaceId, igByDate, liByDate, goalHistory
   return freezeCount;
 }
 
+// Earliest date there's any real record of at all — igByDate/liByDate keys
+// (an actual send/engagement happened) or goalHistoryByDate keys (a goal
+// was locked in for that day). The two backward walks below (today
+// outward into the past) have no other natural stopping point: a date
+// with no history row falls back to *today's* current goal, and if that
+// happens to be 0 (a perfectly legitimate state — e.g. every account maxed
+// out today), every such date reads as trivially "met" forever, with
+// nothing to ever break the loop. Without this floor that walk simply
+// never stops until Date's own range is exhausted, hanging (and
+// eventually throwing "Invalid time value" once a cursor.setDate() finally
+// overflows) instead of returning a streak.
+function earliestKnownDate(igByDate, liByDate, goalHistoryByDate) {
+  const dates = [...Object.keys(igByDate), ...Object.keys(liByDate), ...Object.keys(goalHistoryByDate)];
+  if (dates.length === 0) return todayStr();
+  return dates.reduce((min, d) => (d < min ? d : min), dates[0]);
+}
+
 // Streak = consecutive days the daily goal was hit, walking backward from
 // today, never broken by Sundays (they just don't count either way). Today
 // not having hit the goal *yet* doesn't break the streak — there's still
@@ -468,6 +485,7 @@ async function resolveStreakFreezes(workspaceId, igByDate, liByDate, goalHistory
 function computeGoalStreak(igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
   if (!anyGoalEverConfigured(goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) return { streak: 0, todayMet: false };
   const today = todayStr();
+  const floor = earliestKnownDate(igByDate, liByDate, goalHistoryByDate);
   const todayMet = goalMetOnDate(today, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal);
   let cursor = new Date(today + 'T00:00:00');
   if (!todayMet) {
@@ -475,11 +493,12 @@ function computeGoalStreak(igByDate, liByDate, goalHistoryByDate, fallbackIgGoal
   }
   let streak = 0;
   while (true) {
+    const ds = todayStr(cursor);
+    if (ds < floor) break;
     if (cursor.getDay() === 0) {
       cursor.setDate(cursor.getDate() - 1);
       continue;
     }
-    const ds = todayStr(cursor);
     if (goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) {
       streak++;
       cursor.setDate(cursor.getDate() - 1);
@@ -520,12 +539,14 @@ function computeStreakHistoryDays(igByDate, liByDate, goalHistoryByDate, fallbac
   const today = todayStr();
   const days = [];
   if (!anyGoalEverConfigured(goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) return days;
+  const floor = earliestKnownDate(igByDate, liByDate, goalHistoryByDate);
   let cursor = new Date(`${today}T00:00:00`);
   if (!goalMetOnDate(today, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) {
     cursor.setDate(cursor.getDate() - 1);
   }
   while (true) {
     const ds = todayStr(cursor);
+    if (ds < floor) break;
     if (cursor.getDay() === 0) {
       days.unshift({ date: ds, met: goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal), frozen: false, sunday: true });
       cursor.setDate(cursor.getDate() - 1);
