@@ -344,11 +344,19 @@ function metThreshold(countOnDate, goal) {
 // Only used by resolveStreakFreezes (deciding whether a day *needs* a
 // freeze in the first place) and by goalMetOnDate below (which layers the
 // freeze on top of this for every other caller).
-function rawGoalMetOnDate(date, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
+//
+// A date with no recorded goalHistoryByDate row has no known target, so
+// it was never "met" — this used to fall back to *today's* live goal,
+// which happened to work as long as today's goal was a normal nonzero
+// number, but silently turned every untracked historical day into a
+// trivial pass the moment today's goal was ever 0 (e.g. a synced goal
+// with no sending capacity left): metThreshold treats goal <= 0 as
+// always hit, so the entire gap before daily_goal_history existed
+// "passed" and inflated a real ~6-day streak into 61.
+function rawGoalMetOnDate(date, igByDate, liByDate, goalHistoryByDate) {
   const hist = goalHistoryByDate[date];
-  const igGoal = hist ? hist.igGoal : fallbackIgGoal;
-  const liGoal = hist ? hist.liGoal : fallbackLiGoal;
-  return metThreshold(igByDate[date] || 0, igGoal) && metThreshold(liByDate[date] || 0, liGoal);
+  if (!hist) return false;
+  return metThreshold(igByDate[date] || 0, hist.igGoal) && metThreshold(liByDate[date] || 0, hist.liGoal);
 }
 
 function isFrozenDate(date, goalHistoryByDate) {
@@ -369,9 +377,9 @@ function isSundayDate(dateStr) {
 // too, not just the live streak count — a past Sunday with a real
 // (nonzero) locked-in goal and 0 sends no longer renders as a false
 // "missed" dot.
-function goalMetOnDate(date, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
+function goalMetOnDate(date, igByDate, liByDate, goalHistoryByDate) {
   if (isSundayDate(date)) return true;
-  return isFrozenDate(date, goalHistoryByDate) || rawGoalMetOnDate(date, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal);
+  return isFrozenDate(date, goalHistoryByDate) || rawGoalMetOnDate(date, igByDate, liByDate, goalHistoryByDate);
 }
 
 function anyGoalEverConfigured(goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
@@ -429,7 +437,7 @@ async function resolveStreakFreezes(workspaceId, igByDate, liByDate, goalHistory
         // goalMetOnDate's own callers — so a Sunday never needs or
         // consumes a freeze, and doesn't touch the perfect-run counter.
         freezeStatus = 'none';
-      } else if (rawGoalMetOnDate(date, igByDate, liByDate, goalHistoryByDate, 0, 0)) {
+      } else if (rawGoalMetOnDate(date, igByDate, liByDate, goalHistoryByDate)) {
         freezeStatus = 'none';
         perfectCounter++;
         if (perfectCounter % 7 === 0) freezeCount = Math.min(STREAK_FREEZE_MAX, freezeCount + 1);
@@ -437,7 +445,7 @@ async function resolveStreakFreezes(workspaceId, igByDate, liByDate, goalHistory
         const sentCount = (igByDate[date] || 0) + (liByDate[date] || 0);
         const prevDate = precedingBusinessDateStr(date);
         const prevHist = goalHistoryByDate[prevDate];
-        const prevActive = !!prevHist && (prevHist.freezeStatus === 'used' || rawGoalMetOnDate(prevDate, igByDate, liByDate, goalHistoryByDate, 0, 0));
+        const prevActive = !!prevHist && (prevHist.freezeStatus === 'used' || rawGoalMetOnDate(prevDate, igByDate, liByDate, goalHistoryByDate));
         if (prevActive && sentCount >= 3 && freezeCount > 0) {
           freezeStatus = 'used';
           freezeCount--;
@@ -486,7 +494,7 @@ function computeGoalStreak(igByDate, liByDate, goalHistoryByDate, fallbackIgGoal
   if (!anyGoalEverConfigured(goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) return { streak: 0, todayMet: false };
   const today = todayStr();
   const floor = earliestKnownDate(igByDate, liByDate, goalHistoryByDate);
-  const todayMet = goalMetOnDate(today, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal);
+  const todayMet = goalMetOnDate(today, igByDate, liByDate, goalHistoryByDate);
   let cursor = new Date(today + 'T00:00:00');
   if (!todayMet) {
     cursor.setDate(cursor.getDate() - 1);
@@ -499,7 +507,7 @@ function computeGoalStreak(igByDate, liByDate, goalHistoryByDate, fallbackIgGoal
       cursor.setDate(cursor.getDate() - 1);
       continue;
     }
-    if (goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) {
+    if (goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate)) {
       streak++;
       cursor.setDate(cursor.getDate() - 1);
     } else {
@@ -515,13 +523,13 @@ function computeGoalStreak(igByDate, liByDate, goalHistoryByDate, fallbackIgGoal
 // skips over them) so the strip always shows exactly 7 real calendar days.
 // `frozen` separately flags a met day that was actually saved by a streak
 // freeze, so the dot renders blue instead of black.
-function computeStreakDays(igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
+function computeStreakDays(igByDate, liByDate, goalHistoryByDate) {
   const days = [];
   for (let i = 6; i >= 0; i--) {
     const ds = daysAgoStr(i);
     days.push({
       date: ds,
-      met: goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal),
+      met: goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate),
       frozen: isFrozenDate(ds, goalHistoryByDate)
     });
   }
@@ -541,18 +549,18 @@ function computeStreakHistoryDays(igByDate, liByDate, goalHistoryByDate, fallbac
   if (!anyGoalEverConfigured(goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) return days;
   const floor = earliestKnownDate(igByDate, liByDate, goalHistoryByDate);
   let cursor = new Date(`${today}T00:00:00`);
-  if (!goalMetOnDate(today, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) {
+  if (!goalMetOnDate(today, igByDate, liByDate, goalHistoryByDate)) {
     cursor.setDate(cursor.getDate() - 1);
   }
   while (true) {
     const ds = todayStr(cursor);
     if (ds < floor) break;
     if (cursor.getDay() === 0) {
-      days.unshift({ date: ds, met: goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal), frozen: false, sunday: true });
+      days.unshift({ date: ds, met: goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate), frozen: false, sunday: true });
       cursor.setDate(cursor.getDate() - 1);
       continue;
     }
-    if (!goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) break;
+    if (!goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate)) break;
     days.unshift({ date: ds, met: true, frozen: isFrozenDate(ds, goalHistoryByDate), sunday: false });
     cursor.setDate(cursor.getDate() - 1);
   }
@@ -562,9 +570,10 @@ function computeStreakHistoryDays(igByDate, liByDate, goalHistoryByDate, fallbac
 // Longest-ever run of consecutive goal-met days (Sundays skipped, same as
 // computeGoalStreak), scanning the full history rather than just the
 // still-active streak — backs the streak card's "Longest run: N days"
-// subtext. Walks forward from the earliest date either platform has an
-// entry for, since a day with no entry on either side is just "not met",
-// identical to goalMetOnDate's own handling of missing dates.
+// subtext. Walks forward from the earliest date either platform has a
+// send/engagement entry for; a day with no goalHistoryByDate row is just
+// "not met" (see rawGoalMetOnDate), so this naturally never credits a
+// run through an untracked gap.
 function computeLongestGoalStreak(igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal) {
   if (!anyGoalEverConfigured(goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) return 0;
   const allDates = [...Object.keys(igByDate), ...Object.keys(liByDate)];
@@ -576,7 +585,7 @@ function computeLongestGoalStreak(igByDate, liByDate, goalHistoryByDate, fallbac
   while (cursor <= today) {
     if (cursor.getDay() !== 0) {
       const ds = todayStr(cursor);
-      if (goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate, fallbackIgGoal, fallbackLiGoal)) {
+      if (goalMetOnDate(ds, igByDate, liByDate, goalHistoryByDate)) {
         current++;
         longest = Math.max(longest, current);
       } else {
@@ -786,7 +795,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
 
   const { streak, todayMet: streakTodayMet } = computeGoalStreak(igSentByDate, liEngagedByDate, goalHistoryByDate, dailyGoalInstagram, dailyGoalLinkedin);
   const longestStreak = computeLongestGoalStreak(igSentByDate, liEngagedByDate, goalHistoryByDate, dailyGoalInstagram, dailyGoalLinkedin);
-  const streakDays = computeStreakDays(igSentByDate, liEngagedByDate, goalHistoryByDate, dailyGoalInstagram, dailyGoalLinkedin);
+  const streakDays = computeStreakDays(igSentByDate, liEngagedByDate, goalHistoryByDate);
   const streakHistoryDays = computeStreakHistoryDays(igSentByDate, liEngagedByDate, goalHistoryByDate, dailyGoalInstagram, dailyGoalLinkedin);
 
   res.json({
