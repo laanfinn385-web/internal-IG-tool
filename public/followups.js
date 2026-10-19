@@ -434,6 +434,15 @@ $('#followup-detail-done-btn').addEventListener('click', async () => {
       const username = account ? account.username : 'This account';
       alert(`⚠️ @${username} is now over its daily limit (${result.accountTodaySentCount}/${result.accountDailyLimit}) — no action needed, just a heads up.`);
     }
+    // A follow-up DM is a real Instagram send just like a cold one — it
+    // counts toward the same pacing clock (recordIgSendForPacing, shared
+    // with decide()), so working through a pile of follow-ups gets the
+    // same "take a break" interruption a normal session would.
+    if (lead.platform === 'instagram' && lead.accountId && recordIgSendForPacing(lead.accountId)) {
+      state.pacingBreakSource = 'followups';
+      showSendPacingBreak();
+      return;
+    }
   } catch (err) {
     alert(`Could not mark as sent: ${err.message}`);
   } finally {

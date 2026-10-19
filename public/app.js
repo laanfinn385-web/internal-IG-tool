@@ -57,7 +57,12 @@ const state = {
   // pacingBreakIsFinal marks a forced end-of-session pause specifically, so
   // its own "Continue" ends the session instead of resuming the next lead.
   hadPacingBreakThisSession: false,
-  pacingBreakIsFinal: false
+  pacingBreakIsFinal: false,
+  // Where a pacing break's "Continue" should return to — 'session' (the
+  // normal reach-out dashboard) or 'followups' (the Follow-ups queue, which
+  // shares this same pacing clock — see recordIgSendForPacing). Reset back
+  // to 'session' once consumed, same lifecycle as pacingBreakIsFinal.
+  pacingBreakSource: 'session'
 };
 
 // ---------- WORKSPACES (profiles) ----------
@@ -1462,6 +1467,44 @@ function findNextBlockOfType(blocks, fromIndex, type) {
   return -1;
 }
 
+// Records one real Instagram send against the pacing clock and returns
+// whether a scroll break is now due — shared by decide() (a fresh cold
+// send) and the Follow-ups page's "Done" button (a follow-up DM counts
+// just as much toward looking human as a cold send does, and shares the
+// same continuous clock — see beginSessionWithLeads' isHandoff note).
+// Walks the given account's assigned Timing sequence's pacing-block
+// pattern (send N, pause, send N, pause...), looping once it reaches the
+// end. No account/sequence/blocks assigned (e.g. a misconfigured sequence,
+// or somehow no account at all) just means no pacing gets enforced rather
+// than a broken session. Also syncs state.igAccountId to accountId, since
+// the pacing-break screen itself (activePauseBlock) reads the active
+// account from there — needed for Follow-ups, which otherwise has no
+// reason to ever set it.
+function recordIgSendForPacing(accountId) {
+  state.igAccountId = accountId;
+  const pacingBlocks = pacingBlocksForAccount(findIgAccount(accountId));
+  if (pacingBlocks.length === 0) return false;
+  const sendIdx = pacingBlocks[state.pacingBlockIndex]?.blockType === 'send'
+    ? state.pacingBlockIndex
+    : findNextBlockOfType(pacingBlocks, state.pacingBlockIndex, 'send');
+  if (sendIdx === -1) return false;
+  state.pacingBlockIndex = sendIdx;
+  if (state.currentBlockThreshold == null) {
+    const block = pacingBlocks[sendIdx];
+    state.currentBlockThreshold = randomInt(block.minValue, block.maxValue);
+  }
+  state.sendsInCurrentBlock++;
+  if (state.sendsInCurrentBlock < state.currentBlockThreshold) return false;
+  const pauseIdx = findNextBlockOfType(pacingBlocks, sendIdx + 1, 'pause');
+  state.sendsInCurrentBlock = 0;
+  state.currentBlockThreshold = null;
+  if (pauseIdx === -1) return false;
+  state.activePauseBlockIndex = pauseIdx;
+  const nextSendIdx = findNextBlockOfType(pacingBlocks, pauseIdx + 1, 'send');
+  state.pacingBlockIndex = nextSendIdx !== -1 ? nextSendIdx : sendIdx;
+  return true;
+}
+
 async function beginSessionWithLeads(leads, opts = {}) {
   state.profiles = opts.alreadyProfiles ? leads : leads.map(leadToProfile);
   state.index = 0;
@@ -2215,39 +2258,8 @@ async function decide(status) {
 
   // In-session pacing — only real Instagram sends count (matches what an
   // outside observer would actually see as DM activity), not disqualifies or
-  // "can't message" decisions. Walks the active account's assigned Timing
-  // sequence's pacing-block pattern (send N, pause, send N, pause...),
-  // looping once it reaches the end. No account/sequence/blocks assigned
-  // (e.g. a misconfigured sequence, or somehow no account at all) just means
-  // no pacing gets enforced rather than a broken session.
-  let needsPacingBreak = false;
-  if (status === 'sent' && p.platform === 'instagram') {
-    const pacingBlocks = pacingBlocksForAccount(findIgAccount(state.igAccountId));
-    if (pacingBlocks.length > 0) {
-      const sendIdx = pacingBlocks[state.pacingBlockIndex]?.blockType === 'send'
-        ? state.pacingBlockIndex
-        : findNextBlockOfType(pacingBlocks, state.pacingBlockIndex, 'send');
-      if (sendIdx !== -1) {
-        state.pacingBlockIndex = sendIdx;
-        if (state.currentBlockThreshold == null) {
-          const block = pacingBlocks[sendIdx];
-          state.currentBlockThreshold = randomInt(block.minValue, block.maxValue);
-        }
-        state.sendsInCurrentBlock++;
-        if (state.sendsInCurrentBlock >= state.currentBlockThreshold) {
-          const pauseIdx = findNextBlockOfType(pacingBlocks, sendIdx + 1, 'pause');
-          state.sendsInCurrentBlock = 0;
-          state.currentBlockThreshold = null;
-          if (pauseIdx !== -1) {
-            needsPacingBreak = true;
-            state.activePauseBlockIndex = pauseIdx;
-            const nextSendIdx = findNextBlockOfType(pacingBlocks, pauseIdx + 1, 'send');
-            state.pacingBlockIndex = nextSendIdx !== -1 ? nextSendIdx : sendIdx;
-          }
-        }
-      }
-    }
-  }
+  // "can't message" decisions.
+  const needsPacingBreak = status === 'sent' && p.platform === 'instagram' && recordIgSendForPacing(state.igAccountId);
   acceptBtn.disabled = false;
   rejectBtn.disabled = false;
   nextUnreachableBtn.disabled = false;
@@ -2804,6 +2816,9 @@ function startPacingBreakCountdown() {
   $('#pacing-break-status').textContent = (block && block.message)
     ? block.message
     : 'Go scroll your feed, check a few stories, like a couple posts — anything that isn\'t sending another DM.';
+  const fromFollowups = state.pacingBreakSource === 'followups';
+  continueBtn.textContent = fromFollowups ? 'Continue follow-ups →' : 'Continue session →';
+  $('#pacing-break-home-btn').textContent = fromFollowups ? '← Back to follow-ups' : '← Go back to home';
   tick();
   pacingBreakCountdownInterval = setInterval(tick, 1000);
 }
@@ -2812,9 +2827,15 @@ $('#pacing-break-continue-btn').addEventListener('click', () => {
   clearInterval(pacingBreakCountdownInterval);
   state.pacingBreakUntil = null;
   const wasFinal = state.pacingBreakIsFinal;
+  const source = state.pacingBreakSource;
   state.pacingBreakIsFinal = false;
+  state.pacingBreakSource = 'session';
   saveSession();
-  if (wasFinal) {
+  if (source === 'followups') {
+    // Nothing "final" about a Follow-ups-triggered break — there's no
+    // session to finish, just a queue to keep working through.
+    showView('followup');
+  } else if (wasFinal) {
     // This was the forced "guarantee at least one break" pause at the very
     // end of the session (see shouldForceEndOfSessionBreak) — there's no
     // next lead to resume to, finish the session the same way decide()
@@ -2827,6 +2848,18 @@ $('#pacing-break-continue-btn').addEventListener('click', () => {
 });
 
 $('#pacing-break-home-btn').addEventListener('click', async () => {
+  // A Follow-ups-triggered break has no "session" to save — the queue
+  // itself is just today's due leads, re-fetched on demand, not something
+  // quit-and-saved. Bailing out early just means heading straight back
+  // without waiting out the rest of the countdown.
+  if (state.pacingBreakSource === 'followups') {
+    clearInterval(pacingBreakCountdownInterval);
+    state.pacingBreakUntil = null;
+    state.pacingBreakSource = 'session';
+    saveSession();
+    showView('followup');
+    return;
+  }
   const btn = $('#pacing-break-home-btn');
   btn.disabled = true;
   const remainingProfiles = state.combi
