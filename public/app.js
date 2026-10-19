@@ -784,13 +784,26 @@ function renderDailyGoal(dailyGoal) {
   const btn = $('#daily-goal-session-btn');
   const restEls = [$('.home-goal-ring-wrap'), $('#daily-goal-stats'), btn, $('#home-streak-card')];
 
+  // totalGoal === 0 covers two very different situations: nothing's ever
+  // been configured (the original "set one in Settings" empty state), or
+  // "sync to accounts max sends" IS on but every account's capacity is
+  // already fully spoken for by today's follow-ups — a real, if surprising,
+  // outcome (see the sync-goal subtraction logic server-side), not a blank
+  // slate. Collapsing both into the same message hid the whole card and
+  // pointed at Settings even though it was already configured exactly as
+  // intended — two separate static elements (each with its own working
+  // nav link — see the one-time a[data-nav] binding) rather than rewriting
+  // one via innerHTML, which would silently drop its click handler.
+  const zeroCapacityState = $('#daily-goal-zero-capacity-state');
   if (totalGoal === 0) {
     restEls.forEach(el => el && el.classList.add('hidden'));
-    emptyState.classList.remove('hidden');
+    emptyState.classList.toggle('hidden', !!dailyGoal.instagramSynced);
+    zeroCapacityState.classList.toggle('hidden', !dailyGoal.instagramSynced);
     return;
   }
   restEls.forEach(el => el && el.classList.remove('hidden'));
   emptyState.classList.add('hidden');
+  zeroCapacityState.classList.add('hidden');
 
   const igDone = dailyGoal.todaySentInstagram;
   const liDone = dailyGoal.todayEngagedLinkedin;
