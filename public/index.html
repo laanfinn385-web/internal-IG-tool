@@ -168,6 +168,13 @@
             <a href="#" id="home-followups-due-link" class="home-goal-followups-link"><span id="home-followups-due-text">No follow-ups due</span> →</a>
           </div>
           <p class="muted hidden" id="daily-goal-empty-state">No daily goal set yet — <a href="#" data-nav="settings" class="inline-link">set one in Settings</a> to track today's progress here.</p>
+          <!-- Distinct from the empty state above: a goal IS configured
+               (sync is on), it just resolved to 0 for today specifically —
+               e.g. every account's daily limit is already fully spoken for
+               by follow-ups, leaving no room for new sends. Showing the
+               same "set one in Settings" message here would be misleading
+               since nothing actually needs setting up. -->
+          <p class="muted hidden" id="daily-goal-zero-capacity-state">Synced goal is 0 today — no Instagram sending capacity left right now (likely every account's daily limit is already spoken for by follow-ups). Check <a href="#" data-nav="settings" class="inline-link">Instagram accounts in Settings</a>.</p>
           <button type="button" class="home-streak-pill" id="home-streak-card" title="Click to see the full streak history">
             <span class="home-streak-flame-wrap" id="home-streak-flame-wrap"><span id="streak-flame" class="streak-flame" title="Lights up once you hit today's daily goal">🔥</span></span>
             <div class="home-streak-text">
@@ -1379,7 +1386,7 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=48"></script>
+<script src="app.js?v=49"></script>
 <script src="leads.js?v=32"></script>
 <script src="followups.js?v=34"></script>
 </body>
