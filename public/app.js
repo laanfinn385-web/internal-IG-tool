@@ -785,25 +785,25 @@ function renderDailyGoal(dailyGoal) {
   const restEls = [$('.home-goal-ring-wrap'), $('#daily-goal-stats'), btn, $('#home-streak-card')];
 
   // totalGoal === 0 covers two very different situations: nothing's ever
-  // been configured (the original "set one in Settings" empty state), or
-  // "sync to accounts max sends" IS on but every account's capacity is
-  // already fully spoken for by today's follow-ups — a real, if surprising,
-  // outcome (see the sync-goal subtraction logic server-side), not a blank
-  // slate. Collapsing both into the same message hid the whole card and
-  // pointed at Settings even though it was already configured exactly as
-  // intended — two separate static elements (each with its own working
-  // nav link — see the one-time a[data-nav] binding) rather than rewriting
-  // one via innerHTML, which would silently drop its click handler.
+  // been configured (the original "set one in Settings" empty state, where
+  // there's genuinely no ring/streak to show), or "sync to accounts max
+  // sends" IS on but every account's capacity is already fully spoken for
+  // by today's follow-ups — a real, if surprising, outcome (see the
+  // sync-goal subtraction logic server-side), not a blank slate. Only the
+  // first case hides the ring and streak; the second still has a real
+  // (if zero) goal and a real streak to show — the goal is trivially met
+  // (see metThreshold server-side: goal <= 0 always counts as hit), so the
+  // streak keeps extending on its own with nothing to send today.
   const zeroCapacityState = $('#daily-goal-zero-capacity-state');
-  if (totalGoal === 0) {
+  if (totalGoal === 0 && !dailyGoal.instagramSynced) {
     restEls.forEach(el => el && el.classList.add('hidden'));
-    emptyState.classList.toggle('hidden', !!dailyGoal.instagramSynced);
-    zeroCapacityState.classList.toggle('hidden', !dailyGoal.instagramSynced);
+    emptyState.classList.remove('hidden');
+    zeroCapacityState.classList.add('hidden');
     return;
   }
   restEls.forEach(el => el && el.classList.remove('hidden'));
   emptyState.classList.add('hidden');
-  zeroCapacityState.classList.add('hidden');
+  zeroCapacityState.classList.toggle('hidden', totalGoal !== 0);
 
   const igDone = dailyGoal.todaySentInstagram;
   const liDone = dailyGoal.todayEngagedLinkedin;
@@ -828,7 +828,9 @@ function renderDailyGoal(dailyGoal) {
     return;
   }
 
-  const fraction = Math.min(1, totalGoal > 0 ? totalDone / totalGoal : 0);
+  // A zero target (synced goal with no capacity left) reads as a complete
+  // ring, not an empty one — there's nothing left to do, not 0% progress.
+  const fraction = totalGoal > 0 ? Math.min(1, totalDone / totalGoal) : 1;
   $('#daily-goal-ring-fill').style.strokeDashoffset = `${DAILY_GOAL_RING_CIRCUMFERENCE * (1 - fraction)}`;
   $('#daily-goal-ring-done').textContent = totalDone.toLocaleString('en-US');
   $('#daily-goal-ring-total').textContent = `of ${totalGoal.toLocaleString('en-US')} sent`;
