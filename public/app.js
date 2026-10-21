@@ -533,19 +533,6 @@ $('#sidebar-toggle').addEventListener('click', () => {
 });
 
 // ---------- HOME ----------
-const PHASE_BREAKDOWN_STAGES = [
-  { key: 'new', label: 'New', color: 'var(--stage-new)' },
-  { key: 'engaged', label: 'Engaged', color: 'var(--stage-engaged)' },
-  { key: 'connection_sent', label: 'Connection sent', color: 'var(--stage-connection-sent)' },
-  { key: 'phase1', label: 'Phase 1', color: 'var(--stage-phase1)' },
-  { key: 'phase2', label: 'Phase 2', color: 'var(--stage-phase2)' },
-  { key: 'phase3', label: 'Phase 3', color: 'var(--stage-phase3)' },
-  { key: 'in_conversation', label: 'In conversation', color: 'var(--stage-in-conversation)' },
-  { key: 'call_booked', label: 'Call booked', color: 'var(--stage-call-booked)' },
-  { key: 'dead', label: 'Dead', color: 'var(--stage-dead)' },
-  { key: 'dead_after_reply', label: 'Dead after conversation', color: 'var(--stage-dead-after-reply)' },
-  { key: 'cant_message', label: "Can't receive messages", color: 'var(--stage-cant-message)' }
-];
 
 function showOverviewTooltip(tooltipEl, wrapEl, x, y, html) {
   const wrapBox = wrapEl.getBoundingClientRect();
@@ -563,22 +550,23 @@ function renderPipelineStackedBar(stageCounts) {
   const legend = $('#pipeline-legend');
   const totalLabel = $('#pipeline-total-label');
   const counts = stageCounts || {};
-  const total = PHASE_BREAKDOWN_STAGES.reduce((sum, s) => sum + (counts[s.key] || 0), 0);
+  const stages = leadStagesCache || [];
+  const total = stages.reduce((sum, s) => sum + (counts[s.key] || 0), 0);
 
   totalLabel.textContent = `${total.toLocaleString('en-US')} lead${total === 1 ? '' : 's'}`;
 
-  bar.innerHTML = PHASE_BREAKDOWN_STAGES.filter(s => (counts[s.key] || 0) > 0).map(s => {
+  bar.innerHTML = stages.filter(s => (counts[s.key] || 0) > 0).map(s => {
     const pct = total > 0 ? (counts[s.key] / total) * 100 : 0;
     return `<span class="home-pipeline-bar-seg" style="width:${pct}%;background:${s.color}" title="${escapeHtml(s.label)}: ${(counts[s.key] || 0).toLocaleString('en-US')}"></span>`;
   }).join('');
 
-  legend.innerHTML = PHASE_BREAKDOWN_STAGES.map(s => {
+  legend.innerHTML = stages.map(s => {
     const count = counts[s.key] || 0;
     const pct = total > 0 ? Math.round((count / total) * 100) : 0;
     return `
       <div class="home-pipeline-legend-item">
         <span class="donut-legend-dot" style="background:${s.color}"></span>
-        <span class="donut-legend-label">${s.label}</span>
+        <span class="donut-legend-label">${escapeHtml(s.label)}</span>
         <span class="home-pipeline-legend-pct muted">${pct}%</span>
         <span class="donut-legend-count">${count.toLocaleString('en-US')}</span>
       </div>`;
@@ -1125,6 +1113,27 @@ async function loadIgAccounts(force) {
     igAccountsCache = [];
   }
   return igAccountsCache;
+}
+
+// ---------- Lead stages (customizable) ----------
+// Shared across Home's pipeline bar and every stage render on the Leads
+// tab (chips, the per-row stage <select>, labels/colors) — the effective
+// list already merges system-stage overrides and custom stages server-
+// side (see loadEffectiveStages in server.js), so this is the single
+// source of truth for "what stages exist and what do they look like."
+// Refetched (loadLeadStages(true)) after any add/rename/recolor/delete.
+let leadStagesCache = null;
+
+async function loadLeadStages(force) {
+  if (leadStagesCache && !force) return leadStagesCache;
+  try {
+    const data = await fetchJson('/api/lead-stages');
+    leadStagesCache = data.stages || [];
+  } catch (e) {
+    console.error('Could not load lead stages', e);
+    leadStagesCache = [];
+  }
+  return leadStagesCache;
 }
 
 function findIgAccount(id) {
@@ -4175,7 +4184,7 @@ async function loadViewsThreshold() {
   // has the active account's pacing blocks ready for activePauseBlock().
   // Instagram no longer uses loadTemplatesFromServer()'s category system —
   // only LinkedIn's own fixed template still comes from it.
-  await Promise.all([loadTemplatesFromServer('linkedin'), loadViewsThreshold(), loadIgAccounts()]);
+  await Promise.all([loadTemplatesFromServer('linkedin'), loadViewsThreshold(), loadIgAccounts(), loadLeadStages()]);
   const saved = loadSession();
   if (saved && Array.isArray(saved.profiles) && saved.profiles.length > 0 && saved.index < saved.profiles.length) {
     state.profiles = saved.profiles;

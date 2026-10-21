@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=55">
+<link rel="stylesheet" href="style.css?v=56">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -747,7 +747,23 @@
         </div>
       </div>
 
-      <div class="leads-stage-chips" id="leads-stage-chips"></div>
+      <div class="leads-stage-chips-row">
+        <div class="leads-stage-chips" id="leads-stage-chips"></div>
+        <button type="button" id="leads-add-stage-btn" class="leads-add-stage-btn">+ Add stage</button>
+      </div>
+
+      <div id="stage-edit-popover" class="stage-edit-popover hidden">
+        <label class="stage-edit-field">Name
+          <input type="text" id="stage-edit-name" maxlength="40">
+        </label>
+        <label class="stage-edit-field">Color
+          <input type="color" id="stage-edit-color">
+        </label>
+        <div class="stage-edit-actions">
+          <button type="button" id="stage-edit-delete-btn" class="btn-danger-outline">Delete stage</button>
+          <button type="button" id="stage-edit-save-btn" class="btn-primary">Save</button>
+        </div>
+      </div>
 
       <div id="leads-dropzone" class="dropzone">
         <div class="dropzone-icon">📄</div>
@@ -1386,8 +1402,8 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=50"></script>
-<script src="leads.js?v=32"></script>
+<script src="app.js?v=51"></script>
+<script src="leads.js?v=33"></script>
 <script src="followups.js?v=34"></script>
 </body>
 </html>
