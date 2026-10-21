@@ -636,7 +636,12 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   const availableLeadsByPlatform = { instagram: 0, linkedin: 0 };
   availableByPlatformRows.forEach(r => { if (r.platform in availableLeadsByPlatform) availableLeadsByPlatform[r.platform] = Number(r.count); });
   const stageRows = await sql`SELECT stage, count(*) FROM leads WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL ${platformClause(platform)} GROUP BY stage`;
-  const stageCounts = { new: 0, engaged: 0, connection_sent: 0, phase1: 0, phase2: 0, phase3: 0, call_booked: 0, dead: 0, dead_after_reply: 0, cant_message: 0, in_conversation: 0 };
+  // Seeded from the full effective stage list (system + any custom stages
+  // this workspace has added) rather than a fixed literal — a lead sitting
+  // in a custom stage used to silently vanish from this breakdown.
+  const effectiveStages = await loadEffectiveStages(workspaceId);
+  const stageCounts = {};
+  effectiveStages.forEach(s => { stageCounts[s.key] = 0; });
   stageRows.forEach(r => { if (r.stage in stageCounts) stageCounts[r.stage] = Number(r.count); });
 
   // All-time funnel rates — same definitions/formulas /api/analytics uses
@@ -1187,6 +1192,94 @@ async function loadLeads(workspaceId) {
   const rows = await sql`SELECT * FROM leads WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL ORDER BY seq ASC`;
   return rows.map(mapLeadRow);
 }
+
+// ---------- LEAD STAGES ----------
+// The 11 default stages, in canonical order. These keys are load-bearing
+// elsewhere (FOLLOWUP_STAGES, POSITIVE_REPLY_STAGES below, the dead/
+// call_booked/engaged/connection_sent event logic, the phase1/2/3 SQL
+// CASE statements) — customizing a stage here only ever touches its
+// label/color, never its key, so none of that logic needs to know this
+// table exists. A row in lead_stages for one of these keys is an
+// override (present only once a workspace has renamed/recolored it);
+// a row whose key isn't in this list is a genuinely custom stage, with
+// no automation attached, freely addable/renamable/deletable.
+const SYSTEM_STAGE_DEFAULTS = [
+  { key: 'new', label: 'New', color: '#D1CDC7', platforms: ['instagram', 'linkedin'] },
+  { key: 'engaged', label: 'Engaged', color: '#696969', platforms: ['linkedin'] },
+  { key: 'connection_sent', label: 'Connection sent', color: '#262627', platforms: ['linkedin'] },
+  { key: 'phase1', label: 'Phase 1', color: '#A39C8E', platforms: ['instagram', 'linkedin'] },
+  { key: 'phase2', label: 'Phase 2', color: '#696969', platforms: ['instagram', 'linkedin'] },
+  { key: 'phase3', label: 'Phase 3', color: '#430074', platforms: ['instagram', 'linkedin'] },
+  { key: 'in_conversation', label: 'In conversation', color: '#9A3A0A', platforms: ['instagram', 'linkedin'] },
+  { key: 'call_booked', label: 'Call booked', color: '#141413', platforms: ['instagram', 'linkedin'] },
+  { key: 'dead', label: 'Dead', color: '#ff3131', platforms: ['instagram', 'linkedin'] },
+  { key: 'dead_after_reply', label: 'Dead after conversation', color: '#B5453A', platforms: ['instagram', 'linkedin'] },
+  { key: 'cant_message', label: "Can't receive messages", color: '#E8E2DA', platforms: ['instagram', 'linkedin'] }
+];
+const SYSTEM_STAGE_KEYS = SYSTEM_STAGE_DEFAULTS.map(s => s.key);
+
+// Merges SYSTEM_STAGE_DEFAULTS with this workspace's override/custom rows
+// into one ordered, effective stage list — the single source of truth
+// used by GET /api/lead-stages and by /api/home's stageCounts below.
+async function loadEffectiveStages(workspaceId) {
+  const rows = await sql`SELECT * FROM lead_stages WHERE workspace_id = ${workspaceId} AND archived_at IS NULL ORDER BY created_at ASC`;
+  const overridesByKey = {};
+  const customRows = [];
+  rows.forEach(r => {
+    if (SYSTEM_STAGE_KEYS.includes(r.stage_key)) overridesByKey[r.stage_key] = r;
+    else customRows.push(r);
+  });
+  const systemStages = SYSTEM_STAGE_DEFAULTS.map(d => {
+    const o = overridesByKey[d.key];
+    return { key: d.key, label: o ? o.label : d.label, color: o ? o.color : d.color, isSystem: true, platforms: d.platforms };
+  });
+  const customStages = customRows.map(r => ({ key: r.stage_key, label: r.label, color: r.color, isSystem: false, platforms: ['instagram', 'linkedin'] }));
+  return [...systemStages, ...customStages];
+}
+
+app.get('/api/lead-stages', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  const stages = await loadEffectiveStages(workspaceId);
+  res.json({ stages });
+}));
+
+app.post('/api/lead-stages', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  const label = String(req.body.label || '').trim();
+  const color = String(req.body.color || '').trim();
+  if (!label) return res.status(400).json({ error: 'Name is required.' });
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) return res.status(400).json({ error: 'A valid color is required.' });
+  const id = crypto.randomUUID();
+  await sql`INSERT INTO lead_stages (id, workspace_id, stage_key, label, color) VALUES (${id}, ${workspaceId}, ${id}, ${label}, ${color})`;
+  res.json({ ok: true, key: id });
+}));
+
+app.patch('/api/lead-stages/:key', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  const label = String(req.body.label || '').trim();
+  const color = String(req.body.color || '').trim();
+  if (!label) return res.status(400).json({ error: 'Name is required.' });
+  if (!/^#[0-9a-fA-F]{6}$/.test(color)) return res.status(400).json({ error: 'A valid color is required.' });
+  const key = req.params.key;
+  await sql`
+    INSERT INTO lead_stages (id, workspace_id, stage_key, label, color)
+    VALUES (${crypto.randomUUID()}, ${workspaceId}, ${key}, ${label}, ${color})
+    ON CONFLICT (workspace_id, stage_key) DO UPDATE SET label = ${label}, color = ${color}
+  `;
+  res.json({ ok: true });
+}));
+
+app.delete('/api/lead-stages/:key', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  const key = req.params.key;
+  if (SYSTEM_STAGE_KEYS.includes(key)) return res.status(400).json({ error: "System stages can't be deleted." });
+  const [{ count }] = await sql`SELECT count(*)::int AS count FROM leads WHERE workspace_id = ${workspaceId} AND stage = ${key} AND deleted_at IS NULL`;
+  if (count > 0) {
+    await sql`UPDATE leads SET stage = 'new' WHERE workspace_id = ${workspaceId} AND stage = ${key} AND deleted_at IS NULL`;
+  }
+  await sql`UPDATE lead_stages SET archived_at = now() WHERE workspace_id = ${workspaceId} AND stage_key = ${key}`;
+  res.json({ ok: true, reassignedCount: count });
+}));
 
 app.get('/api/leads', asyncRoute(async (req, res) => {
   const workspaceId = await getWorkspaceId(req);

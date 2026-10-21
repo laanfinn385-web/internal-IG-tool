@@ -32,7 +32,7 @@ function getFilteredLeads() {
     // their original relative order (stable sort).
     items = items
       .map((item, i) => ({ ...item, _order: i }))
-      .sort((a, b) => (STAGE_ORDER[a.lead.stage] ?? 99) - (STAGE_ORDER[b.lead.stage] ?? 99) || a._order - b._order);
+      .sort((a, b) => stageOrderIndex(a.lead.stage) - stageOrderIndex(b.lead.stage) || a._order - b._order);
   }
   return items;
 }
@@ -67,71 +67,65 @@ const PHASE_MAX_STEP_BY_PLATFORM = {
   linkedin: { 1: 2, 2: 2, 3: 3 }
 };
 
-const STAGE_OPTIONS_BY_PLATFORM = {
-  instagram: [
-    { value: 'new', label: 'New' },
-    { value: 'phase1', label: 'Phase 1' },
-    { value: 'phase2', label: 'Phase 2' },
-    { value: 'phase3', label: 'Phase 3' },
-    { value: 'in_conversation', label: 'In conversation' },
-    { value: 'call_booked', label: 'Call booked' },
-    { value: 'dead', label: 'Dead' },
-    { value: 'dead_after_reply', label: 'Dead after conversation' },
-    { value: 'cant_message', label: "Can't receive messages" }
-  ],
-  linkedin: [
-    { value: 'new', label: 'New' },
-    { value: 'engaged', label: 'Engaged' },
-    { value: 'connection_sent', label: 'Connection sent' },
-    { value: 'phase1', label: 'Phase 1' },
-    { value: 'phase2', label: 'Phase 2' },
-    { value: 'phase3', label: 'Phase 3' },
-    { value: 'in_conversation', label: 'In conversation' },
-    { value: 'call_booked', label: 'Call booked' },
-    { value: 'dead', label: 'Dead' },
-    { value: 'dead_after_reply', label: 'Dead after conversation' },
-    { value: 'cant_message', label: "Can't receive messages" }
-  ]
-};
-// 'All' needs every stage either platform can have — LinkedIn's list is
-// already that superset (Instagram has no stage LinkedIn doesn't).
-STAGE_OPTIONS_BY_PLATFORM.all = STAGE_OPTIONS_BY_PLATFORM.linkedin;
-
+// Stages themselves are now workspace-customizable data (see
+// loadLeadStages() in app.js, which loads+caches GET /api/lead-stages)
+// rather than a hardcoded list — these all read leadStagesCache live
+// instead of a frozen const, since leads.js's top-level code runs before
+// that fetch resolves (app.js's init() hasn't awaited it yet at the point
+// this script tag executes).
 function stageOptionsFor(platform) {
-  return STAGE_OPTIONS_BY_PLATFORM[platform] || STAGE_OPTIONS_BY_PLATFORM.instagram;
+  const stages = leadStagesCache || [];
+  const filtered = platform === 'all' ? stages : stages.filter(s => s.platforms.includes(platform));
+  return filtered.map(s => ({ value: s.key, label: s.label }));
+}
+
+function stageInfo(stage) {
+  return (leadStagesCache || []).find(s => s.key === stage);
 }
 
 // Pipeline position, lowest first — drives the group ordering when the
-// stage filter has multiple stages selected. Built from the superset list so
-// it's a single flat lookup regardless of which platform a given lead is.
-const STAGE_ORDER = Object.fromEntries(STAGE_OPTIONS_BY_PLATFORM.all.map((o, i) => [o.value, i]));
+// stage filter has multiple stages selected.
+function stageOrderIndex(stage) {
+  const idx = (leadStagesCache || []).findIndex(s => s.key === stage);
+  return idx === -1 ? 99 : idx;
+}
 
 function stageLabel(lead) {
   const stage = lead.stage;
+  const info = stageInfo(stage);
+  const baseLabel = info ? info.label : 'New';
   if (stage === 'phase1' || stage === 'phase2' || stage === 'phase3') {
     const phase = Number(stage.slice(-1));
     const maxSteps = PHASE_MAX_STEP_BY_PLATFORM[lead.platform] || PHASE_MAX_STEP_BY_PLATFORM.instagram;
     const max = maxSteps[phase];
     const step = Math.min(lead.phaseStep || 0, max);
-    return `Phase ${phase} · ${step}/${max}`;
+    return `${baseLabel} · ${step}/${max}`;
   }
-  if (stage === 'call_booked') return 'Call booked';
-  if (stage === 'dead') return 'Dead';
-  if (stage === 'dead_after_reply') return 'Dead after conversation';
-  if (stage === 'cant_message') return "Can't receive messages";
-  if (stage === 'in_conversation') return 'In conversation';
-  if (stage === 'engaged') return 'Engaged';
-  if (stage === 'connection_sent') return 'Connection sent';
-  return 'New';
+  return baseLabel;
 }
 
-// Same stage -> real pipeline-ramp color used everywhere else (Home's
-// pipeline bar, Analytics) — the stage filter chips' own dot reuses it too.
+// Real per-workspace hex color (customizable), used anywhere a stage
+// color renders — the chip dot, the stage-badge select, Home's pipeline
+// bar. A sensible neutral fallback covers the brief window before
+// loadLeadStages() first resolves.
 function stageDotColor(stage) {
-  return `var(--stage-${stage.replace(/_/g, '-')})`;
+  const info = stageInfo(stage);
+  return info ? info.color : '#D1CDC7';
 }
 
-// Maps a stage to the CSS class that colors its badge / row.
+// Translucent tint background + solid text color for the stage-badge
+// <select> — replaces the old per-stage CSS classes (style.css's
+// .stage-badge.phase1 etc.), since colors are now arbitrary per-workspace
+// hex rather than a fixed palette.
+function stageTintStyle(stage) {
+  const hex = stageDotColor(stage);
+  return `background:${hex}1f;color:${hex}`;
+}
+
+// A handful of stages get a fixed, semantic row treatment beyond their
+// customizable color — call_booked a highlight, dead/dead_after_reply/
+// cant_message a dimmed opacity (style.css's .leads-row-body.* rules).
+// Keyed by stage key, not label, so renaming a stage doesn't affect this.
 function stageClass(stage) {
   if (stage === 'phase1' || stage === 'phase2' || stage === 'phase3') return stage;
   if (stage === 'call_booked') return 'call-booked';
@@ -268,7 +262,7 @@ function leadRowHtml(lead, index) {
       </div>
       <div class="lc lc-expand"><button type="button" class="expand-btn${expanded ? ' expanded' : ''}" title="Show details">&rsaquo;</button></div>
       <div class="lc lc-stage">
-        <select class="stage-badge${stageCls ? ' ' + stageCls : ''}" data-field="stage">
+        <select class="stage-badge" style="${stageTintStyle(lead.stage)}" data-field="stage">
           ${options.map(o => {
             const isSelected = lead.stage === o.value;
             // The selected option's own text is what a closed <select> shows,
@@ -430,11 +424,18 @@ function renderStageFilterChips() {
     return `
       <button type="button" class="leads-stage-chip${active ? ' active' : ''}" data-stage="${o.value}">
         <span class="leads-stage-chip-dot" style="background:${stageDotColor(o.value)}"></span>${escapeHtml(o.label)}<span class="leads-stage-chip-count">${n}</span>
+        <span class="leads-stage-chip-kebab" data-stage-kebab="${o.value}" title="Edit stage">⋯</span>
       </button>`;
   }).join('');
 }
 
 $('#leads-stage-chips').addEventListener('click', (e) => {
+  const kebab = e.target.closest('.leads-stage-chip-kebab');
+  if (kebab) {
+    e.stopPropagation();
+    openStageEditPopover(kebab.dataset.stageKebab, kebab);
+    return;
+  }
   const chip = e.target.closest('.leads-stage-chip');
   if (!chip) return;
   const stage = chip.dataset.stage;
@@ -442,6 +443,110 @@ $('#leads-stage-chips').addEventListener('click', (e) => {
   else leadsState.stageFilter.add(stage);
   leadsState.page = 0;
   renderLeadsTable();
+});
+
+// ---------- Stage edit / add popover ----------
+// One shared floating popover (mirrors the profile-switcher dropdown's
+// own trigger/position/toggle/outside-click skeleton, app.js:187-217),
+// repositioned per click rather than one instance per chip.
+let stageEditState = null; // { mode: 'edit' | 'create', key, isSystem }
+
+function positionStageEditPopover(anchorEl) {
+  const box = anchorEl.getBoundingClientRect();
+  const popover = $('#stage-edit-popover');
+  popover.style.left = `${Math.max(8, box.left)}px`;
+  popover.style.top = `${box.bottom + 6}px`;
+}
+
+function closeStageEditPopover() {
+  $('#stage-edit-popover').classList.add('hidden');
+  stageEditState = null;
+}
+
+function openStageEditPopover(stageKey, anchorEl) {
+  const info = stageInfo(stageKey);
+  if (!info) return;
+  stageEditState = { mode: 'edit', key: stageKey, isSystem: info.isSystem };
+  $('#stage-edit-name').value = info.label;
+  $('#stage-edit-color').value = info.color;
+  $('#stage-edit-delete-btn').classList.toggle('hidden', info.isSystem);
+  positionStageEditPopover(anchorEl);
+  $('#stage-edit-popover').classList.remove('hidden');
+  $('#stage-edit-name').focus();
+}
+
+function openStageCreatePopover(anchorEl) {
+  stageEditState = { mode: 'create' };
+  $('#stage-edit-name').value = '';
+  $('#stage-edit-color').value = '#696969';
+  $('#stage-edit-delete-btn').classList.add('hidden');
+  positionStageEditPopover(anchorEl);
+  $('#stage-edit-popover').classList.remove('hidden');
+  $('#stage-edit-name').focus();
+}
+
+$('#leads-add-stage-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  openStageCreatePopover(e.currentTarget);
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#stage-edit-popover') && !e.target.closest('.leads-stage-chip-kebab') && !e.target.closest('#leads-add-stage-btn')) {
+    closeStageEditPopover();
+  }
+});
+
+async function refreshStagesEverywhere() {
+  await loadLeadStages(true);
+  renderStageFilterChips();
+  renderLeadsTable();
+}
+
+$('#stage-edit-save-btn').addEventListener('click', async (e) => {
+  if (!stageEditState) return;
+  const label = $('#stage-edit-name').value.trim();
+  const color = $('#stage-edit-color').value;
+  if (!label) { alert('Name is required.'); return; }
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    if (stageEditState.mode === 'create') {
+      await fetchJson('/api/lead-stages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label, color }) });
+    } else {
+      await fetchJson(`/api/lead-stages/${stageEditState.key}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label, color }) });
+    }
+    closeStageEditPopover();
+    await refreshStagesEverywhere();
+  } catch (err) {
+    alert(`Could not save that stage: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#stage-edit-delete-btn').addEventListener('click', async (e) => {
+  if (!stageEditState || stageEditState.mode !== 'edit') return;
+  const info = stageInfo(stageEditState.key);
+  const name = info ? info.label : 'this stage';
+  if (!confirm(`Delete "${name}"? Any leads currently in this stage will be moved to "New". This can't be undone.`)) return;
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  try {
+    const deletedKey = stageEditState.key;
+    await fetchJson(`/api/lead-stages/${deletedKey}`, { method: 'DELETE' });
+    // The server just reassigned every lead in this stage to 'new' — mirror
+    // that locally so the cached leadsState.leads array (and anything
+    // rendered from it) doesn't keep pointing at a stage key that no
+    // longer exists.
+    leadsState.leads.forEach(l => { if (l.stage === deletedKey) l.stage = 'new'; });
+    leadsState.stageFilter.delete(deletedKey);
+    closeStageEditPopover();
+    await refreshStagesEverywhere();
+  } catch (err) {
+    alert(`Could not delete that stage: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 // ---------- Inline editing ----------
@@ -466,7 +571,7 @@ async function updateLeadField(id, field, value) {
       body: JSON.stringify({ [field]: value })
     });
     if (field === 'notes') updateNoteDot(id, !!(value && value.trim()));
-    if (field === 'stage') { updateStageStyling(id, lead); loadNotifications(); }
+    if (field === 'stage') { updateStageStyling(id, lead); renderStageFilterChips(); loadNotifications(); }
   } catch (e) {
     console.error('Could not save lead', e);
     lead[field] = previous;
@@ -484,7 +589,7 @@ function updateStageStyling(id, lead) {
 
   const select = row.querySelector('.stage-badge');
   if (!select) return;
-  select.className = 'stage-badge' + (stageCls ? ` ${stageCls}` : '');
+  select.setAttribute('style', stageTintStyle(lead.stage));
   select.innerHTML = stageOptionsFor(lead.platform).map(o => {
     const isSelected = lead.stage === o.value;
     const label = isSelected ? stageLabel(lead) : o.label;
