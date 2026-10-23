@@ -1319,6 +1319,24 @@ app.post('/api/leads/next', asyncRoute(async (req, res) => {
   res.json({ leads: rows.map(mapLeadRow) });
 }));
 
+// A saved/paused session's queued-but-undecided leads are a point-in-time
+// snapshot taken at save time — if the save sits unconsumed for a while
+// (a cooldown-paused account the user doesn't get back to for days, an
+// abandoned combi leg, etc.) and one of those leads gets legitimately
+// contacted in the meantime through a different session or account, the
+// stale snapshot has no way of knowing that on its own. Resuming it blind
+// would re-present (and risk re-sending to) a lead that's no longer
+// actually available. Called right before a resume is applied, so the
+// client can drop anything that's moved on from 'new' instead of trusting
+// the snapshot outright.
+app.post('/api/leads/still-available', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  const leadIds = Array.isArray(req.body.leadIds) ? req.body.leadIds.filter(id => typeof id === 'string') : [];
+  if (leadIds.length === 0) return res.json({ availableIds: [] });
+  const rows = await sql`SELECT id FROM leads WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL AND stage = 'new' AND id = ANY(${leadIds})`;
+  res.json({ availableIds: rows.map(r => r.id) });
+}));
+
 // Username uniqueness (case-insensitive, among active leads) is enforced by
 // the leads_username_unique_active partial index, so ON CONFLICT DO NOTHING
 // here covers both "already in the list" and "duplicated within this same
