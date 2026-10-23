@@ -3820,7 +3820,47 @@ $('#saved-session-continue-li-btn').addEventListener('click', () => resumeSavedS
 
 // Resumes a plain (non-combi) saved session — always exactly one kind, so
 // this is the shared tail end of resumeSavedSession/resumeSavedSessionPortion.
+// A saved/paused session's queued-but-undecided leads are a snapshot from
+// whenever it was saved — if it sat unconsumed long enough for one of
+// those leads to get legitimately contacted in the meantime (a different
+// session, a different account), resuming blind would re-present it as if
+// still fresh. Re-checks every queued lead against its real current stage
+// right before the resume is applied, dropping anything that's moved on.
+// Profiles still queued in `profiles[0..index)` (shouldn't happen — a
+// resume always starts at index 0 — but guarded defensively) are left
+// alone since they're not about to be re-presented.
+async function dropStaleProfiles(profiles) {
+  const leadIds = profiles.map(p => p.leadId).filter(Boolean);
+  if (leadIds.length === 0) return profiles;
+  let availableIds;
+  try {
+    const data = await fetchJson('/api/leads/still-available', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ leadIds })
+    });
+    availableIds = new Set(data.availableIds || []);
+  } catch (e) {
+    console.error('Could not validate saved-session leads, resuming unfiltered', e);
+    return profiles;
+  }
+  const fresh = profiles.filter(p => !p.leadId || availableIds.has(p.leadId));
+  const staleCount = profiles.length - fresh.length;
+  if (staleCount > 0) {
+    alert(`${staleCount} lead${staleCount === 1 ? '' : 's'} in this saved session ${staleCount === 1 ? 'has' : 'have'} already been contacted elsewhere since this was saved, so ${staleCount === 1 ? "it's" : "they're"} been skipped.`);
+  }
+  return fresh;
+}
+
 async function enterResumedSession(profiles, sessionKind, sessionMode, sessionTarget, sentCount, isDailyGoal, accountId) {
+  profiles = await dropStaleProfiles(profiles);
+  if (profiles.length === 0) {
+    // Every queued lead turned out to already be handled elsewhere — same
+    // "nothing left to resume" outcome resumeSavedSession already shows for
+    // a save that was empty to begin with, just discovered one step later.
+    showView('home');
+    return;
+  }
   state.profiles = profiles;
   state.index = 0;
   state.sessionKind = sessionKind;
