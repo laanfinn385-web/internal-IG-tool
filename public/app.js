@@ -385,6 +385,9 @@ function leadDisplayName(entry) {
 
 function leadDmUrl(entry) {
   if (entry.platform === 'linkedin') return entry.profileUrl || '#';
+  // Threads has no public DM-deeplink scheme like ig.me/m/ — the profile
+  // page itself is the best available link.
+  if (entry.platform === 'threads') return entry.profileUrl || (entry.username ? `https://www.threads.net/@${entry.username}` : '#');
   return entry.username ? `https://ig.me/m/${entry.username}` : (entry.profileUrl || '#');
 }
 
@@ -879,8 +882,12 @@ async function beginOrContinueDailyGoalIg(liRemaining, isHandoff) {
   const igRemaining = Math.max(0, homeDailyGoalData.instagram - homeDailyGoalData.todaySentInstagram);
   if (igRemaining <= 0) return false;
 
+  // Instagram-only — Threads accounts don't participate in the daily-goal
+  // auto-leg flow (startLegForAccount below always fetches Instagram leads),
+  // so one must never be offered here even though it'd otherwise pass
+  // accountCanSendToday.
   const accounts = await loadIgAccounts(true);
-  const usable = accounts.filter(a => accountCanSendToday(a));
+  const usable = accounts.filter(a => a.platform !== 'threads' && accountCanSendToday(a));
   if (usable.length === 0) {
     if (isHandoff) return false;
     alert(accounts.length === 0
@@ -1238,7 +1245,7 @@ function applyHomeAccountValidation() {
 }
 
 async function refreshHomeSessionAccountRow() {
-  const needsAccount = homeSessionPlatform === 'instagram' || homeSessionPlatform === 'combi';
+  const needsAccount = homeSessionPlatform === 'instagram' || homeSessionPlatform === 'threads' || homeSessionPlatform === 'combi';
   $('#home-session-account-row').classList.toggle('hidden', !needsAccount);
   const startBtn = $('#start-session-btn');
   if (!needsAccount) {
@@ -1246,6 +1253,9 @@ async function refreshHomeSessionAccountRow() {
     $('#home-session-account-error').classList.add('hidden');
     return;
   }
+  // Combi's Instagram leg is still Instagram-only (no Threads+LinkedIn
+  // combo exists) — only the dedicated Threads tab targets Threads accounts.
+  const targetPlatform = homeSessionPlatform === 'threads' ? 'threads' : 'instagram';
   // Disabled up front (not just once the account list resolves) — the button
   // should never look clickable before a usable account is actually
   // confirmed selected, not even for the brief moment while this loads.
@@ -1259,7 +1269,7 @@ async function refreshHomeSessionAccountRow() {
   // with" picker (daily-goal, switch-accounts, limit-reached) — capacity
   // and enabled-state both need to be current, not whatever was cached
   // from an earlier page load.
-  const accounts = (await loadIgAccounts(true)).filter(a => a.enabled !== false);
+  const accounts = (await loadIgAccounts(true)).filter(a => a.enabled !== false && (a.platform || 'instagram') === targetPlatform);
   const listEl = $('#home-session-account-list');
   $('#home-session-no-accounts').classList.toggle('hidden', accounts.length > 0);
   listEl.classList.toggle('hidden', accounts.length === 0);
@@ -1355,16 +1365,17 @@ async function startCombiSession(explicitIgCount, explicitLiCount, isDailyGoal, 
 
 $('#start-session-btn').addEventListener('click', async () => {
   hideHomeError();
-  const needsAccount = homeSessionPlatform === 'instagram' || homeSessionPlatform === 'combi';
+  const needsAccount = homeSessionPlatform === 'instagram' || homeSessionPlatform === 'threads' || homeSessionPlatform === 'combi';
+  const platformLabel = homeSessionPlatform === 'threads' ? 'Threads' : 'Instagram';
   if (needsAccount && isIgCooldownActive()) {
-    showHomeError(0, 0, `Instagram is on a switch cooldown for another ${formatCountdown(igCooldownState.until - Date.now())} — new Instagram sessions are blocked until then. LinkedIn sessions are unaffected.`);
+    showHomeError(0, 0, `${platformLabel} is on a switch cooldown for another ${formatCountdown(igCooldownState.until - Date.now())} — new ${platformLabel} sessions are blocked until then. LinkedIn sessions are unaffected.`);
     return;
   }
   let accountId = null;
   if (needsAccount) {
     accountId = selectedHomeAccountId;
     if (!accountId) {
-      showHomeError(0, 0, 'Add an Instagram account in Settings before starting an Instagram session.');
+      showHomeError(0, 0, `Add a ${platformLabel} account in Settings before starting a ${platformLabel} session.`);
       return;
     }
   }
@@ -2691,10 +2702,15 @@ function showIgAccountLimitPause() {
   $('#ig-limit-cooldown-card').classList.add('hidden');
   $('#ig-limit-continue-li-btn').classList.toggle('hidden', !state.combi);
 
+  // Only ever offer an account on the same platform — this picker swaps
+  // state.igAccountId without refetching state.profiles, so a cross-platform
+  // pick would send the wrong platform's leads through the new account.
+  const currentPlatform = account && account.platform === 'threads' ? 'threads' : 'instagram';
   $('#ig-limit-continue-btn').disabled = true;
   loadIgAccounts(true).then(accounts => {
     const select = $('#ig-limit-account-select');
-    const usable = populateAccountSelect(select, accounts, [state.igAccountId]);
+    const samePlatform = accounts.filter(a => (a.platform || 'instagram') === currentPlatform);
+    const usable = populateAccountSelect(select, samePlatform, [state.igAccountId]);
     $('#ig-limit-no-accounts').classList.toggle('hidden', usable.length > 0);
     select.classList.toggle('hidden', usable.length === 0);
     const errorEl = $('#ig-limit-account-error');
@@ -3399,11 +3415,18 @@ let switchAccountsPendingByAccount = {};
 // { accountId } while the leads-count step is showing, cleared once
 // confirmed/cancelled/backed-out-of.
 let switchAccountsSizeStepFor = null;
+// Set fresh every time the modal opens, read by switchToInstagramAccount —
+// which platform's leads to fetch once a card is picked (this modal doesn't
+// refetch state.profiles itself, so the new account must match the session
+// that was already running).
+let switchAccountsCurrentPlatform = 'instagram';
 
 async function openSwitchAccountsModal() {
   const accounts = await loadIgAccounts(true);
   const currentAccountId = state.sessionKind === 'ig_message' ? state.igAccountId : null;
-  const usable = accounts.filter(a => a.id !== currentAccountId && accountCanSendToday(a));
+  const currentAccount = currentAccountId ? findIgAccount(currentAccountId) : null;
+  switchAccountsCurrentPlatform = currentAccount && currentAccount.platform === 'threads' ? 'threads' : 'instagram';
+  const usable = accounts.filter(a => a.id !== currentAccountId && (a.platform || 'instagram') === switchAccountsCurrentPlatform && accountCanSendToday(a));
 
   switchAccountsPendingByAccount = {};
   try {
@@ -3537,7 +3560,7 @@ async function switchToInstagramAccount(accountId, count, existingSession) {
       // Manually switching accounts is still the same continuous sending
       // session from a pacing standpoint — isHandoff:true keeps the pacing
       // clock running instead of restarting it at 0 for the new account.
-      await startSinglePlatformSession('instagram', count, state.isDailyGoal, accountId, true);
+      await startSinglePlatformSession(switchAccountsCurrentPlatform, count, state.isDailyGoal, accountId, true);
       // startSinglePlatformSession silently writes an insufficient-leads
       // message into #home-session-error and returns (rather than
       // throwing) when there aren't enough leads — invisible here since
@@ -3579,7 +3602,9 @@ async function switchToLinkedIn() {
 function updateSwitchAccountsButtonVisibility() {
   const accounts = igAccountsCache || [];
   if (state.sessionKind === 'ig_message') {
-    const hasOtherAccount = accounts.some(a => a.id !== state.igAccountId && accountCanSendToday(a));
+    const currentAccount = findIgAccount(state.igAccountId);
+    const currentPlatform = currentAccount && currentAccount.platform === 'threads' ? 'threads' : 'instagram';
+    const hasOtherAccount = accounts.some(a => a.id !== state.igAccountId && (a.platform || 'instagram') === currentPlatform && accountCanSendToday(a));
     $('#switch-accounts-btn').classList.toggle('hidden', !(hasOtherAccount || !!state.combi));
   } else if (SIMPLE_SESSION_KINDS.includes(state.sessionKind)) {
     const hasAnyAccount = accounts.some(a => accountCanSendToday(a));

@@ -271,6 +271,16 @@ function platformClause(platform) {
   return platform === 'all' ? sql`` : sql`AND platform = ${platform}`;
 }
 
+// Threads leads/accounts reuse Instagram's entire pipeline (stages,
+// sequences, follow-ups, notifications, daily-limit accounting) — only the
+// label differs — so anywhere a query distinguishes Instagram-style leads
+// from LinkedIn's separate flow, 'threads' is a peer of 'instagram', not a
+// third independent category.
+const IG_LIKE_PLATFORMS = ['instagram', 'threads'];
+function normalizeLeadPlatform(raw) {
+  return raw === 'linkedin' || raw === 'threads' ? raw : 'instagram';
+}
+
 async function loadData(workspaceId, platform = 'all') {
   const rows = await sql`SELECT * FROM outreaches WHERE workspace_id = ${workspaceId} ${platformClause(platform)}`;
   return {
@@ -752,7 +762,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
           SELECT max(created_at) AS sent_at FROM followup_sends fs
           WHERE fs.lead_id = l.id AND fs.phase = msf.phase AND fs.step = l.phase_step
         ) prev_sent ON true
-        WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
+        WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = ANY(${IG_LIKE_PLATFORMS}) AND l.stage = 'phase1' AND l.account_id IS NOT NULL
           AND due_at_normalized(
             COALESCE(prev_sent.sent_at, l.phase_started_at),
             msf.day_offset - COALESCE(msf_prev.day_offset, 0),
@@ -827,7 +837,7 @@ app.post('/api/outreach', asyncRoute(async (req, res) => {
     id: crypto.randomUUID(),
     date: todayStr(),
     createdAt: new Date().toISOString(),
-    platform: req.body.platform === 'linkedin' ? 'linkedin' : 'instagram',
+    platform: normalizeLeadPlatform(req.body.platform),
     accountId: req.body.accountId || null,
     username: req.body.username || '',
     profileUrl: req.body.profileUrl || '',
@@ -1204,17 +1214,17 @@ async function loadLeads(workspaceId) {
 // a row whose key isn't in this list is a genuinely custom stage, with
 // no automation attached, freely addable/renamable/deletable.
 const SYSTEM_STAGE_DEFAULTS = [
-  { key: 'new', label: 'New', color: '#D1CDC7', platforms: ['instagram', 'linkedin'] },
+  { key: 'new', label: 'New', color: '#D1CDC7', platforms: ['instagram', 'linkedin', 'threads'] },
   { key: 'engaged', label: 'Engaged', color: '#696969', platforms: ['linkedin'] },
   { key: 'connection_sent', label: 'Connection sent', color: '#262627', platforms: ['linkedin'] },
-  { key: 'phase1', label: 'Phase 1', color: '#A39C8E', platforms: ['instagram', 'linkedin'] },
-  { key: 'phase2', label: 'Phase 2', color: '#696969', platforms: ['instagram', 'linkedin'] },
-  { key: 'phase3', label: 'Phase 3', color: '#430074', platforms: ['instagram', 'linkedin'] },
-  { key: 'in_conversation', label: 'In conversation', color: '#9A3A0A', platforms: ['instagram', 'linkedin'] },
-  { key: 'call_booked', label: 'Call booked', color: '#141413', platforms: ['instagram', 'linkedin'] },
-  { key: 'dead', label: 'Dead', color: '#ff3131', platforms: ['instagram', 'linkedin'] },
-  { key: 'dead_after_reply', label: 'Dead after conversation', color: '#B5453A', platforms: ['instagram', 'linkedin'] },
-  { key: 'cant_message', label: "Can't receive messages", color: '#E8E2DA', platforms: ['instagram', 'linkedin'] }
+  { key: 'phase1', label: 'Phase 1', color: '#A39C8E', platforms: ['instagram', 'linkedin', 'threads'] },
+  { key: 'phase2', label: 'Phase 2', color: '#696969', platforms: ['instagram', 'linkedin', 'threads'] },
+  { key: 'phase3', label: 'Phase 3', color: '#430074', platforms: ['instagram', 'linkedin', 'threads'] },
+  { key: 'in_conversation', label: 'In conversation', color: '#9A3A0A', platforms: ['instagram', 'linkedin', 'threads'] },
+  { key: 'call_booked', label: 'Call booked', color: '#141413', platforms: ['instagram', 'linkedin', 'threads'] },
+  { key: 'dead', label: 'Dead', color: '#ff3131', platforms: ['instagram', 'linkedin', 'threads'] },
+  { key: 'dead_after_reply', label: 'Dead after conversation', color: '#B5453A', platforms: ['instagram', 'linkedin', 'threads'] },
+  { key: 'cant_message', label: "Can't receive messages", color: '#E8E2DA', platforms: ['instagram', 'linkedin', 'threads'] }
 ];
 const SYSTEM_STAGE_KEYS = SYSTEM_STAGE_DEFAULTS.map(s => s.key);
 
@@ -1233,7 +1243,7 @@ async function loadEffectiveStages(workspaceId) {
     const o = overridesByKey[d.key];
     return { key: d.key, label: o ? o.label : d.label, color: o ? o.color : d.color, isSystem: true, platforms: d.platforms };
   });
-  const customStages = customRows.map(r => ({ key: r.stage_key, label: r.label, color: r.color, isSystem: false, platforms: ['instagram', 'linkedin'] }));
+  const customStages = customRows.map(r => ({ key: r.stage_key, label: r.label, color: r.color, isSystem: false, platforms: ['instagram', 'linkedin', 'threads'] }));
   return [...systemStages, ...customStages];
 }
 
@@ -1301,7 +1311,7 @@ app.post('/api/leads/next', asyncRoute(async (req, res) => {
   // back 15 leads instead of the Math.max(1, ...) floor doing that job.
   const parsedCount = parseInt(body.count, 10);
   const count = Math.max(1, Math.min(MAX_NEXT_COUNT, Number.isFinite(parsedCount) ? parsedCount : 15));
-  const platform = body.platform === 'linkedin' ? 'linkedin' : 'instagram';
+  const platform = normalizeLeadPlatform(body.platform);
   const excludeIds = Array.isArray(body.excludeIds) ? body.excludeIds.filter(id => typeof id === 'string') : [];
   const rows = excludeIds.length > 0
     ? await sql`
@@ -1345,7 +1355,7 @@ app.post('/api/leads/still-available', asyncRoute(async (req, res) => {
 app.post('/api/leads', asyncRoute(async (req, res) => {
   const workspaceId = await getWorkspaceId(req);
   const b = req.body;
-  const platform = b.platform === 'linkedin' ? 'linkedin' : 'instagram';
+  const platform = normalizeLeadPlatform(b.platform);
   // LinkedIn leads have no username concept — a profile URL or full name is
   // the minimum needed instead.
   if (platform === 'linkedin') {
@@ -1372,7 +1382,7 @@ app.post('/api/leads', asyncRoute(async (req, res) => {
 app.post('/api/leads/bulk', asyncRoute(async (req, res) => {
   const workspaceId = await getWorkspaceId(req);
   // One platform per import batch — the CSV mapping modal picks it up front.
-  const platform = req.body.platform === 'linkedin' ? 'linkedin' : 'instagram';
+  const platform = normalizeLeadPlatform(req.body.platform);
   // Rows with nothing usable to identify them (e.g. a trailing blank line in
   // a CSV) are dropped rather than sent to the DB — an empty lead is never
   // useful and previously could be inserted with no validation. LinkedIn
@@ -1895,7 +1905,7 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
       SELECT max(created_at) AS sent_at FROM followup_sends fs
       WHERE fs.lead_id = l.id AND fs.phase = msf.phase AND fs.step = l.phase_step
     ) prev_sent ON true
-    WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = 'instagram' AND l.stage = 'phase1' AND l.account_id IS NOT NULL
+    WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = ANY(${IG_LIKE_PLATFORMS}) AND l.stage = 'phase1' AND l.account_id IS NOT NULL
       AND due_at_normalized(
         COALESCE(prev_sent.sent_at, l.phase_started_at),
         msf.day_offset - COALESCE(msf_prev.day_offset, 0),
@@ -2699,7 +2709,7 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
   const [followupRowsIg, followupRowsLi] = await Promise.all([
     sql`
       SELECT
-        'instagram' AS platform,
+        l.platform AS platform,
         CASE l.stage WHEN 'phase1' THEN 1 WHEN 'phase2' THEN 2 WHEN 'phase3' THEN 3 END AS phase,
         l.account_id,
         a.username AS account_username,
@@ -2716,7 +2726,7 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
         SELECT max(created_at) AS sent_at FROM followup_sends fs
         WHERE fs.lead_id = l.id AND fs.phase = msf.phase AND fs.step = l.phase_step
       ) prev_sent ON true
-      WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = 'instagram'
+      WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL AND l.platform = ANY(${IG_LIKE_PLATFORMS})
         AND l.stage IN ('phase1', 'phase2', 'phase3')
         AND due_at_normalized(COALESCE(prev_sent.sent_at, l.phase_started_at), msf.day_offset - COALESCE(msf_prev.day_offset, 0), ${dueHour}) <= now()
     `,
@@ -2753,15 +2763,15 @@ app.get('/api/notifications', asyncRoute(async (req, res) => {
   // system, so it stays grouped by (platform, phase) only.
   const byKey = {};
   followupRows.forEach(r => {
-    const accountPart = r.platform === 'instagram' ? `:${r.account_id || 'none'}` : '';
+    const accountPart = r.platform !== 'linkedin' ? `:${r.account_id || 'none'}` : '';
     const key = `followup:${r.platform}:${r.phase}${accountPart}`;
     const dismissedAt = dismissals[key];
     if (dismissedAt && new Date(r.due_at) <= new Date(dismissedAt)) return;
     if (!byKey[key]) {
       byKey[key] = {
         type: 'followup', groupKey: key, platform: r.platform, phase: r.phase, count: 0, earliestDue: r.due_at,
-        accountId: r.platform === 'instagram' ? r.account_id : undefined,
-        accountUsername: r.platform === 'instagram' ? r.account_username : undefined
+        accountId: r.platform !== 'linkedin' ? r.account_id : undefined,
+        accountUsername: r.platform !== 'linkedin' ? r.account_username : undefined
       };
     }
     byKey[key].count++;
@@ -2942,14 +2952,14 @@ app.delete('/api/reminders/:id', asyncRoute(async (req, res) => {
 app.get('/api/followups/due', asyncRoute(async (req, res) => {
   const workspaceId = await getWorkspaceId(req);
   const phase = Number(req.query.phase);
-  const platform = req.query.platform === 'linkedin' ? 'linkedin' : 'instagram';
-  const accountId = platform === 'instagram' && req.query.accountId ? req.query.accountId : null;
+  const platform = normalizeLeadPlatform(req.query.platform);
+  const accountId = platform !== 'linkedin' && req.query.accountId ? req.query.accountId : null;
   if (![1, 2, 3].includes(phase)) return res.status(400).json({ error: 'phase must be 1, 2, or 3' });
   const stageVal = 'phase' + phase;
   const calendarLink = await getCalendarLink(workspaceId);
 
   let rows;
-  if (platform === 'instagram') {
+  if (platform !== 'linkedin') {
     const [dueHour, defaultSeqId] = await Promise.all([getFollowupDueHour(workspaceId), getDefaultMessageSequenceId(workspaceId)]);
     rows = await sql`
       SELECT l.id, l.username, l.profile_url, l.full_name, l.account_id, a.username AS account_username,
@@ -2967,7 +2977,7 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
         WHERE fs.lead_id = l.id AND fs.phase = msf.phase AND fs.step = l.phase_step
       ) prev_sent ON true
       WHERE l.workspace_id = ${workspaceId} AND l.deleted_at IS NULL
-        AND l.platform = 'instagram'
+        AND l.platform = ${platform}
         AND l.stage = ${stageVal}
         AND due_at_normalized(COALESCE(prev_sent.sent_at, l.phase_started_at), msf.day_offset - COALESCE(msf_prev.day_offset, 0), ${dueHour}) <= now()
         AND (${accountId}::uuid IS NULL OR l.account_id = ${accountId}::uuid)

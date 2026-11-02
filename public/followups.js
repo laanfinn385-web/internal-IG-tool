@@ -27,7 +27,7 @@ async function loadNotifications() {
   }
 }
 
-const PLATFORM_LABELS = { instagram: 'Instagram', linkedin: 'LinkedIn' };
+const PLATFORM_LABELS = { instagram: 'Instagram', linkedin: 'LinkedIn', threads: 'Threads' };
 
 // Sidebar "N follow-ups waiting" nudge card — driven by the same payload
 // renderNotifications() already has, filtered to the two notification
@@ -154,7 +154,7 @@ function renderNotifications(notifications) {
           <button type="button" class="notif-item-delete" data-reminder-id="${n.id}" title="Delete reminder">🗑</button>
         </div>`;
     }
-    const accountLabel = n.platform === 'instagram' && n.accountUsername ? ` — @${escapeHtml(n.accountUsername)}` : '';
+    const accountLabel = n.platform !== 'linkedin' && n.accountUsername ? ` — @${escapeHtml(n.accountUsername)}` : '';
     return `
       <div class="notif-row">
         <button type="button" class="notif-item" data-type="followup" data-phase="${n.phase}" data-platform="${n.platform}" data-account-id="${n.accountId || ''}">
@@ -278,8 +278,8 @@ const followupState = { phase: null, platform: 'instagram', accountId: null, lea
 
 async function openFollowupSession(phase, platform, accountId = null) {
   followupState.phase = phase;
-  followupState.platform = platform === 'linkedin' ? 'linkedin' : 'instagram';
-  followupState.accountId = followupState.platform === 'instagram' ? accountId : null;
+  followupState.platform = platform === 'linkedin' || platform === 'threads' ? platform : 'instagram';
+  followupState.accountId = followupState.platform !== 'linkedin' ? accountId : null;
   $('#followup-title').textContent = `${PLATFORM_LABELS[followupState.platform]} ${PHASE_NAMES[phase]} Follow-ups`;
   $('#followup-queue').innerHTML = '<p class="muted" style="padding:14px;">Loading…</p>';
   $('#followup-sub').textContent = '';

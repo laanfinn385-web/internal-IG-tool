@@ -7,7 +7,7 @@ const leadsState = {
   selected: new Set(),
   page: 0,
   search: '',
-  platformFilter: 'all', // 'instagram' | 'linkedin' | 'all'
+  platformFilter: 'all', // 'instagram' | 'linkedin' | 'threads' | 'all'
   stageFilter: new Set(), // empty = no filter, show every stage
   remindersByLead: {} // leadId -> reminder (soonest, if a lead somehow has more than one)
 };
@@ -55,6 +55,14 @@ const LEAD_FIELDS_BY_PLATFORM = {
     { key: 'fullName', label: 'Full name', required: true, patterns: [/full.?name/i, /^name$/i] },
     { key: 'headline', label: 'Headline', required: false, patterns: [/headline/i, /title/i] },
     { key: 'additionalInfo', label: 'Additional info', required: false, patterns: [/additional/i, /info/i, /note/i] }
+  ],
+  // Identical to Instagram's — Threads leads need exactly the same fields.
+  threads: [
+    { key: 'profileUrl', label: 'Profile URL', required: true, patterns: [/profile.?url/i, /^url$/i, /link/i] },
+    { key: 'username', label: 'Username', required: true, patterns: [/username/i, /handle/i, /^user$/i] },
+    { key: 'fullName', label: 'Full name', required: false, patterns: [/full.?name/i, /^name$/i] },
+    { key: 'bio', label: 'Bio', required: false, patterns: [/bio/i, /about/i] },
+    { key: 'followers', label: 'Followers', required: false, patterns: [/follower/i] }
   ]
 };
 
@@ -64,7 +72,8 @@ function escapeHtml(str) {
 
 const PHASE_MAX_STEP_BY_PLATFORM = {
   instagram: { 1: 2, 2: 9, 3: 9 },
-  linkedin: { 1: 2, 2: 2, 3: 3 }
+  linkedin: { 1: 2, 2: 2, 3: 3 },
+  threads: { 1: 2, 2: 9, 3: 9 }
 };
 
 // Stages themselves are now workspace-customizable data (see
@@ -876,8 +885,11 @@ $('#leads-selection-start').addEventListener('click', async () => {
     // force:true, matching every other "pick an account to start a
     // session with" picker — capacity/enabled-state must be current.
     const accounts = await loadIgAccounts(true);
+    // Only accounts on the same platform as the selected leads — a Threads
+    // lead must never be sent from an Instagram account, or vice versa.
+    const samePlatformAccounts = accounts.filter(a => (a.platform || 'instagram') === platform);
     const select = $('#leads-session-account-select');
-    const usable = populateAccountSelect(select, accounts);
+    const usable = populateAccountSelect(select, samePlatformAccounts);
     $('#leads-session-no-accounts').classList.toggle('hidden', usable.length > 0);
     select.classList.toggle('hidden', usable.length === 0);
     const errorEl = $('#leads-session-account-error');
@@ -1005,11 +1017,12 @@ $('#undo-btn').addEventListener('click', async () => {
 // ---------- Delete modal ----------
 
 // Which platform checkboxes are currently checked, as an array of
-// 'instagram'/'linkedin' values (0, 1, or 2 entries).
+// 'instagram'/'linkedin'/'threads' values (0 to 3 entries).
 function checkedDeletePlatforms() {
   const platforms = [];
   if ($('#delete-platform-instagram').checked) platforms.push('instagram');
   if ($('#delete-platform-linkedin').checked) platforms.push('linkedin');
+  if ($('#delete-platform-threads').checked) platforms.push('threads');
   return platforms;
 }
 
@@ -1030,8 +1043,10 @@ function updateDeleteModalState() {
   const matching = deleteModalMatchingLeads();
   const igCount = leadsState.leads.filter(l => l.platform === 'instagram').length;
   const liCount = leadsState.leads.filter(l => l.platform === 'linkedin').length;
+  const thCount = leadsState.leads.filter(l => l.platform === 'threads').length;
   $('#delete-platform-instagram-count').textContent = `(${igCount})`;
   $('#delete-platform-linkedin-count').textContent = `(${liCount})`;
+  $('#delete-platform-threads-count').textContent = `(${thCount})`;
   $('#delete-all-count').textContent = `(${matching.length})`;
 
   const rangeAvailable = platforms.length === 1;
@@ -1055,11 +1070,13 @@ function updateDeleteModalState() {
 
 $('#leads-delete-btn').addEventListener('click', () => {
   // Pre-checked to match whatever platform tab is currently active on the
-  // Leads page — "All" pre-checks both, which correctly also hides the
-  // range option by default rather than defaulting to a combined-numbering
-  // range that wouldn't mean anything.
-  $('#delete-platform-instagram').checked = leadsState.platformFilter !== 'linkedin';
-  $('#delete-platform-linkedin').checked = leadsState.platformFilter !== 'instagram';
+  // Leads page — "All" pre-checks every platform, which correctly also
+  // hides the range option by default rather than defaulting to a
+  // combined-numbering range that wouldn't mean anything.
+  const activeTab = leadsState.platformFilter;
+  $('#delete-platform-instagram').checked = activeTab === 'all' || activeTab === 'instagram';
+  $('#delete-platform-linkedin').checked = activeTab === 'all' || activeTab === 'linkedin';
+  $('#delete-platform-threads').checked = activeTab === 'all' || activeTab === 'threads';
   $('#delete-range-from').value = '';
   $('#delete-range-to').value = '';
   $('#delete-mode-all').checked = true;
@@ -1070,6 +1087,7 @@ $('#leads-delete-btn').addEventListener('click', () => {
 
 $('#delete-platform-instagram').addEventListener('change', updateDeleteModalState);
 $('#delete-platform-linkedin').addEventListener('change', updateDeleteModalState);
+$('#delete-platform-threads').addEventListener('change', updateDeleteModalState);
 
 $all('input[name="delete-mode"]').forEach(r => r.addEventListener('change', () => {
   $('#delete-range-inputs').classList.toggle('hidden', !$('#delete-mode-range').checked);
@@ -1111,11 +1129,12 @@ $('#delete-confirm-btn').addEventListener('click', () => {
 
 function updateAddModalFieldsForPlatform() {
   const isLinkedin = $('#add-platform-linkedin').checked;
+  const isThreads = $('#add-platform-threads').checked;
   $('#add-username-row').classList.toggle('hidden', isLinkedin);
   $('#add-followers-row').classList.toggle('hidden', isLinkedin);
   $('#add-headline-row').classList.toggle('hidden', !isLinkedin);
   $('#add-bio-label').textContent = isLinkedin ? 'Additional info' : 'Bio';
-  $('#add-profileUrl').placeholder = isLinkedin ? 'https://www.linkedin.com/in/username/' : 'https://www.instagram.com/username/';
+  $('#add-profileUrl').placeholder = isLinkedin ? 'https://www.linkedin.com/in/username/' : isThreads ? 'https://www.threads.net/@username' : 'https://www.instagram.com/username/';
 }
 
 $('#add-platform-row').addEventListener('change', (e) => {
@@ -1128,8 +1147,9 @@ $('#leads-add-btn').addEventListener('click', () => {
     const el = $(`#add-${f}`);
     if (el) el.value = '';
   });
-  $('#add-platform-instagram').checked = leadsState.platformFilter !== 'linkedin';
+  $('#add-platform-instagram').checked = leadsState.platformFilter !== 'linkedin' && leadsState.platformFilter !== 'threads';
   $('#add-platform-linkedin').checked = leadsState.platformFilter === 'linkedin';
+  $('#add-platform-threads').checked = leadsState.platformFilter === 'threads';
   updateAddModalFieldsForPlatform();
   $('#leads-add-modal').classList.remove('hidden');
 });
@@ -1137,7 +1157,7 @@ $('#leads-add-btn').addEventListener('click', () => {
 $('#add-cancel-btn').addEventListener('click', () => $('#leads-add-modal').classList.add('hidden'));
 
 $('#add-confirm-btn').addEventListener('click', async () => {
-  const platform = $('#add-platform-linkedin').checked ? 'linkedin' : 'instagram';
+  const platform = $('#add-platform-linkedin').checked ? 'linkedin' : $('#add-platform-threads').checked ? 'threads' : 'instagram';
   const profileUrl = $('#add-profileUrl').value.trim();
   let body;
   if (platform === 'linkedin') {
@@ -1160,10 +1180,11 @@ $('#add-confirm-btn').addEventListener('click', async () => {
       alert('Enter at least a profile URL or username.');
       return;
     }
-    const usernameMatch = profileUrl.match(/instagram\.com\/([a-zA-Z0-9._]+)/);
+    const usernameMatch = profileUrl.match(/(?:instagram|threads)\.(?:com|net)\/@?([a-zA-Z0-9._]+)/);
+    const defaultUrl = platform === 'threads' ? `https://www.threads.net/@${username}` : `https://www.instagram.com/${username}/`;
     body = {
       platform,
-      profileUrl: profileUrl || (username ? `https://www.instagram.com/${username}/` : ''),
+      profileUrl: profileUrl || (username ? defaultUrl : ''),
       username: username || (usernameMatch ? usernameMatch[1] : ''),
       fullName: $('#add-fullName').value.trim(),
       bio: $('#add-bio').value,
@@ -1203,7 +1224,7 @@ function handleCsvFile(file) {
   resetCsvState();
   // Defaults to the page's active platform tab (falling back to Instagram
   // when viewing "All", since a single CSV import is always one platform).
-  csvState.platform = leadsState.platformFilter === 'linkedin' ? 'linkedin' : 'instagram';
+  csvState.platform = ['linkedin', 'threads'].includes(leadsState.platformFilter) ? leadsState.platformFilter : 'instagram';
   const reader = new FileReader();
   reader.onload = () => {
     const text = String(reader.result || '');
@@ -1258,6 +1279,7 @@ function autoMapColumns(headers, platform) {
 function openMappingModal() {
   $('#mapping-platform-instagram').checked = csvState.platform === 'instagram';
   $('#mapping-platform-linkedin').checked = csvState.platform === 'linkedin';
+  $('#mapping-platform-threads').checked = csvState.platform === 'threads';
   renderMappingGrid();
   $('#leads-mapping-modal').classList.remove('hidden');
 }

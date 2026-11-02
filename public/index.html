@@ -194,6 +194,7 @@
 
           <div class="range-tabs" id="home-session-platform-tabs">
             <button type="button" class="range-tab active" data-session-platform="instagram">Instagram</button>
+            <button type="button" class="range-tab" data-session-platform="threads">Threads</button>
             <button type="button" class="range-tab" data-session-platform="linkedin">LinkedIn</button>
             <button type="button" class="range-tab" data-session-platform="combi">Combined</button>
           </div>
@@ -229,7 +230,7 @@
           <div id="home-session-account-row" class="hidden">
             <p class="home-session-label">Send from</p>
             <div id="home-session-account-list" class="home-account-list"></div>
-            <p class="muted hidden" id="home-session-no-accounts">No Instagram accounts yet — <a href="#" data-nav="settings" class="inline-link">add one in Settings</a> first.</p>
+            <p class="muted hidden" id="home-session-no-accounts">No accounts for this platform yet — <a href="#" data-nav="settings" class="inline-link">add one in Settings</a> first.</p>
             <p class="hidden" id="home-session-account-error" style="color: var(--red); font-size: 0.85rem; margin-top: 6px;"></p>
           </div>
 
@@ -738,6 +739,7 @@
       <div class="leads-controls-row">
         <div class="range-tabs" id="leads-platform-tabs">
           <button type="button" class="range-tab" data-platform="instagram">Instagram</button>
+          <button type="button" class="range-tab" data-platform="threads">Threads</button>
           <button type="button" class="range-tab" data-platform="linkedin">LinkedIn</button>
           <button type="button" class="range-tab active" data-platform="all">All</button>
         </div>
@@ -814,6 +816,10 @@
               Instagram
             </label>
             <label class="radio-label">
+              <input type="radio" name="mapping-platform" value="threads" id="mapping-platform-threads">
+              Threads
+            </label>
+            <label class="radio-label">
               <input type="radio" name="mapping-platform" value="linkedin" id="mapping-platform-linkedin">
               LinkedIn
             </label>
@@ -844,6 +850,10 @@
             <label class="radio-label">
               <input type="radio" name="add-platform" value="instagram" id="add-platform-instagram" checked>
               Instagram
+            </label>
+            <label class="radio-label">
+              <input type="radio" name="add-platform" value="threads" id="add-platform-threads">
+              Threads
             </label>
             <label class="radio-label">
               <input type="radio" name="add-platform" value="linkedin" id="add-platform-linkedin">
@@ -887,6 +897,10 @@
             <label class="radio-label">
               <input type="checkbox" id="delete-platform-instagram" checked>
               Instagram <span class="muted" id="delete-platform-instagram-count"></span>
+            </label>
+            <label class="radio-label">
+              <input type="checkbox" id="delete-platform-threads" checked>
+              Threads <span class="muted" id="delete-platform-threads-count"></span>
             </label>
             <label class="radio-label">
               <input type="checkbox" id="delete-platform-linkedin">
@@ -1406,8 +1420,8 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=53"></script>
-<script src="leads.js?v=34"></script>
-<script src="followups.js?v=35"></script>
+<script src="app.js?v=54"></script>
+<script src="leads.js?v=35"></script>
+<script src="followups.js?v=36"></script>
 </body>
 </html>
