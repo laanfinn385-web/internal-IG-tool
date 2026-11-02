@@ -995,13 +995,20 @@ function renderAccountsList() {
     ).join('');
     const hasOverride = a.dailyLimitOverride != null && a.dailyLimitOverrideUntil;
     const overrideNote = hasOverride ? ` · manual override through ${formatOverrideUntil(a.dailyLimitOverrideUntil)}` : '';
+    const platformPrefix = a.platform === 'threads' ? 'Threads · ' : '';
     return `
       <div class="account-row${isWarming ? ' account-row-warming' : ''}" data-id="${a.id}">
         <div class="account-row-main">
+          <label class="toggle-row account-enabled-toggle" title="On: available for starting new sessions. Off: hidden from new-session pickers — follow-ups and notifications keep working normally.">
+            <span class="toggle-switch">
+              <input type="checkbox" class="account-enabled-checkbox" data-id="${a.id}" ${a.enabled !== false ? 'checked' : ''}>
+              <span class="toggle-switch-track"></span>
+            </span>
+          </label>
           ${accountPhotoHtml(a)}
           <div class="account-main">
             <div class="account-username">@${escapeHtml(a.username)}</div>
-            <div class="muted account-meta">${formatAccountAge(a.ageDays)} · recommended max ${a.tierCap}/day · sent ${a.todaySentCount} today · ${a.dailyLimit}/day limit${overrideNote}</div>
+            <div class="muted account-meta">${platformPrefix}${formatAccountAge(a.ageDays)} · recommended max ${a.tierCap}/day · sent ${a.todaySentCount} today · ${a.dailyLimit}/day limit${overrideNote}</div>
           </div>
           <label class="account-limit-label">Timing sequence
             <select class="account-timing-seq-select" data-id="${a.id}">${sequenceOptions}</select>
@@ -1043,6 +1050,35 @@ $('#accounts-list').addEventListener('change', async (e) => {
     alert(`Could not reassign ${timingSelect ? 'Timing' : 'Messaging'} sequence: ${err.message}`);
   } finally {
     select.disabled = false;
+  }
+});
+
+$('#accounts-list').addEventListener('change', async (e) => {
+  const checkbox = e.target.closest('.account-enabled-checkbox');
+  if (!checkbox) return;
+  const id = checkbox.dataset.id;
+  const account = settingsState.accounts.find(a => a.id === id);
+  if (!account) return;
+  const enabled = checkbox.checked;
+  checkbox.disabled = true;
+  try {
+    await fetchJson(`/api/accounts/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled })
+    });
+    await loadAccounts();
+    // settingsState.accounts (above) and igAccountsCache (app.js) are
+    // separate caches — Home/the daily-goal picker/switch-accounts all
+    // read the latter, which nothing in Settings normally touches. Force
+    // a refresh so a toggle takes effect immediately everywhere, not just
+    // after a full page reload.
+    await loadIgAccounts(true);
+  } catch (err) {
+    checkbox.checked = !enabled;
+    alert(`Could not ${enabled ? 'enable' : 'disable'} @${account.username}: ${err.message}`);
+  } finally {
+    checkbox.disabled = false;
   }
 });
 
@@ -1197,6 +1233,7 @@ $('#accounts-list').addEventListener('click', async (e) => {
 });
 
 let pendingAccountImageUrl = null;
+let pendingAccountPlatform = 'instagram';
 
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
@@ -1214,10 +1251,20 @@ $('#accounts-add-btn').addEventListener('click', () => {
   $('#add-account-image-status').textContent = '';
   $('#add-account-error').style.display = 'none';
   pendingAccountImageUrl = null;
+  pendingAccountPlatform = 'instagram';
+  $all('#add-account-platform-tabs .range-tab').forEach(b => b.classList.toggle('active', b.dataset.platform === 'instagram'));
   $('#add-account-modal').classList.remove('hidden');
 });
 
 $('#add-account-cancel-btn').addEventListener('click', () => $('#add-account-modal').classList.add('hidden'));
+
+$('#add-account-platform-tabs').addEventListener('click', (e) => {
+  const btn = e.target.closest('.range-tab');
+  if (!btn) return;
+  $all('#add-account-platform-tabs .range-tab').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  pendingAccountPlatform = btn.dataset.platform;
+});
 
 $('#add-account-image').addEventListener('change', async (e) => {
   const file = e.target.files[0];
@@ -1253,7 +1300,7 @@ $('#add-account-confirm-btn').addEventListener('click', async () => {
     await fetchJson('/api/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, createdOn, profileImageUrl: pendingAccountImageUrl })
+      body: JSON.stringify({ username, createdOn, profileImageUrl: pendingAccountImageUrl, platform: pendingAccountPlatform })
     });
     $('#add-account-modal').classList.add('hidden');
     await loadAccounts();
