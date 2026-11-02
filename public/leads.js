@@ -873,7 +873,9 @@ $('#leads-selection-start').addEventListener('click', async () => {
       return;
     }
     pendingLeadsSessionSelection = selectedLeads;
-    const accounts = await loadIgAccounts();
+    // force:true, matching every other "pick an account to start a
+    // session with" picker — capacity/enabled-state must be current.
+    const accounts = await loadIgAccounts(true);
     const select = $('#leads-session-account-select');
     const usable = populateAccountSelect(select, accounts);
     $('#leads-session-no-accounts').classList.toggle('hidden', usable.length > 0);

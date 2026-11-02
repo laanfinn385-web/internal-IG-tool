@@ -1145,7 +1145,7 @@ function findIgAccount(id) {
 // picking it. Returns the list actually shown (so callers can tell if it's
 // empty).
 function populateAccountSelect(selectEl, accounts, excludeIds = []) {
-  const usable = accounts.filter(a => !excludeIds.includes(a.id));
+  const usable = accounts.filter(a => !excludeIds.includes(a.id) && a.enabled !== false);
   selectEl.innerHTML = usable.map(a => {
     const followupNote = a.pendingPhase1FollowupCount > 0 ? `, ${a.pendingPhase1FollowupCount} follow-up${a.pendingPhase1FollowupCount === 1 ? '' : 's'} due` : '';
     return `<option value="${a.id}">@${escapeHtml(a.username)} (${a.todaySentCount}/${a.dailyLimit} today${followupNote})</option>`;
@@ -1161,7 +1161,7 @@ function populateAccountSelect(selectEl, accounts, excludeIds = []) {
 // for — otherwise the account looks available right up until the follow-up
 // backlog for the day pushes it over.
 function accountCanSendToday(account) {
-  return !!account && account.effectiveRemainingForNewSends > 0;
+  return !!account && account.enabled !== false && account.effectiveRemainingForNewSends > 0;
 }
 
 function accountBlockedReason(account) {
@@ -1250,7 +1250,16 @@ async function refreshHomeSessionAccountRow() {
   // should never look clickable before a usable account is actually
   // confirmed selected, not even for the brief moment while this loads.
   startBtn.disabled = true;
-  const accounts = await loadIgAccounts();
+  // Disabled accounts are excluded from the render list entirely here, not
+  // just left unselectable — "I won't see it anywhere when starting a
+  // session" means never rendered, matching every other session-start
+  // picker (accountCanSendToday/populateAccountSelect enforce the same
+  // rule for the pickers that already filter their own list).
+  // force:true, matching every other "pick an account to start a session
+  // with" picker (daily-goal, switch-accounts, limit-reached) — capacity
+  // and enabled-state both need to be current, not whatever was cached
+  // from an earlier page load.
+  const accounts = (await loadIgAccounts(true)).filter(a => a.enabled !== false);
   const listEl = $('#home-session-account-list');
   $('#home-session-no-accounts').classList.toggle('hidden', accounts.length > 0);
   listEl.classList.toggle('hidden', accounts.length === 0);

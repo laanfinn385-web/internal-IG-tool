@@ -1080,7 +1080,7 @@
         <div class="settings-nav-links">
           <a href="#settings-profile-card" class="settings-nav-link">Profile</a>
           <a href="#settings-sequences-grid" class="settings-nav-link">Sequences</a>
-          <a href="#settings-accounts-card" class="settings-nav-link">Instagram accounts</a>
+          <a href="#settings-accounts-card" class="settings-nav-link">Instagram &amp; Threads accounts</a>
           <a href="#settings-goal-card" class="settings-nav-link">Daily goal</a>
           <a href="#settings-reminders-card" class="settings-nav-link">Reminders</a>
           <a href="#settings-general-card" class="settings-nav-link">General</a>
@@ -1131,7 +1131,7 @@
       </div>
 
       <div class="card" id="settings-accounts-card">
-        <h3>Instagram accounts</h3>
+        <h3>Instagram &amp; Threads accounts</h3>
         <p class="muted" style="margin-top:-8px;">Rotate between accounts to keep Instagram from flagging any one of them for high-volume DMing. Each account's daily limit and in-session pacing come from its assigned Timing sequence below.</p>
         <div id="accounts-list" class="accounts-list"></div>
         <button id="accounts-add-btn" class="btn-secondary">+ Add account</button>
@@ -1141,6 +1141,10 @@
       <div id="add-account-modal" class="modal-overlay hidden">
         <div class="modal">
           <h3>Add account</h3>
+          <div class="range-tabs" id="add-account-platform-tabs">
+            <button type="button" class="range-tab active" data-platform="instagram">Instagram</button>
+            <button type="button" class="range-tab" data-platform="threads">Threads</button>
+          </div>
           <label>Username
             <input type="text" id="add-account-username" placeholder="username">
           </label>
@@ -1402,8 +1406,8 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=52"></script>
-<script src="leads.js?v=33"></script>
-<script src="followups.js?v=34"></script>
+<script src="app.js?v=53"></script>
+<script src="leads.js?v=34"></script>
+<script src="followups.js?v=35"></script>
 </body>
 </html>

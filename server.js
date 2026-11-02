@@ -765,7 +765,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
         WHERE workspace_id = ${workspaceId} AND phase = 1 AND date = ${today} AND account_id IS NOT NULL
         GROUP BY account_id
       ) sent_today ON sent_today.account_id = a.id
-      WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL
+      WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL AND a.disabled_at IS NULL
     `;
     dailyGoalInstagram = Number(total_goal);
   }
@@ -1802,6 +1802,8 @@ function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount, rampDays) 
   return {
     id: r.id,
     username: r.username,
+    platform: r.platform,
+    enabled: r.disabled_at == null,
     createdOn: r.created_on,
     profileImageUrl: r.profile_image_url,
     dailyLimit: r.daily_limit,
@@ -2154,10 +2156,11 @@ app.post('/api/accounts', asyncRoute(async (req, res) => {
     sql`SELECT id FROM timing_sequences WHERE workspace_id = ${workspaceId} AND name = ${DEFAULT_TIMING_SEQUENCE_NAMES[tierCap]} AND archived_at IS NULL`,
     getDefaultMessageSequenceId(workspaceId)
   ]);
+  const platform = req.body.platform === 'threads' ? 'threads' : 'instagram';
   const id = crypto.randomUUID();
   await sql`
-    INSERT INTO ig_accounts (id, workspace_id, username, created_on, profile_image_url, daily_limit, timing_sequence_id, message_sequence_id)
-    VALUES (${id}, ${workspaceId}, ${username}, ${createdOn}, ${req.body.profileImageUrl || null}, 0, ${defaultSeq ? defaultSeq.id : null}, ${defaultMessageSeqId})
+    INSERT INTO ig_accounts (id, workspace_id, username, platform, created_on, profile_image_url, daily_limit, timing_sequence_id, message_sequence_id)
+    VALUES (${id}, ${workspaceId}, ${username}, ${platform}, ${createdOn}, ${req.body.profileImageUrl || null}, 0, ${defaultSeq ? defaultSeq.id : null}, ${defaultMessageSeqId})
   `;
   res.json({ ok: true, id });
 }));
@@ -2170,6 +2173,10 @@ app.patch('/api/accounts/:id', asyncRoute(async (req, res) => {
   if (req.body.profileImageUrl !== undefined) { sets.push(`profile_image_url = $${i++}`); params.push(req.body.profileImageUrl); }
   if (req.body.timingSequenceId !== undefined) { sets.push(`timing_sequence_id = $${i++}`); params.push(req.body.timingSequenceId); }
   if (req.body.messageSequenceId !== undefined) { sets.push(`message_sequence_id = $${i++}`); params.push(req.body.messageSequenceId); }
+  // Hides the account from every "start a new session" picker without
+  // touching anything else — notifications and the Follow-ups queue stay
+  // unaffected, unlike archived_at (a full removal from everywhere).
+  if (req.body.enabled !== undefined) { sets.push(`disabled_at = $${i++}`); params.push(req.body.enabled ? null : new Date()); }
   if (sets.length === 0) return res.json({ ok: true });
   params.push(id);
   params.push(workspaceId);
