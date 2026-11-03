@@ -747,7 +747,10 @@ app.get('/api/home', asyncRoute(async (req, res) => {
     // after sends already went out) can't drag the combined total below
     // what another, perfectly healthy account can still contribute.
     const [{ total_goal }] = await sql`
-      SELECT COALESCE(SUM(GREATEST(a.daily_limit - COALESCE(pending.cnt, 0) - COALESCE(sent_today.cnt, 0), 0)), 0) AS total_goal
+      SELECT COALESCE(SUM(GREATEST(a.daily_limit - LEAST(
+        COALESCE(pending.cnt, 0),
+        CASE WHEN cap.cap IS NULL THEN COALESCE(pending.cnt, 0) ELSE GREATEST(cap.cap - COALESCE(sent_today.cnt, 0), 0) END
+      ) - COALESCE(sent_today.cnt, 0), 0)), 0) AS total_goal
       FROM ig_accounts a
       LEFT JOIN (
         SELECT l.account_id, count(*) AS cnt
@@ -775,6 +778,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
         WHERE workspace_id = ${workspaceId} AND phase = 1 AND date = ${today} AND account_id IS NOT NULL
         GROUP BY account_id
       ) sent_today ON sent_today.account_id = a.id
+      LEFT JOIN followup_daily_caps cap ON cap.account_id = a.id AND cap.phase = 1 AND cap.date = ${today}
       WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL AND a.disabled_at IS NULL
     `;
     dailyGoalInstagram = Number(total_goal);
@@ -1916,6 +1920,21 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
   const pendingByAccount = {};
   pendingRows.forEach(r => { pendingByAccount[r.account_id] = Number(r.count); });
 
+  // A manually-set "how many of today's due follow-ups will I actually
+  // send" cap (see PUT /api/followups/cap) frees up the rest of that
+  // reservation for new cold sends instead of assuming every due follow-up
+  // will go out today. Only ever narrows pendingByAccount, never widens it
+  // — no cap row for an account means "assume all of them," today's
+  // existing behavior.
+  const followupSentByAccount = {};
+  followupSentRows.forEach(r => { followupSentByAccount[r.account_id] = Number(r.count); });
+  const capRows = await sql`SELECT account_id, cap FROM followup_daily_caps WHERE workspace_id = ${workspaceId} AND phase = 1 AND date = ${today}`;
+  capRows.forEach(r => {
+    if (pendingByAccount[r.account_id] == null) return;
+    const remainingCommitted = Math.max(0, Number(r.cap) - (followupSentByAccount[r.account_id] || 0));
+    pendingByAccount[r.account_id] = Math.min(pendingByAccount[r.account_id], remainingCommitted);
+  });
+
   // Lazy write-through — daily_limit stays a stored, kept-up-to-date column
   // (not purely derived) because two other endpoints read it directly: the
   // "sync to accounts max sends" daily-goal sum, and the follow-up-sent
@@ -3012,7 +3031,9 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
       accountId: null, accountUsername: null, phase, step: r.step, type: r.type, mediaNote: r.media_note,
       message: composeFollowupMessage(partsByStep[r.step], r.message, r, calendarLink)
     }));
-    return res.json({ leads });
+    // No per-day cap for LinkedIn — it has no account/daily-limit concept for
+    // this to free up capacity against, so it stays fully uncapped as before.
+    return res.json({ leads, trueDueCount: leads.length, cap: null, accountUsername: null });
   }
 
   const leads = rows.map(r => ({
@@ -3031,7 +3052,50 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
     // per step, composeFollowupMessage's no-componentGroups fallback path.
     message: composeFollowupMessage(null, r.message, r, calendarLink)
   }));
-  res.json({ leads });
+  const trueDueCount = leads.length;
+  // Captured from the full (unsliced) list — survives the cap slicing the
+  // visible leads down to zero, which would otherwise lose the "sending as
+  // @account" context entirely once today's cap is fully used up.
+  const accountUsername = leads[0] ? leads[0].accountUsername : null;
+  let cap = null;
+  let slicedLeads = leads;
+  if (accountId) {
+    const [capRow] = await sql`SELECT cap FROM followup_daily_caps WHERE workspace_id = ${workspaceId} AND account_id = ${accountId} AND phase = ${phase} AND date = ${todayStr()}`;
+    if (capRow) {
+      cap = Number(capRow.cap);
+      const [{ count: sentTodayForPhase }] = await sql`
+        SELECT count(*)::int AS count FROM followup_sends
+        WHERE workspace_id = ${workspaceId} AND account_id = ${accountId} AND phase = ${phase} AND date = ${todayStr()}
+      `;
+      const remainingForToday = Math.max(0, cap - sentTodayForPhase);
+      slicedLeads = leads.slice(0, remainingForToday);
+    }
+  }
+  res.json({ leads: slicedLeads, trueDueCount, cap, accountUsername });
+}));
+
+// Sets how many of today's due follow-ups (for one account + phase) the
+// user actually intends to send today — anything beyond that no longer
+// gets reserved out of the account's daily send capacity (see the
+// pendingByAccount clamp in GET /api/accounts and the sync-to-accounts
+// daily-goal SUM in /api/home), freeing it up for new cold sends instead.
+// Upserted per (workspace, account, phase, day) — defaults to "assume
+// every due follow-up goes out today" until the user sets this explicitly.
+app.put('/api/followups/cap', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  const accountId = req.body.accountId;
+  const phase = Number(req.body.phase);
+  const cap = Math.round(Number(req.body.cap));
+  if (!accountId) return res.status(400).json({ error: 'accountId is required.' });
+  if (![1, 2, 3].includes(phase)) return res.status(400).json({ error: 'phase must be 1, 2, or 3' });
+  if (!Number.isFinite(cap) || cap < 0) return res.status(400).json({ error: 'A valid, non-negative cap is required.' });
+  const today = todayStr();
+  await sql`
+    INSERT INTO followup_daily_caps (id, workspace_id, account_id, phase, date, cap)
+    VALUES (${crypto.randomUUID()}, ${workspaceId}, ${accountId}, ${phase}, ${today}, ${cap})
+    ON CONFLICT (workspace_id, account_id, phase, date) DO UPDATE SET cap = ${cap}, updated_at = now()
+  `;
+  res.json({ ok: true });
 }));
 
 // The LinkedIn leads whose connection-request delay has elapsed since being

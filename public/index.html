@@ -1049,6 +1049,13 @@
           <div class="eyebrow">Follow-ups</div>
           <h1 id="followup-title" style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;">Follow-ups</h1>
           <p class="muted" id="followup-sub"></p>
+          <div id="followup-cap-row" class="hidden" style="display:flex;align-items:center;gap:10px;">
+            <span class="muted" id="followup-cap-note"></span>
+            <label style="display:flex;align-items:center;gap:6px;font-size:0.85rem;">Sending today
+              <input type="number" id="followup-cap-input" min="0" style="width:70px;">
+            </label>
+            <button type="button" id="followup-cap-save-btn" class="btn-secondary" style="padding:4px 12px;">Update</button>
+          </div>
         </div>
         <button id="followup-back-btn" class="btn-secondary">← Back</button>
       </div>
@@ -1422,6 +1429,6 @@
 <script src="templates.js?v=23"></script>
 <script src="app.js?v=54"></script>
 <script src="leads.js?v=35"></script>
-<script src="followups.js?v=36"></script>
+<script src="followups.js?v=37"></script>
 </body>
 </html>
