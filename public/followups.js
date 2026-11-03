@@ -274,7 +274,7 @@ $('#home-followups-due-link').addEventListener('click', (e) => {
 
 // ---------- Follow-up session ----------
 
-const followupState = { phase: null, platform: 'instagram', accountId: null, leads: [], selectedId: null };
+const followupState = { phase: null, platform: 'instagram', accountId: null, leads: [], selectedId: null, trueDueCount: 0, cap: null };
 
 async function openFollowupSession(phase, platform, accountId = null) {
   followupState.phase = phase;
@@ -283,25 +283,72 @@ async function openFollowupSession(phase, platform, accountId = null) {
   $('#followup-title').textContent = `${PLATFORM_LABELS[followupState.platform]} ${PHASE_NAMES[phase]} Follow-ups`;
   $('#followup-queue').innerHTML = '<p class="muted" style="padding:14px;">Loading…</p>';
   $('#followup-sub').textContent = '';
+  $('#followup-cap-row').classList.add('hidden');
   $('#followup-empty').classList.add('hidden');
   $('#followup-split').classList.remove('hidden');
   showView('followup');
   try {
-    const accountParam = followupState.accountId ? `&accountId=${encodeURIComponent(followupState.accountId)}` : '';
-    const data = await fetchJson(`/api/followups/due?phase=${phase}&platform=${followupState.platform}${accountParam}`);
-    followupState.leads = data.leads || [];
-    followupState.selectedId = followupState.leads[0] ? followupState.leads[0].id : null;
-    // The notification that opened this session was already scoped to one
-    // account (that's how it knew "8 leads to follow up with" in the first
-    // place) — surfacing the username here is the "auto-select the right
-    // account" requirement, since there's no separate picker step to skip.
-    const accountUsername = followupState.leads[0]?.accountUsername;
-    $('#followup-sub').textContent = accountUsername ? `Sending as @${accountUsername}` : '';
-    renderFollowupQueue();
+    await loadFollowupQueueFromServer();
   } catch (e) {
     $('#followup-queue').innerHTML = `<p class="import-error" style="padding:14px;">Could not load follow-ups: ${escapeHtml(e.message)}</p>`;
   }
 }
+
+// Re-fetches the due list (and the current cap) for whatever's in
+// followupState right now — called on open, and again after the user
+// changes the "sending today" cap so the queue immediately reflects it.
+async function loadFollowupQueueFromServer() {
+  const { phase, accountId } = followupState;
+  const accountParam = accountId ? `&accountId=${encodeURIComponent(accountId)}` : '';
+  const data = await fetchJson(`/api/followups/due?phase=${phase}&platform=${followupState.platform}${accountParam}`);
+  followupState.leads = data.leads || [];
+  followupState.trueDueCount = data.trueDueCount || 0;
+  followupState.cap = data.cap;
+  followupState.selectedId = followupState.leads[0] ? followupState.leads[0].id : null;
+  // The notification that opened this session was already scoped to one
+  // account (that's how it knew "8 leads to follow up with" in the first
+  // place) — surfacing the username here is the "auto-select the right
+  // account" requirement, since there's no separate picker step to skip.
+  $('#followup-sub').textContent = data.accountUsername ? `Sending as @${data.accountUsername}` : '';
+  renderFollowupCapRow();
+  renderFollowupQueue();
+}
+
+// The "how many of today's due follow-ups will you actually send" control
+// — only applies to Instagram/Threads (accountId set); LinkedIn has no
+// account/daily-limit concept for a cap to free up capacity against.
+function renderFollowupCapRow() {
+  const row = $('#followup-cap-row');
+  if (!followupState.accountId) { row.classList.add('hidden'); return; }
+  row.classList.remove('hidden');
+  const { trueDueCount, cap } = followupState;
+  $('#followup-cap-note').textContent = `${trueDueCount} due today`;
+  $('#followup-cap-input').value = cap != null ? cap : trueDueCount;
+}
+
+$('#followup-cap-save-btn').addEventListener('click', async () => {
+  const raw = Number($('#followup-cap-input').value);
+  if (!Number.isFinite(raw) || raw < 0) { alert('Enter a valid number (0 or more).'); return; }
+  const cap = Math.round(raw);
+  const btn = $('#followup-cap-save-btn');
+  btn.disabled = true;
+  try {
+    await fetchJson('/api/followups/cap', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ accountId: followupState.accountId, phase: followupState.phase, cap })
+    });
+    await loadFollowupQueueFromServer();
+    // The account's freed-up/reserved capacity changed — every "pick an
+    // account" picker reads from this cache, same refresh the enabled-
+    // toggle and account edits already force elsewhere.
+    await loadIgAccounts(true);
+  } catch (e) {
+    alert(`Could not update today's follow-up count: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+});
 
 // LinkedIn's connection-request session — notification-driven only, uses the
 // same simple swipeable session view as engagement sessions (see app.js).
