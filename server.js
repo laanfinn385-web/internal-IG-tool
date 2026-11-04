@@ -878,7 +878,7 @@ app.post('/api/outreach', asyncRoute(async (req, res) => {
 
 app.get('/api/analytics', asyncRoute(async (req, res) => {
   const workspaceId = await getWorkspaceId(req);
-  const platform = ['instagram', 'linkedin'].includes(req.query.platform) ? req.query.platform : 'all';
+  const platform = ['instagram', 'linkedin', 'threads'].includes(req.query.platform) ? req.query.platform : 'all';
   const data = await loadData(workspaceId, platform);
   const range = req.query.range || 'month';
   const sent = data.outreaches.filter(o => o.status === 'sent');
