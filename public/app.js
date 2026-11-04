@@ -2272,8 +2272,14 @@ async function decide(status) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          leadId: p.leadId,
           platform: p.platform,
-          accountId: p.platform === 'instagram' ? state.igAccountId : null,
+          // Threads reuses the exact same ig_message session/account
+          // pipeline as Instagram — state.igAccountId holds whichever of
+          // the two is actually active, so it must flow through for both,
+          // not just 'instagram'. (p.platform === 'linkedin' is the only
+          // real exclusion — LinkedIn has no account concept at all.)
+          accountId: p.platform !== 'linkedin' ? state.igAccountId : null,
           username: p.username,
           profileUrl: p.profileUrl,
           fullName: p.fullName,
@@ -2326,8 +2332,11 @@ async function decide(status) {
           bio: p.bio,
           followers: p.followers,
           stage: 'phase1',
-          accountId: p.platform === 'instagram' ? state.igAccountId : undefined,
-          openerId: p.platform === 'instagram' ? p.openerId : undefined
+          // Same instagram-or-threads reasoning as the /api/outreach call
+          // just above — both share the real account/opener system, only
+          // LinkedIn has neither.
+          accountId: p.platform !== 'linkedin' ? state.igAccountId : undefined,
+          openerId: p.platform !== 'linkedin' ? p.openerId : undefined
         })
       }).then(() => loadNotifications()).catch(e => console.error('Could not update lead stage', e));
     } else if (status === 'cant_message') {
