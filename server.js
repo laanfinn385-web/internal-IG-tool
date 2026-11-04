@@ -662,14 +662,14 @@ app.get('/api/home', asyncRoute(async (req, res) => {
   const eventRows = await sql`
     SELECT e.event, count(*) FROM lead_events e
     JOIN leads l ON l.id = e.lead_id
-    WHERE e.workspace_id = ${workspaceId} AND e.event IN ('positive_reply', 'dead', 'call_booked', 'connection_sent', 'connection_accepted')
+    WHERE e.workspace_id = ${workspaceId} AND e.event IN ('positive_reply', 'dead', 'reply', 'call_booked', 'connection_sent', 'connection_accepted')
     ${platform === 'all' ? sql`` : sql`AND l.platform = ${platform}`}
     GROUP BY e.event
   `;
-  const eventCounts = { positive_reply: 0, dead: 0, call_booked: 0, connection_sent: 0, connection_accepted: 0 };
+  const eventCounts = { positive_reply: 0, dead: 0, reply: 0, call_booked: 0, connection_sent: 0, connection_accepted: 0 };
   eventRows.forEach(r => { eventCounts[r.event] = Number(r.count); });
   const rate = (num, denom) => (denom > 0 ? Math.round((num / denom) * 1000) / 10 : null);
-  const replyRate = rate(eventCounts.positive_reply + eventCounts.dead, sent.length);
+  const replyRate = rate(eventCounts.positive_reply + eventCounts.dead + eventCounts.reply, sent.length);
   const prr = rate(eventCounts.positive_reply, sent.length);
   const asr = rate(eventCounts.call_booked, sent.length);
   const car = rate(eventCounts.connection_accepted, eventCounts.connection_sent);
@@ -861,6 +861,16 @@ app.post('/api/outreach', asyncRoute(async (req, res) => {
     VALUES (${record.id}, ${workspaceId}, ${record.date}, ${record.createdAt}, ${record.platform}, ${record.accountId}, ${record.username}, ${record.profileUrl}, ${record.fullName}, ${record.bio}, ${record.followers}, ${record.lastPostWeeks}, ${record.postsPerWeek}, ${record.avgViews}, ${record.template}, ${record.message}, ${record.status})
   `;
 
+  // outreaches has no lead_id column (it's a denormalized snapshot, not
+  // linked back to a lead) — but a real send still needs to flip the
+  // lead's own send_registered flag, or a later manual stage move into a
+  // "register as send" stage (phase1 defaults to one) would see
+  // send_registered still false and credit a second, duplicate outreach
+  // for a lead that was already really sent to through this exact request.
+  if (req.body.leadId && record.status === 'sent') {
+    await sql`UPDATE leads SET send_registered = true WHERE id = ${req.body.leadId} AND workspace_id = ${workspaceId}`;
+  }
+
   // Lets the client know immediately whether this send just hit the active
   // account's daily cap, without a second round-trip — only meaningful for a
   // real Instagram account send that actually counted (a 'sent' status).
@@ -1007,12 +1017,13 @@ app.get('/api/analytics', asyncRoute(async (req, res) => {
   // dedup-fix migration and the followup content migration) — both are
   // scoped via a join to leads instead of a flat WHERE.
   const [
-    [{ count: followupsCount }], [{ count: positiveReplyCount }], [{ count: deadCount }],
+    [{ count: followupsCount }], [{ count: positiveReplyCount }], [{ count: deadCount }], [{ count: replyCount }],
     [{ count: appointmentsCount }], [{ count: connectionsSentCount }], [{ count: connectionsAcceptedCount }]
   ] = await Promise.all([
     sql`SELECT count(*) FROM followup_sends fs JOIN leads l ON l.id = fs.lead_id WHERE fs.workspace_id = ${workspaceId} AND fs.date >= ${currentStart} AND fs.date <= ${currentEnd} ${platformClause(platform)}`,
     sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'positive_reply' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
     sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'dead' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
+    sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'reply' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
     sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'call_booked' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
     sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'connection_sent' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`,
     sql`SELECT count(*) FROM lead_events e JOIN leads l ON l.id = e.lead_id WHERE e.workspace_id = ${workspaceId} AND e.event = 'connection_accepted' AND e.date >= ${currentStart} AND e.date <= ${currentEnd} ${platformClause(platform)}`
@@ -1023,8 +1034,10 @@ app.get('/api/analytics', asyncRoute(async (req, res) => {
   const connectionsSent = Number(connectionsSentCount);
   const connectionsAccepted = Number(connectionsAcceptedCount);
   // Replies = Positive Replies + Dead (a "no" is still a reply; going
-  // completely unanswered is not) — see the analytics tracking discussion.
-  const replies = positiveReplies + Number(deadCount);
+  // completely unanswered is not) + any stage explicitly flagged "register
+  // as reply" (lead_stages.register_reply) — see the analytics tracking
+  // discussion.
+  const replies = positiveReplies + Number(deadCount) + Number(replyCount);
   const rate = (num, denom) => (denom > 0 ? Math.round((num / denom) * 1000) / 10 : null);
 
   const funnel = {
@@ -1058,7 +1071,8 @@ app.get('/api/analytics/openers', asyncRoute(async (req, res) => {
       count(l.id) AS sends,
       count(l.id) FILTER (WHERE l.ever_positive_reply) AS positive_replies,
       count(l.id) FILTER (WHERE l.ever_call_booked) AS appointments_set,
-      count(l.id) FILTER (WHERE EXISTS (SELECT 1 FROM lead_events e WHERE e.lead_id = l.id AND e.event = 'dead')) AS dead_count
+      count(l.id) FILTER (WHERE EXISTS (SELECT 1 FROM lead_events e WHERE e.lead_id = l.id AND e.event = 'dead')) AS dead_count,
+      count(l.id) FILTER (WHERE EXISTS (SELECT 1 FROM lead_events e WHERE e.lead_id = l.id AND e.event = 'reply')) AS reply_count
     FROM message_sequence_openers o
     JOIN message_sequences ms ON ms.id = o.sequence_id
     LEFT JOIN leads l ON l.opener_id = o.id AND l.deleted_at IS NULL
@@ -1071,9 +1085,10 @@ app.get('/api/analytics/openers', asyncRoute(async (req, res) => {
     const sends = Number(r.sends);
     const positiveReplies = Number(r.positive_replies);
     const appointmentsSet = Number(r.appointments_set);
-    // Replies = Positive Replies + Dead (a "no" is still a reply) — same
-    // definition GET /api/analytics uses.
-    const replies = positiveReplies + Number(r.dead_count);
+    // Replies = Positive Replies + Dead (a "no" is still a reply) + any
+    // stage explicitly flagged "register as reply" — same definition
+    // GET /api/analytics uses.
+    const replies = positiveReplies + Number(r.dead_count) + Number(r.reply_count);
     return {
       id: r.id,
       position: r.position,
@@ -1104,7 +1119,8 @@ app.get('/api/analytics/accounts', asyncRoute(async (req, res) => {
       count(l.id) AS sends,
       count(l.id) FILTER (WHERE l.ever_positive_reply) AS positive_replies,
       count(l.id) FILTER (WHERE l.ever_call_booked) AS appointments_set,
-      count(l.id) FILTER (WHERE EXISTS (SELECT 1 FROM lead_events e WHERE e.lead_id = l.id AND e.event = 'dead')) AS dead_count
+      count(l.id) FILTER (WHERE EXISTS (SELECT 1 FROM lead_events e WHERE e.lead_id = l.id AND e.event = 'dead')) AS dead_count,
+      count(l.id) FILTER (WHERE EXISTS (SELECT 1 FROM lead_events e WHERE e.lead_id = l.id AND e.event = 'reply')) AS reply_count
     FROM ig_accounts a
     LEFT JOIN leads l ON l.account_id = a.id AND l.deleted_at IS NULL
     WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL
@@ -1116,7 +1132,7 @@ app.get('/api/analytics/accounts', asyncRoute(async (req, res) => {
     const sends = Number(r.sends);
     const positiveReplies = Number(r.positive_replies);
     const appointmentsSet = Number(r.appointments_set);
-    const replies = positiveReplies + Number(r.dead_count);
+    const replies = positiveReplies + Number(r.dead_count) + Number(r.reply_count);
     return {
       id: r.id,
       username: r.username,
@@ -1193,6 +1209,10 @@ function mapLeadRow(r) {
     stageChangedAt: r.stage_changed_at,
     everPositiveReply: r.ever_positive_reply,
     everCallBooked: r.ever_call_booked,
+    everReply: r.ever_reply,
+    sendRegistered: r.send_registered,
+    accountId: r.account_id,
+    openerId: r.opener_id,
     createdAt: r.created_at,
     updatedAt: r.updated_at,
     personalizedVideoUrl: r.personalized_video_url,
@@ -1209,28 +1229,44 @@ async function loadLeads(workspaceId) {
 
 // ---------- LEAD STAGES ----------
 // The 11 default stages, in canonical order. These keys are load-bearing
-// elsewhere (FOLLOWUP_STAGES, POSITIVE_REPLY_STAGES below, the dead/
-// call_booked/engaged/connection_sent event logic, the phase1/2/3 SQL
-// CASE statements) — customizing a stage here only ever touches its
-// label/color, never its key, so none of that logic needs to know this
-// table exists. A row in lead_stages for one of these keys is an
-// override (present only once a workspace has renamed/recolored it);
+// elsewhere (FOLLOWUP_STAGES below, the dead/engaged/connection_sent event
+// logic, the phase1/2/3 SQL CASE statements) — customizing a stage here
+// only ever touches its label/color/registration flags, never its key, so
+// none of that logic needs to know this table exists. A row in lead_stages
+// for one of these keys is an override (present only once a workspace has
+// renamed/recolored/reflagged it);
 // a row whose key isn't in this list is a genuinely custom stage, with
 // no automation attached, freely addable/renamable/deletable.
+// registerSend/registerReply/registerPositiveReply/registerCallBooked are
+// the defaults for a never-customized system stage — once a workspace
+// touches a stage's checkboxes (even just by opening the edit popover and
+// saving), its lead_stages override row stores these explicitly, and the
+// override takes over. phase1 (and everything downstream of it) defaults
+// registerSend:true so manually dragging a lead there off the back of an
+// outside-the-tool send credits it — the real session flow is immune to
+// double-counting because POST /api/outreach already flips a lead's own
+// send_registered flag the moment a real send happens, before the
+// matching stage-PATCH to phase1 even runs (see both routes below).
 const SYSTEM_STAGE_DEFAULTS = [
   { key: 'new', label: 'New', color: '#D1CDC7', platforms: ['instagram', 'linkedin', 'threads'] },
   { key: 'engaged', label: 'Engaged', color: '#696969', platforms: ['linkedin'] },
   { key: 'connection_sent', label: 'Connection sent', color: '#262627', platforms: ['linkedin'] },
-  { key: 'phase1', label: 'Phase 1', color: '#A39C8E', platforms: ['instagram', 'linkedin', 'threads'] },
-  { key: 'phase2', label: 'Phase 2', color: '#696969', platforms: ['instagram', 'linkedin', 'threads'] },
-  { key: 'phase3', label: 'Phase 3', color: '#430074', platforms: ['instagram', 'linkedin', 'threads'] },
-  { key: 'in_conversation', label: 'In conversation', color: '#9A3A0A', platforms: ['instagram', 'linkedin', 'threads'] },
-  { key: 'call_booked', label: 'Call booked', color: '#141413', platforms: ['instagram', 'linkedin', 'threads'] },
-  { key: 'dead', label: 'Dead', color: '#ff3131', platforms: ['instagram', 'linkedin', 'threads'] },
-  { key: 'dead_after_reply', label: 'Dead after conversation', color: '#B5453A', platforms: ['instagram', 'linkedin', 'threads'] },
+  { key: 'phase1', label: 'Phase 1', color: '#A39C8E', platforms: ['instagram', 'linkedin', 'threads'], registerSend: true },
+  { key: 'phase2', label: 'Phase 2', color: '#696969', platforms: ['instagram', 'linkedin', 'threads'], registerSend: true, registerPositiveReply: true },
+  { key: 'phase3', label: 'Phase 3', color: '#430074', platforms: ['instagram', 'linkedin', 'threads'], registerSend: true, registerPositiveReply: true },
+  { key: 'in_conversation', label: 'In conversation', color: '#9A3A0A', platforms: ['instagram', 'linkedin', 'threads'], registerSend: true, registerPositiveReply: true },
+  { key: 'call_booked', label: 'Call booked', color: '#141413', platforms: ['instagram', 'linkedin', 'threads'], registerSend: true, registerPositiveReply: true, registerCallBooked: true },
+  { key: 'dead', label: 'Dead', color: '#ff3131', platforms: ['instagram', 'linkedin', 'threads'], registerSend: true },
+  { key: 'dead_after_reply', label: 'Dead after conversation', color: '#B5453A', platforms: ['instagram', 'linkedin', 'threads'], registerSend: true, registerPositiveReply: true },
   { key: 'cant_message', label: "Can't receive messages", color: '#E8E2DA', platforms: ['instagram', 'linkedin', 'threads'] }
 ];
 const SYSTEM_STAGE_KEYS = SYSTEM_STAGE_DEFAULTS.map(s => s.key);
+const STAGE_FLAG_COLUMNS = {
+  registerSend: 'register_send',
+  registerReply: 'register_reply',
+  registerPositiveReply: 'register_positive_reply',
+  registerCallBooked: 'register_call_booked'
+};
 
 // Merges SYSTEM_STAGE_DEFAULTS with this workspace's override/custom rows
 // into one ordered, effective stage list — the single source of truth
@@ -1245,9 +1281,22 @@ async function loadEffectiveStages(workspaceId) {
   });
   const systemStages = SYSTEM_STAGE_DEFAULTS.map(d => {
     const o = overridesByKey[d.key];
-    return { key: d.key, label: o ? o.label : d.label, color: o ? o.color : d.color, isSystem: true, platforms: d.platforms };
+    const flags = {};
+    // A new boolean column reads NULL on every override row saved before
+    // this feature existed — that NULL means "never explicitly set", so it
+    // falls back to the system default rather than silently reading as
+    // false and erasing e.g. call_booked's existing registerCallBooked:true.
+    Object.entries(STAGE_FLAG_COLUMNS).forEach(([flagKey, column]) => {
+      const overrideValue = o ? o[column] : null;
+      flags[flagKey] = overrideValue != null ? overrideValue : !!d[flagKey];
+    });
+    return { key: d.key, label: o ? o.label : d.label, color: o ? o.color : d.color, isSystem: true, platforms: d.platforms, ...flags };
   });
-  const customStages = customRows.map(r => ({ key: r.stage_key, label: r.label, color: r.color, isSystem: false, platforms: ['instagram', 'linkedin', 'threads'] }));
+  const customStages = customRows.map(r => ({
+    key: r.stage_key, label: r.label, color: r.color, isSystem: false, platforms: ['instagram', 'linkedin', 'threads'],
+    registerSend: !!r.register_send, registerReply: !!r.register_reply,
+    registerPositiveReply: !!r.register_positive_reply, registerCallBooked: !!r.register_call_booked
+  }));
   return [...systemStages, ...customStages];
 }
 
@@ -1264,7 +1313,14 @@ app.post('/api/lead-stages', asyncRoute(async (req, res) => {
   if (!label) return res.status(400).json({ error: 'Name is required.' });
   if (!/^#[0-9a-fA-F]{6}$/.test(color)) return res.status(400).json({ error: 'A valid color is required.' });
   const id = crypto.randomUUID();
-  await sql`INSERT INTO lead_stages (id, workspace_id, stage_key, label, color) VALUES (${id}, ${workspaceId}, ${id}, ${label}, ${color})`;
+  const registerSend = !!req.body.registerSend;
+  const registerReply = !!req.body.registerReply;
+  const registerPositiveReply = !!req.body.registerPositiveReply;
+  const registerCallBooked = !!req.body.registerCallBooked;
+  await sql`
+    INSERT INTO lead_stages (id, workspace_id, stage_key, label, color, register_send, register_reply, register_positive_reply, register_call_booked)
+    VALUES (${id}, ${workspaceId}, ${id}, ${label}, ${color}, ${registerSend}, ${registerReply}, ${registerPositiveReply}, ${registerCallBooked})
+  `;
   res.json({ ok: true, key: id });
 }));
 
@@ -1275,10 +1331,16 @@ app.patch('/api/lead-stages/:key', asyncRoute(async (req, res) => {
   if (!label) return res.status(400).json({ error: 'Name is required.' });
   if (!/^#[0-9a-fA-F]{6}$/.test(color)) return res.status(400).json({ error: 'A valid color is required.' });
   const key = req.params.key;
+  const registerSend = !!req.body.registerSend;
+  const registerReply = !!req.body.registerReply;
+  const registerPositiveReply = !!req.body.registerPositiveReply;
+  const registerCallBooked = !!req.body.registerCallBooked;
   await sql`
-    INSERT INTO lead_stages (id, workspace_id, stage_key, label, color)
-    VALUES (${crypto.randomUUID()}, ${workspaceId}, ${key}, ${label}, ${color})
-    ON CONFLICT (workspace_id, stage_key) DO UPDATE SET label = ${label}, color = ${color}
+    INSERT INTO lead_stages (id, workspace_id, stage_key, label, color, register_send, register_reply, register_positive_reply, register_call_booked)
+    VALUES (${crypto.randomUUID()}, ${workspaceId}, ${key}, ${label}, ${color}, ${registerSend}, ${registerReply}, ${registerPositiveReply}, ${registerCallBooked})
+    ON CONFLICT (workspace_id, stage_key) DO UPDATE SET
+      label = ${label}, color = ${color}, register_send = ${registerSend}, register_reply = ${registerReply},
+      register_positive_reply = ${registerPositiveReply}, register_call_booked = ${registerCallBooked}
   `;
   res.json({ ok: true });
 }));
@@ -1434,24 +1496,19 @@ const LEAD_PATCH_FIELDS = {
 };
 
 const FOLLOWUP_STAGES = ['phase1', 'phase2', 'phase3'];
-// Stages that imply "this lead has given a positive reply" — phase3 and
-// call_booked are downstream of phase2, so staying anywhere in this set
-// keeps the Positive Replies credit; call_booked is its own narrower set
-// for Appointments Set. in_conversation is a reply too (that's the whole
-// point of the stage — an active conversation, not silence), it's just
-// deliberately outside FOLLOWUP_STAGES so it stops the automated follow-up
-// clock instead of nagging someone you're already talking to.
-//
-// dead_after_reply belongs here too, deliberately — it's the "this lead
-// genuinely replied, the conversation just didn't go anywhere" terminal
-// stage (see the Leads page), as opposed to plain 'dead' (never really
-// engaged). Including it means moving a lead from in_conversation/phase2/
-// phase3/call_booked into dead_after_reply doesn't trip the "leaving a
-// positive stage" logic below and erase the Positive Replies credit for
-// something that actually happened — it still gets the lead out of the
-// follow-up sequence (it's outside FOLLOWUP_STAGES) exactly like 'dead'
-// does, it just doesn't rewrite history on the way there.
-const POSITIVE_REPLY_STAGES = ['phase2', 'phase3', 'call_booked', 'in_conversation', 'dead_after_reply'];
+// "Positive reply"/"call booked" credit used to be hardcoded here as fixed
+// stage-name lists — phase2/phase3/call_booked/in_conversation/
+// dead_after_reply for positive replies, call_booked alone for bookings.
+// They're now each stage's own registerPositiveReply/registerCallBooked
+// flag (see SYSTEM_STAGE_DEFAULTS and PATCH /api/lead-stages/:key) with
+// those exact same stages flagged true by default, so nothing changes
+// unless a workspace edits a stage's checkboxes. in_conversation still
+// defaults true deliberately — an active conversation is a reply, it's
+// just deliberately outside FOLLOWUP_STAGES so it stops the automated
+// follow-up clock instead of nagging someone you're already talking to.
+// dead_after_reply defaults true too — moving from in_conversation/phase2/
+// phase3/call_booked into it (a booked call or conversation that fell
+// through) shouldn't erase credit for something that genuinely happened.
 
 app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   const workspaceId = await getWorkspaceId(req);
@@ -1470,8 +1527,37 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   // even retroactively for past date ranges. Re-entering later logs a fresh
   // dated event rather than silently no-op'ing.
   if (Object.prototype.hasOwnProperty.call(b, 'stage')) {
-    const [current] = await sql`SELECT stage, ever_positive_reply, ever_call_booked, personalized_video_url FROM leads WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
+    const [current] = await sql`SELECT stage, ever_positive_reply, ever_call_booked, ever_reply, send_registered, personalized_video_url, account_id, platform, username, profile_url, full_name, bio, followers FROM leads WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
     if (current && current.stage !== b.stage) {
+      const effectiveStages = await loadEffectiveStages(workspaceId);
+      const stageByKey = {};
+      effectiveStages.forEach(s => { stageByKey[s.key] = s; });
+      const targetInfo = stageByKey[b.stage];
+      const currentInfo = stageByKey[current.stage];
+
+      // A manual stage move into a "register as send" stage credits exactly
+      // one outreach — for a lead the user actually contacted outside the
+      // tool but still wants reflected in Analytics. Checked (and the
+      // account resolved/validated) *before* any other side effect below
+      // runs, so a rejected request — missing account, unknown account —
+      // leaves nothing half-applied. A lead that already went through a
+      // real session is immune to double-counting: POST /api/outreach
+      // already flips send_registered the moment a real send happens,
+      // before the matching stage-PATCH to phase1 (which also defaults
+      // registerSend:true) even runs. LinkedIn has no account system to
+      // attribute a manual send to, so it's skipped there regardless of
+      // the flag.
+      const needsSendRegistration = !!(targetInfo && targetInfo.registerSend) && !current.send_registered && IG_LIKE_PLATFORMS.includes(current.platform);
+      let sendAccountId = null;
+      if (needsSendRegistration) {
+        sendAccountId = b.accountId || current.account_id;
+        if (!sendAccountId) {
+          return res.status(400).json({ error: 'ACCOUNT_REQUIRED' });
+        }
+        const [account] = await sql`SELECT id FROM ig_accounts WHERE id = ${sendAccountId} AND workspace_id = ${workspaceId}`;
+        if (!account) return res.status(400).json({ error: 'That account could not be found.' });
+      }
+
       // General "when did this lead's stage last change" — unlike
       // phase_started_at (only reset for phase1/2/3/engaged, for follow-up
       // due-date scheduling) this fires for every stage transition, so the
@@ -1501,8 +1587,14 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
         sets.push('personalized_video_url = NULL', 'personalized_video_status = NULL', 'personalized_video_name = NULL');
       }
       const today = todayStr();
-      const enteringPositive = POSITIVE_REPLY_STAGES.includes(b.stage);
-      const leavingPositive = POSITIVE_REPLY_STAGES.includes(current.stage) && !enteringPositive;
+      // registerPositiveReply/registerCallBooked are per-stage flags now
+      // (editable from the stage's edit popover — see PATCH
+      // /api/lead-stages/:key), not the hardcoded POSITIVE_REPLY_STAGES/
+      // call_booked checks this used to be. Every system stage's flag
+      // defaults to exactly what those hardcoded checks used to do, so a
+      // workspace that's never touched a stage's checkboxes sees no change.
+      const enteringPositive = !!(targetInfo && targetInfo.registerPositiveReply);
+      const leavingPositive = !!(currentInfo && currentInfo.registerPositiveReply) && !enteringPositive;
 
       // ON CONFLICT DO NOTHING against the (lead_id, event) unique index
       // below is the real guarantee that a lead can never rack up more than
@@ -1520,16 +1612,32 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
         await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'positive_reply'`;
       }
 
-      if (b.stage === 'call_booked' && !current.ever_call_booked) {
+      const enteringCallBooked = !!(targetInfo && targetInfo.registerCallBooked);
+      if (enteringCallBooked && !current.ever_call_booked) {
         sets.push('ever_call_booked = true');
         await sql`INSERT INTO lead_events (id, workspace_id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id},'call_booked', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
       }
       // dead_after_reply excluded for the same reason it's in
       // POSITIVE_REPLY_STAGES above — a booked call that fell through
       // afterward still genuinely happened.
-      if (current.stage === 'call_booked' && b.stage !== 'call_booked' && b.stage !== 'dead_after_reply') {
+      if (!!(currentInfo && currentInfo.registerCallBooked) && !enteringCallBooked && b.stage !== 'dead_after_reply') {
         sets.push('ever_call_booked = false');
         await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'call_booked'`;
+      }
+
+      // Generic "register as reply" — same enter/leave idempotency as
+      // positive_reply above, just its own independent event/flag so it
+      // never double-fires alongside the existing (untouched) dead-event
+      // handling right below.
+      const enteringReply = !!(targetInfo && targetInfo.registerReply);
+      const leavingReply = !!(currentInfo && currentInfo.registerReply) && !enteringReply;
+      if (enteringReply && !current.ever_reply) {
+        sets.push('ever_reply = true');
+        await sql`INSERT INTO lead_events (id, workspace_id, lead_id, event, date) VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id},'reply', ${today}) ON CONFLICT (lead_id, event) DO NOTHING`;
+      }
+      if (leavingReply) {
+        sets.push('ever_reply = false');
+        await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'reply'`;
       }
 
       // 'Replies' = Positive Replies + Dead (a "no" is still a reply) — so
@@ -1578,6 +1686,14 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
       }
       if (current.stage === 'phase1' && b.stage === 'connection_sent') {
         await sql`DELETE FROM lead_events WHERE lead_id = ${id} AND event = 'connection_accepted'`;
+      }
+
+      if (needsSendRegistration) {
+        await sql`
+          INSERT INTO outreaches (id, workspace_id, date, created_at, platform, account_id, username, profile_url, full_name, bio, followers, template, message, status)
+          VALUES (${crypto.randomUUID()}, ${workspaceId}, ${today}, ${new Date().toISOString()}, ${current.platform}, ${sendAccountId}, ${current.username || ''}, ${current.profile_url || ''}, ${current.full_name || ''}, ${current.bio || ''}, ${current.followers}, '', 'Registered manually from a stage change', 'sent')
+        `;
+        sets.push('send_registered = true');
       }
     }
   }

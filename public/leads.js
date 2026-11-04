@@ -478,6 +478,10 @@ function openStageEditPopover(stageKey, anchorEl) {
   stageEditState = { mode: 'edit', key: stageKey, isSystem: info.isSystem };
   $('#stage-edit-name').value = info.label;
   $('#stage-edit-color').value = info.color;
+  $('#stage-edit-register-send').checked = !!info.registerSend;
+  $('#stage-edit-register-reply').checked = !!info.registerReply;
+  $('#stage-edit-register-positive-reply').checked = !!info.registerPositiveReply;
+  $('#stage-edit-register-call-booked').checked = !!info.registerCallBooked;
   $('#stage-edit-delete-btn').classList.toggle('hidden', info.isSystem);
   positionStageEditPopover(anchorEl);
   $('#stage-edit-popover').classList.remove('hidden');
@@ -488,6 +492,10 @@ function openStageCreatePopover(anchorEl) {
   stageEditState = { mode: 'create' };
   $('#stage-edit-name').value = '';
   $('#stage-edit-color').value = '#696969';
+  $('#stage-edit-register-send').checked = false;
+  $('#stage-edit-register-reply').checked = false;
+  $('#stage-edit-register-positive-reply').checked = false;
+  $('#stage-edit-register-call-booked').checked = false;
   $('#stage-edit-delete-btn').classList.add('hidden');
   positionStageEditPopover(anchorEl);
   $('#stage-edit-popover').classList.remove('hidden');
@@ -516,13 +524,19 @@ $('#stage-edit-save-btn').addEventListener('click', async (e) => {
   const label = $('#stage-edit-name').value.trim();
   const color = $('#stage-edit-color').value;
   if (!label) { alert('Name is required.'); return; }
+  const flags = {
+    registerSend: $('#stage-edit-register-send').checked,
+    registerReply: $('#stage-edit-register-reply').checked,
+    registerPositiveReply: $('#stage-edit-register-positive-reply').checked,
+    registerCallBooked: $('#stage-edit-register-call-booked').checked
+  };
   const btn = e.currentTarget;
   btn.disabled = true;
   try {
     if (stageEditState.mode === 'create') {
-      await fetchJson('/api/lead-stages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label, color }) });
+      await fetchJson('/api/lead-stages', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label, color, ...flags }) });
     } else {
-      await fetchJson(`/api/lead-stages/${stageEditState.key}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label, color }) });
+      await fetchJson(`/api/lead-stages/${stageEditState.key}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ label, color, ...flags }) });
     }
     closeStageEditPopover();
     await refreshStagesEverywhere();
@@ -563,32 +577,104 @@ $('#stage-edit-delete-btn').addEventListener('click', async (e) => {
 async function updateLeadField(id, field, value) {
   const lead = leadsState.leads.find(l => l.id === id);
   if (!lead) return;
+
+  // Moving into a stage flagged "register as send" (see the stage edit
+  // popover) credits exactly one outreach for this lead — required so the
+  // send is attributed to a real account's numbers. A lead with no account
+  // yet (manually added, manually stage-moved — never went through a real
+  // session) needs one picked before the move itself goes through;
+  // skipped once a send's already been credited (sendRegistered) or the
+  // lead already has an account attached.
+  if (field === 'stage' && value !== lead.stage) {
+    const targetInfo = stageInfo(value);
+    const needsAccountPrompt = !!(targetInfo && targetInfo.registerSend && !lead.sendRegistered && !lead.accountId && lead.platform !== 'linkedin');
+    if (needsAccountPrompt) {
+      const accountId = await promptForSendAccount(lead, targetInfo.label);
+      if (!accountId) {
+        // Cancelled — lead.stage itself was never touched, but the <select>
+        // element already shows the newly-picked (uncommitted) option the
+        // instant the browser fired this change event, so it needs an
+        // explicit reset back to what's actually still saved.
+        renderLeadsTable();
+        return;
+      }
+      return applyLeadFieldUpdate(id, field, value, { accountId });
+    }
+  }
+  return applyLeadFieldUpdate(id, field, value);
+}
+
+async function applyLeadFieldUpdate(id, field, value, extra = {}) {
+  const lead = leadsState.leads.find(l => l.id === id);
+  if (!lead) return;
   const previous = lead[field];
   const previousPhaseStep = lead.phaseStep;
+  const previousAccountId = lead.accountId;
+  const previousSendRegistered = lead.sendRegistered;
+  const targetInfo = field === 'stage' ? stageInfo(value) : null;
   lead[field] = value;
   // Mirror the server's reset-on-phase-change so the badge shows "· 0/N"
   // immediately instead of a stale step count from the old phase.
   if (field === 'stage' && value !== previous && ['phase1', 'phase2', 'phase3'].includes(value)) {
     lead.phaseStep = 0;
   }
+  if (extra.accountId) lead.accountId = extra.accountId;
+  if (field === 'stage' && targetInfo && targetInfo.registerSend) lead.sendRegistered = true;
   try {
     // PATCH is a true partial update server-side, so sending just the one
     // changed field can't clobber anything else on the lead.
     await fetchJson(`/api/leads/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [field]: value })
+      body: JSON.stringify({ [field]: value, ...extra })
     });
     if (field === 'notes') updateNoteDot(id, !!(value && value.trim()));
     if (field === 'stage') { updateStageStyling(id, lead); renderStageFilterChips(); loadNotifications(); }
   } catch (e) {
     console.error('Could not save lead', e);
     lead[field] = previous;
-    if (field === 'stage') lead.phaseStep = previousPhaseStep;
+    if (field === 'stage') { lead.phaseStep = previousPhaseStep; lead.accountId = previousAccountId; lead.sendRegistered = previousSendRegistered; }
     alert(`Could not save that change: ${e.message}`);
     renderLeadsTable();
   }
 }
+
+// ---------- "Which account sent this?" prompt ----------
+// Shown when a manual stage move needs an account to credit a registered
+// send to and the lead doesn't already have one — resolves to the chosen
+// account id, or null if cancelled.
+let pendingSendAccountResolve = null;
+
+async function promptForSendAccount(lead, stageLabel) {
+  return new Promise(async (resolve) => {
+    pendingSendAccountResolve = resolve;
+    const accounts = (await loadIgAccounts(true)).filter(a => (a.platform || 'instagram') === lead.platform);
+    $('#register-send-account-sub').textContent = `Moving this lead to "${stageLabel}" registers a send in Analytics — pick which account actually sent it.`;
+    const select = $('#register-send-account-select');
+    select.innerHTML = accounts.map(a => `<option value="${a.id}">@${escapeHtml(a.username)}</option>`).join('');
+    const errorEl = $('#register-send-account-error');
+    const noAccounts = accounts.length === 0;
+    errorEl.textContent = noAccounts ? `No ${lead.platform} accounts to attribute this to — add one in Settings first.` : '';
+    errorEl.classList.toggle('hidden', !noAccounts);
+    select.classList.toggle('hidden', noAccounts);
+    $('#register-send-account-confirm-btn').disabled = noAccounts;
+    $('#register-send-account-modal').classList.remove('hidden');
+  });
+}
+
+function resolvePendingSendAccount(accountId) {
+  $('#register-send-account-modal').classList.add('hidden');
+  if (pendingSendAccountResolve) {
+    pendingSendAccountResolve(accountId);
+    pendingSendAccountResolve = null;
+  }
+}
+
+$('#register-send-account-cancel-btn').addEventListener('click', () => resolvePendingSendAccount(null));
+$('#register-send-account-confirm-btn').addEventListener('click', () => {
+  const id = $('#register-send-account-select').value;
+  resolvePendingSendAccount(id || null);
+});
 
 function updateStageStyling(id, lead) {
   const row = document.querySelector(`.leads-row-body[data-id="${id}"]`);

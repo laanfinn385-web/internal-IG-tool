@@ -761,6 +761,13 @@
         <label class="stage-edit-field">Color
           <input type="color" id="stage-edit-color">
         </label>
+        <div class="stage-edit-flags">
+          <label class="radio-label"><input type="checkbox" id="stage-edit-register-send"> Register as send</label>
+          <label class="radio-label"><input type="checkbox" id="stage-edit-register-reply"> Register as reply</label>
+          <label class="radio-label"><input type="checkbox" id="stage-edit-register-positive-reply"> Register as positive reply</label>
+          <label class="radio-label"><input type="checkbox" id="stage-edit-register-call-booked"> Register as call booked</label>
+        </div>
+        <p class="muted" style="font-size:0.8rem; margin: -4px 0 4px;">A lead moved into this stage gets credited accordingly in Analytics — useful for outreach done outside the tool. Only check "Register as send" for a stage you'd never otherwise reach through a real session, or real sends could get counted twice.</p>
         <div class="stage-edit-actions">
           <button type="button" id="stage-edit-delete-btn" class="btn-danger-outline">Delete stage</button>
           <button type="button" id="stage-edit-save-btn" class="btn-primary">Save</button>
@@ -945,6 +952,24 @@
           <div class="modal-actions">
             <button id="leads-session-account-cancel-btn" class="btn-secondary">Cancel</button>
             <button id="leads-session-account-confirm-btn" class="btn-primary">Start session →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- "Which account actually sent this?" — shown when a manual stage
+           move into a "register as send" stage needs an account to credit
+           the send to, and the lead doesn't already have one. -->
+      <div id="register-send-account-modal" class="modal-overlay hidden">
+        <div class="modal">
+          <h3>Which account sent this?</h3>
+          <p class="muted" id="register-send-account-sub"></p>
+          <label>Account
+            <select id="register-send-account-select"></select>
+          </label>
+          <p class="hidden" id="register-send-account-error" style="color: var(--red); font-size: 0.85rem;"></p>
+          <div class="modal-actions">
+            <button id="register-send-account-cancel-btn" class="btn-secondary">Cancel</button>
+            <button id="register-send-account-confirm-btn" class="btn-primary">Confirm</button>
           </div>
         </div>
       </div>
@@ -1428,8 +1453,8 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=54"></script>
-<script src="leads.js?v=35"></script>
+<script src="app.js?v=55"></script>
+<script src="leads.js?v=36"></script>
 <script src="followups.js?v=37"></script>
 </body>
 </html>
