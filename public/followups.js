@@ -329,10 +329,14 @@ async function autoRenderFollowupVideos() {
   targets.forEach(renderFollowupVideoForLead);
 }
 
-async function renderFollowupVideoForLead(lead) {
+// nameOverride is set when the user edits the name field and clicks
+// Regenerate — the initial automatic render (autoRenderFollowupVideos)
+// calls this with no override, same auto-detected-name fallback the
+// cold-session video uses.
+async function renderFollowupVideoForLead(lead, nameOverride) {
   // buildPlaceholders is defined in app.js — shared global scope, same
   // reuse the cold-session video naming already relies on.
-  const name = (buildPlaceholders(lead).naam || '').trim();
+  const name = (nameOverride || buildPlaceholders(lead).naam || '').trim();
   lead.followupVideoStatus = 'rendering';
   lead.followupVideoError = null;
   if (lead.id === followupState.selectedId) renderFollowupDetail();
@@ -351,12 +355,28 @@ async function renderFollowupVideoForLead(lead) {
     lead.followupVideoUrl = data.url;
     lead.followupVideoStatus = 'done';
     lead.followupVideoError = null;
+    lead.followupVideoName = name;
+    lead._videoNameDraft = name;
   } catch (e) {
     lead.followupVideoStatus = 'error';
     lead.followupVideoError = e.message;
   }
   if (lead.id === followupState.selectedId) renderFollowupDetail();
 }
+
+$('#followup-detail-video-name').addEventListener('input', () => {
+  const lead = currentFollowupLead();
+  if (!lead) return;
+  lead._videoNameDraft = $('#followup-detail-video-name').value;
+});
+
+$('#followup-detail-video-regenerate-btn').addEventListener('click', () => {
+  const lead = currentFollowupLead();
+  if (!lead) return;
+  const name = ($('#followup-detail-video-name').value || '').trim();
+  if (!name) { alert('Enter a name to use in the video.'); return; }
+  renderFollowupVideoForLead(lead, name);
+});
 
 // The "how many of today's due follow-ups will you actually send" control
 // — only applies to Instagram/Threads (accountId set); LinkedIn has no
@@ -475,18 +495,33 @@ function renderFollowupVideoCard(lead) {
   const statusEl = $('#followup-detail-video-status');
   const preview = $('#followup-detail-video-preview');
   const downloadLink = $('#followup-detail-video-download-link');
+  const nameInput = $('#followup-detail-video-name');
+  const regenBtn = $('#followup-detail-video-regenerate-btn');
+
+  // Seed the editable name once per lead (first time its card is shown) —
+  // same "don't clobber an in-progress edit on re-render" rule the cold-
+  // session video card uses for its own name field.
+  if (lead._videoNameDraft == null) {
+    lead._videoNameDraft = lead.followupVideoName || (buildPlaceholders(lead).naam || '');
+  }
+  nameInput.value = lead._videoNameDraft;
 
   statusEl.classList.remove('is-error');
   if (lead.followupVideoStatus === 'rendering') {
     statusEl.textContent = 'Rendering…';
+    regenBtn.disabled = true;
   } else if (lead.followupVideoStatus === 'error') {
     statusEl.textContent = `Render failed: ${lead.followupVideoError || 'unknown error'}`;
     statusEl.classList.add('is-error');
+    regenBtn.disabled = false;
   } else if (lead.followupVideoUrl) {
     statusEl.textContent = 'Ready.';
+    regenBtn.disabled = false;
   } else {
     statusEl.textContent = 'Not generated yet.';
+    regenBtn.disabled = false;
   }
+  regenBtn.textContent = lead.followupVideoUrl ? '🎬 Regenerate' : '🎬 Generate';
 
   if (lead.followupVideoUrl) {
     preview.src = lead.followupVideoUrl;

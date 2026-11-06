@@ -1098,6 +1098,12 @@
           </div>
           <textarea id="followup-detail-message" class="followup-detail-message"></textarea>
           <div id="followup-detail-video-card" class="session-video-card video-card hidden">
+            <div class="session-video-row">
+              <label class="session-video-name-label">Name shown in video
+                <input type="text" id="followup-detail-video-name" placeholder="E.g. Brad">
+              </label>
+              <button id="followup-detail-video-regenerate-btn" class="btn-secondary" type="button">🎬 Generate</button>
+            </div>
             <div class="video-status muted" id="followup-detail-video-status">Not generated yet.</div>
             <video id="followup-detail-video-preview" controls playsinline class="video-preview hidden"></video>
             <a id="followup-detail-video-download-link" href="#" download class="btn-secondary hidden">⬇ Download video</a>
@@ -1464,6 +1470,6 @@
 <script src="templates.js?v=23"></script>
 <script src="app.js?v=55"></script>
 <script src="leads.js?v=36"></script>
-<script src="followups.js?v=38"></script>
+<script src="followups.js?v=39"></script>
 </body>
 </html>
