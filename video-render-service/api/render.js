@@ -5,7 +5,6 @@ const { spawn } = require('child_process');
 const { put } = require('@vercel/blob');
 const fontkit = require('fontkit');
 
-const BASE_VIDEO_PATH = path.join(__dirname, '..', 'assets', 'base-video.mp4');
 const FONT_PATH = path.join(__dirname, '..', 'assets', 'Inter.ttf');
 // A real color emoji image, not a font glyph — drawtext's freetype rendering
 // can't do color bitmap or SVG glyphs at all (confirmed: it silently renders
@@ -15,11 +14,25 @@ const FONT_PATH = path.join(__dirname, '..', 'assets', 'Inter.ttf');
 // ffmpeg's overlay filter instead, which works with any raster image.
 const EMOJI_PNG_PATH = path.join(__dirname, '..', 'assets', 'wave-emoji.png');
 
-// The base video's dimensions, hardcoded rather than probed at render time
-// (no bundled ffprobe) — update these if base-video.mp4 is ever swapped for
-// a different resolution.
-const BASE_VIDEO_WIDTH = 1080;
-const BASE_VIDEO_HEIGHT = 1920;
+// Two base clips: the original cold-outreach "Hey {name}" video, and a
+// second one used for a lead's first phase-1 follow-up. Each video's
+// dimensions are hardcoded rather than probed at render time (no bundled
+// ffprobe) — if either clip is ever swapped for a different resolution,
+// update its width/height here (both are expected at exactly 1080x1920,
+// same re-encode discipline as every base-video swap so far — see this
+// repo's commit history for the ffmpeg command used).
+const BASE_VIDEOS = {
+  coldmessage: {
+    path: path.join(__dirname, '..', 'assets', 'base-video.mp4'),
+    width: 1080,
+    height: 1920
+  },
+  followup: {
+    path: path.join(__dirname, '..', 'assets', 'base-video-followup.mp4'),
+    width: 1080,
+    height: 1920
+  }
+};
 
 const interFont = fontkit.openSync(FONT_PATH);
 
@@ -110,12 +123,16 @@ module.exports = async (req, res) => {
     res.status(400).json({ error: 'name is required' });
     return;
   }
+  // 'coldmessage' (the original DM video) by default — callers that want the
+  // follow-up clip pass videoType: 'followup' explicitly.
+  const videoType = (body && body.videoType === 'followup') ? 'followup' : 'coldmessage';
+  const video = BASE_VIDEOS[videoType];
   // Keep the blob pathname stable-ish but collision-free without leaking the
   // raw name into a public URL path.
   const pathnameSafeId = (body && body.leadId) ? String(body.leadId) : crypto.randomUUID();
 
-  if (!fs.existsSync(BASE_VIDEO_PATH)) {
-    res.status(500).json({ error: `Base video not found at ${BASE_VIDEO_PATH}. It needs to be added to video-render-service/assets/base-video.mp4 and redeployed.` });
+  if (!fs.existsSync(video.path)) {
+    res.status(500).json({ error: `Base video not found at ${video.path}. It needs to be added to video-render-service/assets/ and redeployed.` });
     return;
   }
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
@@ -136,7 +153,7 @@ module.exports = async (req, res) => {
     const nameText = `Hey ${name}`;
     fs.writeFileSync(nameTextPath, nameText, 'utf8');
 
-    const fontSize = BASE_VIDEO_HEIGHT * 0.055;
+    const fontSize = video.height * 0.055;
     const boxBorderW = 20;
     const gapPx = 16;
     const emojiSize = Math.round(fontSize * 0.85);
@@ -144,8 +161,8 @@ module.exports = async (req, res) => {
     const nameWidth = measureTextWidth(interFont, nameText, fontSize);
     const boxHeight = Math.round(measureTextHeight(interFont, fontSize) + boxBorderW * 2);
     const combinedWidth = Math.round(boxBorderW + nameWidth + gapPx + emojiSize + boxBorderW);
-    const boxX = Math.round((BASE_VIDEO_WIDTH - combinedWidth) / 2);
-    const boxY = Math.round(BASE_VIDEO_HEIGHT * 0.08);
+    const boxX = Math.round((video.width - combinedWidth) / 2);
+    const boxY = Math.round(video.height * 0.08);
     const textX = boxX + boxBorderW;
     const textY = boxY + boxBorderW;
     const emojiX = Math.round(boxX + boxBorderW + nameWidth + gapPx);
@@ -160,7 +177,7 @@ module.exports = async (req, res) => {
 
     await runFfmpeg(ffmpegPath, [
       '-y',
-      '-i', BASE_VIDEO_PATH,
+      '-i', video.path,
       '-i', EMOJI_PNG_PATH,
       '-filter_complex', filterComplex,
       '-map', '[outv]',
@@ -173,7 +190,8 @@ module.exports = async (req, res) => {
     ]);
 
     const fileBuffer = fs.readFileSync(outputPath);
-    const blob = await put(`personalized-videos/${pathnameSafeId}-${Date.now()}.mp4`, fileBuffer, {
+    const blobPrefix = videoType === 'followup' ? 'followup-videos' : 'personalized-videos';
+    const blob = await put(`${blobPrefix}/${pathnameSafeId}-${Date.now()}.mp4`, fileBuffer, {
       access: 'public',
       contentType: 'video/mp4',
       addRandomSuffix: true

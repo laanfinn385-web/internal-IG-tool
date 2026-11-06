@@ -1218,7 +1218,11 @@ function mapLeadRow(r) {
     personalizedVideoUrl: r.personalized_video_url,
     personalizedVideoStatus: r.personalized_video_status,
     personalizedVideoError: r.personalized_video_error,
-    personalizedVideoName: r.personalized_video_name
+    personalizedVideoName: r.personalized_video_name,
+    followupVideoUrl: r.followup_video_url,
+    followupVideoStatus: r.followup_video_status,
+    followupVideoError: r.followup_video_error,
+    followupVideoName: r.followup_video_name
   };
 }
 
@@ -1527,7 +1531,7 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
   // even retroactively for past date ranges. Re-entering later logs a fresh
   // dated event rather than silently no-op'ing.
   if (Object.prototype.hasOwnProperty.call(b, 'stage')) {
-    const [current] = await sql`SELECT stage, ever_positive_reply, ever_call_booked, ever_reply, send_registered, personalized_video_url, account_id, platform, username, profile_url, full_name, bio, followers FROM leads WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
+    const [current] = await sql`SELECT stage, ever_positive_reply, ever_call_booked, ever_reply, send_registered, personalized_video_url, followup_video_url, account_id, platform, username, profile_url, full_name, bio, followers FROM leads WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
     if (current && current.stage !== b.stage) {
       const effectiveStages = await loadEffectiveStages(workspaceId);
       const stageByKey = {};
@@ -1585,6 +1589,19 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
       if ((FOLLOWUP_STAGES.includes(b.stage) || b.stage === 'cant_message' || b.stage === 'in_conversation') && current.personalized_video_url) {
         await deleteVideoBlobs([current.personalized_video_url]);
         sets.push('personalized_video_url = NULL', 'personalized_video_status = NULL', 'personalized_video_name = NULL');
+      }
+      // The phase-1 follow-up video (a separate clip/lifetime from the one
+      // above — see render-followup-video) is only ever useful while the
+      // lead is still sitting in phase1 waiting to send step 1. Leaving
+      // phase1 for any reason without having sent it (moved straight to
+      // phase2, dead, in_conversation, call_booked, cant_message, or back to
+      // new) means it never will be — clean it up the same way. The "it got
+      // sent" case is handled separately in POST
+      // /api/leads/:id/followup-sent, which clears it once step 1 actually
+      // goes out rather than waiting for a later stage change.
+      if (current.stage === 'phase1' && b.stage !== 'phase1' && current.followup_video_url) {
+        await deleteVideoBlobs([current.followup_video_url]);
+        sets.push('followup_video_url = NULL', 'followup_video_status = NULL', 'followup_video_name = NULL');
       }
       const today = todayStr();
       // registerPositiveReply/registerCallBooked are per-stage flags now
@@ -1783,6 +1800,66 @@ app.post('/api/leads/:id/render-video', asyncRoute(async (req, res) => {
   }
 }));
 
+// Same pipeline as render-video above, but for a lead's first phase-1
+// follow-up specifically — separate columns (followup_video_*, not
+// personalized_video_*) and a separate base clip (videoType: 'followup' on
+// the render service) since the two have different lifetimes: the cold
+// video is wiped the instant a lead enters phase1 (see the stage-change
+// handler in PATCH /api/leads/:id), while this one needs to still exist
+// *during* phase1 and only gets cleared once step 1 is actually sent or the
+// lead leaves phase1 without ever sending it.
+app.post('/api/leads/:id/render-followup-video', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  const { id } = req.params;
+  const name = String(req.body.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name is required' });
+
+  const [lead] = await sql`SELECT id FROM leads WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
+  if (!lead) return res.status(404).json({ error: 'Lead not found' });
+
+  if (!RENDER_SERVICE_URL || !RENDER_SERVICE_SECRET) {
+    return res.status(500).json({ error: 'Video rendering is not configured (RENDER_SERVICE_URL / RENDER_SERVICE_SECRET missing).' });
+  }
+
+  await sql`
+    UPDATE leads SET followup_video_status = 'rendering', followup_video_error = NULL, updated_at = now()
+    WHERE id = ${id} AND workspace_id = ${workspaceId}
+  `;
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 280000);
+  try {
+    const renderRes = await fetch(RENDER_SERVICE_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-render-secret': RENDER_SERVICE_SECRET },
+      body: JSON.stringify({ name, leadId: id, videoType: 'followup' }),
+      signal: controller.signal
+    });
+    const data = await renderRes.json().catch(() => ({}));
+    if (!renderRes.ok) {
+      const errMsg = data.error || `Render service error (${renderRes.status})`;
+      await sql`UPDATE leads SET followup_video_status = 'error', followup_video_error = ${errMsg}, updated_at = now() WHERE id = ${id} AND workspace_id = ${workspaceId}`;
+      return res.status(502).json({ error: errMsg });
+    }
+    await sql`
+      UPDATE leads SET
+        followup_video_status = 'done',
+        followup_video_url = ${data.url},
+        followup_video_name = ${name},
+        followup_video_error = NULL,
+        updated_at = now()
+      WHERE id = ${id} AND workspace_id = ${workspaceId}
+    `;
+    res.json({ url: data.url, name });
+  } catch (err) {
+    const errMsg = err.name === 'AbortError' ? 'Render service timed out.' : (err.message || 'Video render failed.');
+    await sql`UPDATE leads SET followup_video_status = 'error', followup_video_error = ${errMsg}, updated_at = now() WHERE id = ${id} AND workspace_id = ${workspaceId}`;
+    res.status(502).json({ error: errMsg });
+  } finally {
+    clearTimeout(timer);
+  }
+}));
+
 app.post('/api/leads/delete', asyncRoute(async (req, res) => {
   const workspaceId = await getWorkspaceId(req);
   const { ids, all } = req.body;
@@ -1790,29 +1867,31 @@ app.post('/api/leads/delete', asyncRoute(async (req, res) => {
   // to be read before it — otherwise nulling them out in the same statement
   // would mean we always "return" NULL and never know what to delete.
   const toDelete = all
-    ? await sql`SELECT id, personalized_video_url FROM leads WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL`
+    ? await sql`SELECT id, personalized_video_url, followup_video_url FROM leads WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL`
     : (Array.isArray(ids) && ids.length > 0
-        ? await sql`SELECT id, personalized_video_url FROM leads WHERE workspace_id = ${workspaceId} AND id = ANY(${ids}::uuid[]) AND deleted_at IS NULL`
+        ? await sql`SELECT id, personalized_video_url, followup_video_url FROM leads WHERE workspace_id = ${workspaceId} AND id = ANY(${ids}::uuid[]) AND deleted_at IS NULL`
         : []);
   if (!all && toDelete.length === 0) return res.json({ ok: true, deletedIds: [] });
 
   let rows;
   if (all) {
     rows = await sql`
-      UPDATE leads SET deleted_at = now(), personalized_video_url = NULL, personalized_video_status = NULL, personalized_video_name = NULL
+      UPDATE leads SET deleted_at = now(), personalized_video_url = NULL, personalized_video_status = NULL, personalized_video_name = NULL,
+        followup_video_url = NULL, followup_video_status = NULL, followup_video_name = NULL
       WHERE workspace_id = ${workspaceId} AND deleted_at IS NULL RETURNING id
     `;
   } else {
     const idList = toDelete.map(r => r.id);
     rows = await sql`
-      UPDATE leads SET deleted_at = now(), personalized_video_url = NULL, personalized_video_status = NULL, personalized_video_name = NULL
+      UPDATE leads SET deleted_at = now(), personalized_video_url = NULL, personalized_video_status = NULL, personalized_video_name = NULL,
+        followup_video_url = NULL, followup_video_status = NULL, followup_video_name = NULL
       WHERE id = ANY(${idList}::uuid[]) AND workspace_id = ${workspaceId} AND deleted_at IS NULL RETURNING id
     `;
   }
   // Disqualified leads never got their video sent — no reason to keep it
   // around in Blob storage either. Awaited — see the comment on the same
   // call in PATCH /api/leads/:id for why fire-and-forget silently drops this.
-  await deleteVideoBlobs(toDelete.map(r => r.personalized_video_url).filter(Boolean));
+  await deleteVideoBlobs(toDelete.flatMap(r => [r.personalized_video_url, r.followup_video_url]).filter(Boolean));
   res.json({ ok: true, deletedIds: rows.map(r => r.id) });
 }));
 
@@ -2508,6 +2587,7 @@ app.get('/api/message-sequences', asyncRoute(async (req, res) => {
       id: s.id,
       name: s.name,
       firstMessageHasVideo: s.first_message_has_video,
+      followupVideoEnabled: s.followup_video_enabled,
       // Up to 4 opening-line variants, randomly assigned per lead (see
       // app.js updateMessage()) for A/B testing — replaces the single fixed
       // first-message text this used to be. removed_at-filtered: a variant a
@@ -2530,10 +2610,10 @@ app.post('/api/message-sequences', asyncRoute(async (req, res) => {
   if (!name) return res.status(400).json({ error: 'Name is required.' });
   const id = crypto.randomUUID();
   if (req.body.duplicateFrom) {
-    const [source] = await sql`SELECT first_message_has_video FROM message_sequences WHERE id = ${req.body.duplicateFrom} AND workspace_id = ${workspaceId}`;
+    const [source] = await sql`SELECT first_message_has_video, followup_video_enabled FROM message_sequences WHERE id = ${req.body.duplicateFrom} AND workspace_id = ${workspaceId}`;
     await sql`
-      INSERT INTO message_sequences (id, workspace_id, name, first_message_has_video)
-      VALUES (${id}, ${workspaceId}, ${name}, ${source ? source.first_message_has_video : false})
+      INSERT INTO message_sequences (id, workspace_id, name, first_message_has_video, followup_video_enabled)
+      VALUES (${id}, ${workspaceId}, ${name}, ${source ? source.first_message_has_video : false}, ${source ? source.followup_video_enabled : false})
     `;
     const openers = await sql`SELECT position, text FROM message_sequence_openers WHERE sequence_id = ${req.body.duplicateFrom} AND workspace_id = ${workspaceId} AND removed_at IS NULL ORDER BY position`;
     for (const o of openers) {
@@ -2562,6 +2642,7 @@ app.patch('/api/message-sequences/:id', asyncRoute(async (req, res) => {
     sets.push(`name = $${i++}`); params.push(name);
   }
   if (req.body.firstMessageHasVideo !== undefined) { sets.push(`first_message_has_video = $${i++}`); params.push(!!req.body.firstMessageHasVideo); }
+  if (req.body.followupVideoEnabled !== undefined) { sets.push(`followup_video_enabled = $${i++}`); params.push(!!req.body.followupVideoEnabled); }
   if (sets.length === 0) return res.json({ ok: true });
   params.push(req.params.id);
   params.push(workspaceId);
@@ -3098,10 +3179,13 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
     const [dueHour, defaultSeqId] = await Promise.all([getFollowupDueHour(workspaceId), getDefaultMessageSequenceId(workspaceId)]);
     rows = await sql`
       SELECT l.id, l.username, l.profile_url, l.full_name, l.account_id, a.username AS account_username,
+             l.followup_video_url, l.followup_video_status, l.followup_video_error, l.followup_video_name,
+             ms.followup_video_enabled,
              msf.step, msf.type, msf.message, msf.media_note,
              due_at_normalized(COALESCE(prev_sent.sent_at, l.phase_started_at), msf.day_offset - COALESCE(msf_prev.day_offset, 0), ${dueHour}) AS due_at
       FROM leads l
       LEFT JOIN ig_accounts a ON a.id = l.account_id
+      LEFT JOIN message_sequences ms ON ms.id = COALESCE(a.message_sequence_id, ${defaultSeqId})
       JOIN message_sequence_followups msf
         ON msf.sequence_id = COALESCE(a.message_sequence_id, ${defaultSeqId})
        AND msf.phase = ${phase} AND msf.step = l.phase_step + 1
@@ -3166,7 +3250,16 @@ app.get('/api/followups/due', asyncRoute(async (req, res) => {
     mediaNote: r.media_note,
     // No wording-variation system for the new sequence model — one message
     // per step, composeFollowupMessage's no-componentGroups fallback path.
-    message: composeFollowupMessage(null, r.message, r, calendarLink)
+    message: composeFollowupMessage(null, r.message, r, calendarLink),
+    // Only ever true for phase 1's first follow-up step — that's the only
+    // one this feature covers (see render-followup-video). Exposed per-lead
+    // (not just per-request) since different leads in the same queue can be
+    // on accounts assigned different Messaging sequences.
+    followupVideoEnabled: phase === 1 && r.step === 1 && !!r.followup_video_enabled,
+    followupVideoUrl: r.followup_video_url,
+    followupVideoStatus: r.followup_video_status,
+    followupVideoError: r.followup_video_error,
+    followupVideoName: r.followup_video_name
   }));
   const trueDueCount = leads.length;
   // Captured from the full (unsliced) list — survives the cap slicing the
@@ -3239,14 +3332,25 @@ app.post('/api/leads/:id/followup-sent', asyncRoute(async (req, res) => {
   if (![1, 2, 3].includes(phase) || !step) {
     return res.status(400).json({ error: 'phase and step are required' });
   }
-  const [lead] = await sql`SELECT username, profile_url, account_id FROM leads WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
+  const [lead] = await sql`SELECT username, profile_url, account_id, followup_video_url FROM leads WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
   if (!lead) return res.status(404).json({ error: 'Lead not found' });
 
   await sql`
     INSERT INTO followup_sends (id, workspace_id, lead_id, username, profile_url, phase, step, message, date, account_id)
     VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id}, ${lead.username}, ${lead.profile_url}, ${phase}, ${step}, ${req.body.message || ''}, ${todayStr()}, ${lead.account_id})
   `;
-  await sql`UPDATE leads SET phase_step = ${step}, updated_at = now() WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL`;
+  // The phase-1/step-1 follow-up video (if this lead had one) has done its
+  // job the moment step 1 actually sends — same cleanup the stage-change
+  // handler does for every other way a lead can leave it behind (see PATCH
+  // /api/leads/:id), just triggered by "sent" instead of "moved stage".
+  if (phase === 1 && step === 1 && lead.followup_video_url) {
+    await deleteVideoBlobs([lead.followup_video_url]);
+  }
+  await sql`
+    UPDATE leads SET phase_step = ${step}, updated_at = now()
+      ${phase === 1 && step === 1 && lead.followup_video_url ? sql`, followup_video_url = NULL, followup_video_status = NULL, followup_video_name = NULL` : sql``}
+    WHERE id = ${id} AND workspace_id = ${workspaceId} AND deleted_at IS NULL
+  `;
 
   // Phase-1 follow-ups are sent from the same account as the original cold
   // message and count just as much toward its daily cap — surfaced here as a

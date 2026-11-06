@@ -1097,6 +1097,11 @@
             <span class="followup-detail-step-chip" id="followup-detail-step"></span>
           </div>
           <textarea id="followup-detail-message" class="followup-detail-message"></textarea>
+          <div id="followup-detail-video-card" class="session-video-card video-card hidden">
+            <div class="video-status muted" id="followup-detail-video-status">Not generated yet.</div>
+            <video id="followup-detail-video-preview" controls playsinline class="video-preview hidden"></video>
+            <a id="followup-detail-video-download-link" href="#" download class="btn-secondary hidden">⬇ Download video</a>
+          </div>
           <div class="followup-detail-actions">
             <button type="button" id="followup-detail-copy-btn" class="btn-secondary">Copy message</button>
             <a href="#" id="followup-detail-open-link" target="ig_preview" rel="noopener" class="btn-secondary">Open DM ↗</a>
@@ -1426,6 +1431,10 @@
           <span class="toggle-switch"><input type="checkbox" id="message-seq-first-video"><span class="toggle-switch-track"></span></span>
           Send with a personalized video
         </label>
+        <label class="toggle-row">
+          <span class="toggle-switch"><input type="checkbox" id="message-seq-followup-video"><span class="toggle-switch-track"></span></span>
+          Phase 1's first follow-up also gets a personalized video
+        </label>
         <button type="button" id="message-seq-first-save-btn" class="btn-secondary">Save video setting</button>
 
         <h3 style="margin-top:24px;">Follow-up steps</h3>
@@ -1455,6 +1464,6 @@
 <script src="templates.js?v=23"></script>
 <script src="app.js?v=55"></script>
 <script src="leads.js?v=36"></script>
-<script src="followups.js?v=37"></script>
+<script src="followups.js?v=38"></script>
 </body>
 </html>
