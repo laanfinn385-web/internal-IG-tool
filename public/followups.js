@@ -312,6 +312,50 @@ async function loadFollowupQueueFromServer() {
   $('#followup-sub').textContent = data.accountUsername ? `Sending as @${data.accountUsername}` : '';
   renderFollowupCapRow();
   renderFollowupQueue();
+  autoRenderFollowupVideos();
+}
+
+// Phase 1's first follow-up step can carry its own personalized video (see
+// the Messaging sequence setting "Phase 1's first follow-up also gets a
+// personalized video") — rendered automatically for the whole batch as soon
+// as the queue loads, same "no button to click" idea as everywhere else in
+// this feature, just without the cold session's dedicated preload screen
+// (a follow-up queue is a much smaller, already-loaded batch, so a fire-
+// and-forget render per lead with an inline "Rendering…" status is enough).
+async function autoRenderFollowupVideos() {
+  const targets = followupState.leads.filter(l =>
+    l.followupVideoEnabled && !l.followupVideoUrl && l.followupVideoStatus !== 'rendering'
+  );
+  targets.forEach(renderFollowupVideoForLead);
+}
+
+async function renderFollowupVideoForLead(lead) {
+  // buildPlaceholders is defined in app.js — shared global scope, same
+  // reuse the cold-session video naming already relies on.
+  const name = (buildPlaceholders(lead).naam || '').trim();
+  lead.followupVideoStatus = 'rendering';
+  lead.followupVideoError = null;
+  if (lead.id === followupState.selectedId) renderFollowupDetail();
+  if (!name) {
+    lead.followupVideoStatus = 'error';
+    lead.followupVideoError = 'No name to put in the video.';
+    if (lead.id === followupState.selectedId) renderFollowupDetail();
+    return;
+  }
+  try {
+    const data = await fetchJson(`/api/leads/${lead.id}/render-followup-video`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    }, 280000);
+    lead.followupVideoUrl = data.url;
+    lead.followupVideoStatus = 'done';
+    lead.followupVideoError = null;
+  } catch (e) {
+    lead.followupVideoStatus = 'error';
+    lead.followupVideoError = e.message;
+  }
+  if (lead.id === followupState.selectedId) renderFollowupDetail();
 }
 
 // The "how many of today's due follow-ups will you actually send" control
@@ -421,6 +465,39 @@ function renderFollowupDetail() {
   $('#followup-detail-message').value = text;
   $('#followup-detail-open-link').href = leadDmUrl(lead);
   $('#followup-detail-replied-btn').classList.toggle('hidden', lead.platform === 'linkedin');
+  renderFollowupVideoCard(lead);
+}
+
+function renderFollowupVideoCard(lead) {
+  const card = $('#followup-detail-video-card');
+  if (!lead.followupVideoEnabled) { card.classList.add('hidden'); return; }
+  card.classList.remove('hidden');
+  const statusEl = $('#followup-detail-video-status');
+  const preview = $('#followup-detail-video-preview');
+  const downloadLink = $('#followup-detail-video-download-link');
+
+  statusEl.classList.remove('is-error');
+  if (lead.followupVideoStatus === 'rendering') {
+    statusEl.textContent = 'Rendering…';
+  } else if (lead.followupVideoStatus === 'error') {
+    statusEl.textContent = `Render failed: ${lead.followupVideoError || 'unknown error'}`;
+    statusEl.classList.add('is-error');
+  } else if (lead.followupVideoUrl) {
+    statusEl.textContent = 'Ready.';
+  } else {
+    statusEl.textContent = 'Not generated yet.';
+  }
+
+  if (lead.followupVideoUrl) {
+    preview.src = lead.followupVideoUrl;
+    preview.classList.remove('hidden');
+    downloadLink.href = lead.followupVideoUrl;
+    downloadLink.classList.remove('hidden');
+  } else {
+    preview.removeAttribute('src');
+    preview.classList.add('hidden');
+    downloadLink.classList.add('hidden');
+  }
 }
 
 function advanceFollowupQueueAfter(id) {
@@ -1802,6 +1879,7 @@ function renderMessageSeqEditor() {
   $('#message-seq-editor').classList.toggle('hidden', !seq);
   if (!seq) return;
   $('#message-seq-first-video').checked = !!seq.firstMessageHasVideo;
+  $('#message-seq-followup-video').checked = !!seq.followupVideoEnabled;
   renderMessageSeqOpeners(seq);
   renderMessageSeqSteps(seq);
 }
@@ -1881,9 +1959,13 @@ $('#message-seq-first-save-btn').addEventListener('click', async () => {
     await fetchJson(`/api/message-sequences/${seq.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ firstMessageHasVideo: $('#message-seq-first-video').checked })
+      body: JSON.stringify({
+        firstMessageHasVideo: $('#message-seq-first-video').checked,
+        followupVideoEnabled: $('#message-seq-followup-video').checked
+      })
     });
     seq.firstMessageHasVideo = $('#message-seq-first-video').checked;
+    seq.followupVideoEnabled = $('#message-seq-followup-video').checked;
   } catch (err) {
     alert(`Could not save video setting: ${err.message}`);
   } finally {
