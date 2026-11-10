@@ -1781,6 +1781,21 @@ app.post('/api/leads/:id/render-video', asyncRoute(async (req, res) => {
       await sql`UPDATE leads SET personalized_video_status = 'error', personalized_video_error = ${errMsg}, updated_at = now() WHERE id = ${id} AND workspace_id = ${workspaceId}`;
       return res.status(502).json({ error: errMsg });
     }
+    // The lead may have already been decided (sent, marked cant_message,
+    // deleted, ...) while this render was in flight — a slow render racing
+    // a fast "mark sent" click, or a preload batch outliving the session
+    // that started it. The usual cleanup (stage-change handler below,
+    // /api/leads/delete) only fires *at* that moment, so a video that
+    // lands afterward would otherwise never get deleted — exactly how a
+    // stack of orphaned blobs accumulated undetected. Checked fresh here
+    // rather than trusted from before the fetch, since this render can
+    // take tens of seconds.
+    const [stillLead] = await sql`SELECT stage, deleted_at FROM leads WHERE id = ${id} AND workspace_id = ${workspaceId}`;
+    if (!stillLead || stillLead.deleted_at || stillLead.stage !== 'new') {
+      await deleteVideoBlobs([data.url]);
+      await sql`UPDATE leads SET personalized_video_status = NULL, personalized_video_url = NULL, personalized_video_name = NULL, personalized_video_error = NULL, updated_at = now() WHERE id = ${id} AND workspace_id = ${workspaceId}`;
+      return res.json({ discarded: true, name });
+    }
     await sql`
       UPDATE leads SET
         personalized_video_status = 'done',
@@ -1840,6 +1855,17 @@ app.post('/api/leads/:id/render-followup-video', asyncRoute(async (req, res) => 
       const errMsg = data.error || `Render service error (${renderRes.status})`;
       await sql`UPDATE leads SET followup_video_status = 'error', followup_video_error = ${errMsg}, updated_at = now() WHERE id = ${id} AND workspace_id = ${workspaceId}`;
       return res.status(502).json({ error: errMsg });
+    }
+    // Same race as render-video above: step 1 may have already been sent
+    // (or the lead moved on / got deleted) while this render was in
+    // flight, which already cleared these columns once — don't let a
+    // late-arriving render silently undo that and leave a video nothing
+    // will ever clean up again.
+    const [stillLead] = await sql`SELECT stage, phase_step, deleted_at FROM leads WHERE id = ${id} AND workspace_id = ${workspaceId}`;
+    if (!stillLead || stillLead.deleted_at || stillLead.stage !== 'phase1' || stillLead.phase_step !== 0) {
+      await deleteVideoBlobs([data.url]);
+      await sql`UPDATE leads SET followup_video_status = NULL, followup_video_url = NULL, followup_video_name = NULL, followup_video_error = NULL, updated_at = now() WHERE id = ${id} AND workspace_id = ${workspaceId}`;
+      return res.json({ discarded: true, name });
     }
     await sql`
       UPDATE leads SET
