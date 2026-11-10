@@ -1,9 +1,17 @@
 # video-render-service
 
 Isolated Vercel project that burns a "Hey {name} 👋" overlay onto a base DM
-video and uploads the result to Vercel Blob. Kept separate from the main
+video and uploads the result to Cloudflare R2. Kept separate from the main
 outreach tool deployment so ffmpeg's binary doesn't add to the bundle size /
 cold start of every other route in that app.
+
+Originally uploaded to Vercel Blob instead of R2 — moved off it after that
+store got suspended (`limits-exceeded-suspended`) for going over Hobby's 1GB
+storage cap, which also made it 403 on *reads* (including the ffmpeg binary
+below), blocking rendering entirely regardless of where new videos went.
+R2's free tier is far larger (10GB storage, 1M+ writes/month) and — as far
+as could be found — doesn't suspend the whole bucket's reads the same way
+on overage.
 
 ## The emoji
 
@@ -28,13 +36,13 @@ the emoji placed right after — see the comments in `api/render.js`.
 
 The ffmpeg binary is a linux64-gpl static build from
 [BtbN/FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds) — but it isn't
-in this repo. At ~140MB it's over GitHub's 100MB file size limit, so it's
-hosted in the same Blob store the rendered videos go to
-(`system/ffmpeg-linux-x64`, uploaded once manually) and `api/render.js`
-downloads it into `/tmp` on cold start, cached there for any warm
-invocations of the same instance. If that Blob URL ever needs to change
-(re-uploaded elsewhere, moved to a different store), update
-`FFMPEG_BLOB_URL` in `api/render.js`.
+in this repo. At 150-180MB (varies by build) it's over GitHub's 100MB file
+size limit, so it's hosted in the same R2 bucket the rendered videos go to
+(uploaded once manually to a `system/` prefix) and `api/render.js` downloads
+it from `FFMPEG_BINARY_URL` into `/tmp` on cold start, cached there for any
+warm invocations of the same instance. If it ever needs to move (re-
+uploaded, different bucket), update the `FFMPEG_BINARY_URL` env var — no
+code change needed.
 
 That wasn't the first choice — `ffmpeg-static` (npm) was tried first and
 looked fine locally (macOS binary has drawtext), but its Linux x64 binary
@@ -49,25 +57,40 @@ switching to it.
 
 ## One-time setup
 
-1. **Add the base video.** Place your DM video at `assets/base-video.mp4`
+1. **Add the base video(s).** Place your DM video at `assets/base-video.mp4`
+   and, if using the follow-up video feature, `assets/base-video-followup.mp4`
    (must be committed to git — this project deploys via Vercel's GitHub
    integration, so anything gitignored never reaches the build).
 2. **Create a Vercel project** pointing at this subdirectory: in the Vercel
    dashboard, "Add New Project" → import this repo → set **Root Directory**
    to `video-render-service`.
-3. **Create (or reuse) a Vercel Blob store** — Storage tab → Create → Blob.
-   Connect it to this project (or copy its `BLOB_READ_WRITE_TOKEN` into this
-   project's env vars manually).
-4. **Set environment variables** on this Vercel project:
-   - `BLOB_READ_WRITE_TOKEN` — from the Blob store.
+3. **Create a Cloudflare R2 bucket**: Cloudflare dashboard → R2 Object
+   Storage → Create bucket. Enable public access on it (bucket Settings →
+   Public access → allow the bucket's `r2.dev` subdomain, or connect a
+   custom domain) — rendered videos need a plain public URL, same as Vercel
+   Blob's `access: 'public'` gave before.
+4. **Create an R2 API token**: R2 → Manage R2 API Tokens → Create API Token
+   → Object Read & Write, scoped to that bucket → Create. This gives an
+   Access Key ID, Secret Access Key, and the account's S3-compatible
+   endpoint (`https://<ACCOUNT_ID>.r2.cloudflarestorage.com`).
+5. **Upload the ffmpeg binary once** to that bucket (e.g. under
+   `system/ffmpeg-linux-x64`) — same BtbN build described above, verified
+   with `strings <binary> | grep -c '^drawtext$'` before uploading.
+6. **Set environment variables** on this Vercel project:
+   - `R2_ENDPOINT` — the account endpoint from step 4.
+   - `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` — from step 4.
+   - `R2_BUCKET_NAME` — the bucket's name.
+   - `R2_PUBLIC_BASE_URL` — the bucket's public URL from step 3 (e.g.
+     `https://pub-xxxx.r2.dev`), no trailing slash.
+   - `FFMPEG_BINARY_URL` — the public URL of the file uploaded in step 5.
    - `RENDER_SERVICE_SECRET` — any long random string you generate yourself
      (e.g. `openssl rand -hex 32`). This is checked against the `x-render-secret`
      header on every request, since this endpoint has its own public URL.
-5. Set the **same** `RENDER_SERVICE_SECRET` value, plus this project's
+7. Set the **same** `RENDER_SERVICE_SECRET` value, plus this project's
    deployed URL, as `RENDER_SERVICE_URL` / `RENDER_SERVICE_SECRET` env vars
    on the **main** instagram-outreach-tool project — that's how it
    authenticates to this one.
-6. Confirm **Fluid Compute** is enabled on this project (Project Settings →
+8. Confirm **Fluid Compute** is enabled on this project (Project Settings →
    Functions) — `vercel.json` requests a 300s `maxDuration`, which only
    applies with Fluid Compute on the Hobby plan.
 
@@ -79,7 +102,7 @@ Headers: `x-render-secret: <RENDER_SERVICE_SECRET>`
 
 Body: `{ "name": "Brad", "leadId": "optional-uuid-for-the-blob-pathname" }`
 
-Response: `{ "url": "https://...blob.vercel-storage.com/...mp4", "name": "Brad" }`
+Response: `{ "url": "https://pub-xxxx.r2.dev/...mp4", "name": "Brad" }`
 or `{ "error": "..." }` with a non-2xx status.
 
 ## Local testing
@@ -95,8 +118,7 @@ non-Linux dev machine. It was verified two ways instead:
   it, since no Linux/x86_64 execution environment was available. Full
   execution was confirmed by an actual deployment + live request.
 
-There's no local Vercel dev server set up here (no `vercel` CLI in this
-environment). The ffmpeg command itself was verified locally against a
-synthetic test clip; the `/api/render` handler and Blob upload still need an
-end-to-end test against a real deployment once `BLOB_READ_WRITE_TOKEN` and
-the real base video are in place.
+There's no local Vercel dev server set up here. The ffmpeg command itself
+was verified locally against a synthetic test clip; the `/api/render`
+handler and R2 upload were verified end-to-end against a real deployment
+once the R2 env vars and the real base video were in place.
