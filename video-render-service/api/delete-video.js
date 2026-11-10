@@ -1,9 +1,9 @@
-const { del } = require('@vercel/blob');
+const { deleteFromR2 } = require('../lib/r2');
 
-// Deletes one or more rendered videos from Blob storage. Lives here (rather
-// than the main app calling @vercel/blob directly) so the main app doesn't
-// need its own BLOB_READ_WRITE_TOKEN — it reuses this project's existing
-// token and the same shared-secret auth as /api/render.
+// Deletes one or more rendered videos from R2. Lives here (rather than the
+// main app talking to R2 directly) so the main app doesn't need its own R2
+// credentials — it reuses this project's existing config and the same
+// shared-secret auth as /api/render.
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
     res.status(405).json({ error: 'Method not allowed' });
@@ -31,10 +31,10 @@ module.exports = async (req, res) => {
   }
 
   try {
-    await del(urls);
+    await deleteFromR2(urls);
     res.status(200).json({ ok: true, deleted: urls.length });
   } catch (err) {
     console.error('Delete failed:', err);
-    res.status(500).json({ error: err.message || 'Blob deletion failed' });
+    res.status(500).json({ error: err.message || 'R2 deletion failed' });
   }
 };

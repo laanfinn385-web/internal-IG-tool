@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
-const { put } = require('@vercel/blob');
+const { uploadToR2 } = require('../lib/r2');
 const fontkit = require('fontkit');
 
 const FONT_PATH = path.join(__dirname, '..', 'assets', 'Inter.ttf');
@@ -52,24 +52,30 @@ function measureTextHeight(font, fontSize) {
 }
 
 // Not bundled with the deployment — a linux64-gpl static build from
-// BtbN/FFmpeg-Builds is ~140MB, over GitHub's 100MB file size limit, so it
-// can't be committed to the repo this project deploys from. Hosted in the
-// same Blob store instead and fetched into /tmp on cold start (cached there
-// across warm invocations of the same instance, so this only costs a
-// download once per cold start, not once per request).
+// BtbN/FFmpeg-Builds is ~170MB, over GitHub's 100MB file size limit, so it
+// can't be committed to the repo this project deploys from. Hosted in
+// Cloudflare R2 instead (same bucket the rendered videos go to — see
+// lib/r2.js) and fetched into /tmp on cold start (cached there across warm
+// invocations of the same instance, so this only costs a download once per
+// cold start, not once per request). Originally lived in Vercel Blob; moved
+// here when that store got suspended for exceeding Hobby-plan limits and
+// started 403ing even plain reads of this file, which blocked rendering
+// entirely regardless of where new videos got uploaded.
 //
 // This isn't the binary `ffmpeg-static` (npm) would have installed — that
 // package's Linux x64 build genuinely has no `drawtext` filter compiled in
 // at all despite claiming --enable-libfreetype (confirmed by running
 // `strings` on the actual binary: zero occurrences of "drawtext"). That only
 // surfaced once deployed to Linux, not testing locally on macOS. This BtbN
-// build was verified the same way to actually have drawtext compiled in.
-const FFMPEG_BLOB_URL = 'https://rvpmbm5wpdb082rr.public.blob.vercel-storage.com/system/ffmpeg-linux-x64';
+// build was verified the same way to actually have drawtext (plus freetype/
+// fontconfig) compiled in before being uploaded here.
+const FFMPEG_URL = process.env.FFMPEG_BINARY_URL;
 const FFMPEG_LOCAL_PATH = '/tmp/ffmpeg-linux-x64';
 
 async function ensureFfmpegBinary() {
   if (fs.existsSync(FFMPEG_LOCAL_PATH)) return FFMPEG_LOCAL_PATH;
-  const res = await fetch(FFMPEG_BLOB_URL);
+  if (!FFMPEG_URL) throw new Error('FFMPEG_BINARY_URL is not configured on the render service.');
+  const res = await fetch(FFMPEG_URL);
   if (!res.ok) throw new Error(`Could not download ffmpeg binary (${res.status})`);
   const buffer = Buffer.from(await res.arrayBuffer());
   // Write under a temp name and rename into place — avoids a concurrent
@@ -135,8 +141,8 @@ module.exports = async (req, res) => {
     res.status(500).json({ error: `Base video not found at ${video.path}. It needs to be added to video-render-service/assets/ and redeployed.` });
     return;
   }
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    res.status(500).json({ error: 'BLOB_READ_WRITE_TOKEN is not configured on the render service.' });
+  if (!process.env.R2_ENDPOINT || !process.env.R2_ACCESS_KEY_ID || !process.env.R2_SECRET_ACCESS_KEY || !process.env.R2_BUCKET_NAME || !process.env.R2_PUBLIC_BASE_URL) {
+    res.status(500).json({ error: 'R2 is not configured on the render service (R2_ENDPOINT / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET_NAME / R2_PUBLIC_BASE_URL).' });
     return;
   }
 
@@ -191,13 +197,10 @@ module.exports = async (req, res) => {
 
     const fileBuffer = fs.readFileSync(outputPath);
     const blobPrefix = videoType === 'followup' ? 'followup-videos' : 'personalized-videos';
-    const blob = await put(`${blobPrefix}/${pathnameSafeId}-${Date.now()}.mp4`, fileBuffer, {
-      access: 'public',
-      contentType: 'video/mp4',
-      addRandomSuffix: true
-    });
+    const key = `${blobPrefix}/${pathnameSafeId}-${Date.now()}-${crypto.randomUUID()}.mp4`;
+    const url = await uploadToR2(key, fileBuffer, 'video/mp4');
 
-    res.status(200).json({ url: blob.url, name });
+    res.status(200).json({ url, name });
   } catch (err) {
     console.error('Render failed:', err);
     res.status(500).json({ error: err.message || 'Video render failed' });
