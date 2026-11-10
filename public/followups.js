@@ -352,11 +352,20 @@ async function renderFollowupVideoForLead(lead, nameOverride) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name })
     }, 280000);
-    lead.followupVideoUrl = data.url;
-    lead.followupVideoStatus = 'done';
-    lead.followupVideoError = null;
-    lead.followupVideoName = name;
-    lead._videoNameDraft = name;
+    if (data.discarded) {
+      // Step 1 was already sent, or the lead moved on, while this render
+      // was in flight — the server already deleted the blob rather than
+      // leave it orphaned. Nothing to show here.
+      lead.followupVideoUrl = null;
+      lead.followupVideoStatus = null;
+      lead.followupVideoError = null;
+    } else {
+      lead.followupVideoUrl = data.url;
+      lead.followupVideoStatus = 'done';
+      lead.followupVideoError = null;
+      lead.followupVideoName = name;
+      lead._videoNameDraft = name;
+    }
   } catch (e) {
     lead.followupVideoStatus = 'error';
     lead.followupVideoError = e.message;

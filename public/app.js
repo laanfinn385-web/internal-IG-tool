@@ -1985,9 +1985,19 @@ async function renderVideoForProfile(p) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name })
     }, 280000);
-    p.videoUrl = data.url;
-    p.videoStatus = 'done';
-    p.videoError = null;
+    if (data.discarded) {
+      // This lead was already decided (sent/disqualified) by the time the
+      // render finished — the server already deleted the blob rather than
+      // leave an orphaned video behind. Nothing to show here, same as if
+      // generation had never been triggered.
+      p.videoUrl = null;
+      p.videoStatus = null;
+      p.videoError = null;
+    } else {
+      p.videoUrl = data.url;
+      p.videoStatus = 'done';
+      p.videoError = null;
+    }
   } catch (e) {
     p.videoStatus = 'error';
     p.videoError = e.message;
