@@ -779,7 +779,7 @@ app.get('/api/home', asyncRoute(async (req, res) => {
         GROUP BY account_id
       ) sent_today ON sent_today.account_id = a.id
       LEFT JOIN followup_daily_caps cap ON cap.account_id = a.id AND cap.phase = 1 AND cap.date = ${today}
-      WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL AND a.disabled_at IS NULL
+      WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL AND a.disabled_at IS NULL AND a.platform = 'instagram'
     `;
     dailyGoalInstagram = Number(total_goal);
   }
