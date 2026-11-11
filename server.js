@@ -2406,7 +2406,25 @@ app.post('/api/accounts', asyncRoute(async (req, res) => {
     sql`SELECT id FROM timing_sequences WHERE workspace_id = ${workspaceId} AND name = ${DEFAULT_TIMING_SEQUENCE_NAMES[tierCap]} AND archived_at IS NULL`,
     getDefaultMessageSequenceId(workspaceId)
   ]);
-  const platform = req.body.platform === 'threads' ? 'threads' : 'instagram';
+  // A custom platform's name is the platform value itself (no separate
+  // label column) — "other" in the request is just how the UI's third tab
+  // signals "use the typed name instead of a fixed one". Rejecting the
+  // built-in names here (case-insensitively) keeps every exact `=== 'threads'`/
+  // `=== 'instagram'` check elsewhere from ever seeing a custom account
+  // masquerading as one of them.
+  let platform;
+  if (req.body.platform === 'threads') {
+    platform = 'threads';
+  } else if (req.body.platform === 'other') {
+    const custom = String(req.body.customPlatform || '').trim();
+    if (!custom) return res.status(400).json({ error: 'Enter a platform name.' });
+    if (['instagram', 'threads', 'linkedin'].includes(custom.toLowerCase())) {
+      return res.status(400).json({ error: `"${custom}" is already a built-in platform — pick a different name.` });
+    }
+    platform = custom;
+  } else {
+    platform = 'instagram';
+  }
   const id = crypto.randomUUID();
   await sql`
     INSERT INTO ig_accounts (id, workspace_id, username, platform, created_on, profile_image_url, daily_limit, timing_sequence_id, message_sequence_id)
