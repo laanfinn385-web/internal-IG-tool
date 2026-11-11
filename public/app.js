@@ -4091,11 +4091,12 @@ async function loadAnalyticsAccounts() {
       const delta = a.vsOthersAvgPrr;
       const vsText = delta == null ? '' : `${delta > 0 ? '+' : ''}${delta} pts vs other accounts`;
       const vsColor = delta == null ? 'var(--muted)' : delta > 0 ? 'var(--green-dark)' : delta < 0 ? 'var(--red-dark)' : 'var(--muted)';
+      const platformLabel = a.platform === 'threads' ? 'Threads' : (!a.platform || a.platform === 'instagram') ? 'Instagram' : a.platform;
       return `
       <div class="an-account-row">
         ${accountPhotoHtml(a)}
         <div class="an-account-identity">
-          <span class="an-account-handle">@${escapeHtml(a.username)}</span>
+          <span class="an-account-handle">${escapeHtml(platformLabel)} · @${escapeHtml(a.username)}</span>
           <span class="an-account-vs" style="color:${vsColor}">${escapeHtml(vsText)}</span>
         </div>
         <div class="an-account-stats">

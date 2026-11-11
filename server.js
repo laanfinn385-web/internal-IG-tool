@@ -1116,7 +1116,7 @@ app.get('/api/analytics/openers', asyncRoute(async (req, res) => {
 app.get('/api/analytics/accounts', asyncRoute(async (req, res) => {
   const workspaceId = await getWorkspaceId(req);
   const rows = await sql`
-    SELECT a.id, a.username, a.profile_image_url,
+    SELECT a.id, a.username, a.profile_image_url, a.platform,
       count(l.id) AS sends,
       count(l.id) FILTER (WHERE l.ever_positive_reply) AS positive_replies,
       count(l.id) FILTER (WHERE l.ever_call_booked) AS appointments_set,
@@ -1125,7 +1125,7 @@ app.get('/api/analytics/accounts', asyncRoute(async (req, res) => {
     FROM ig_accounts a
     LEFT JOIN leads l ON l.account_id = a.id AND l.deleted_at IS NULL
     WHERE a.workspace_id = ${workspaceId} AND a.archived_at IS NULL
-    GROUP BY a.id, a.username, a.profile_image_url
+    GROUP BY a.id, a.username, a.profile_image_url, a.platform
     ORDER BY a.created_at ASC
   `;
   const rate = (num, denom) => (denom > 0 ? Math.round((num / denom) * 1000) / 10 : null);
@@ -1138,6 +1138,7 @@ app.get('/api/analytics/accounts', asyncRoute(async (req, res) => {
       id: r.id,
       username: r.username,
       profileImageUrl: r.profile_image_url,
+      platform: r.platform,
       sends,
       replies,
       replyRate: rate(replies, sends),
