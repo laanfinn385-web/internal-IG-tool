@@ -1163,7 +1163,7 @@ function renderAccountsList() {
     ).join('');
     const hasOverride = a.dailyLimitOverride != null && a.dailyLimitOverrideUntil;
     const overrideNote = hasOverride ? ` · manual override through ${formatOverrideUntil(a.dailyLimitOverrideUntil)}` : '';
-    const platformPrefix = a.platform === 'threads' ? 'Threads · ' : '';
+    const platformPrefix = a.platform && a.platform !== 'instagram' ? `${escapeHtml(a.platform === 'threads' ? 'Threads' : a.platform)} · ` : '';
     return `
       <div class="account-row${isWarming ? ' account-row-warming' : ''}" data-id="${a.id}">
         <div class="account-row-main">
@@ -1418,6 +1418,8 @@ $('#accounts-add-btn').addEventListener('click', () => {
   $('#add-account-image').value = '';
   $('#add-account-image-status').textContent = '';
   $('#add-account-error').style.display = 'none';
+  $('#add-account-custom-platform').value = '';
+  $('#add-account-custom-platform-label').classList.add('hidden');
   pendingAccountImageUrl = null;
   pendingAccountPlatform = 'instagram';
   $all('#add-account-platform-tabs .range-tab').forEach(b => b.classList.toggle('active', b.dataset.platform === 'instagram'));
@@ -1432,6 +1434,8 @@ $('#add-account-platform-tabs').addEventListener('click', (e) => {
   $all('#add-account-platform-tabs .range-tab').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
   pendingAccountPlatform = btn.dataset.platform;
+  $('#add-account-custom-platform-label').classList.toggle('hidden', pendingAccountPlatform !== 'other');
+  if (pendingAccountPlatform !== 'other') $('#add-account-custom-platform').value = '';
 });
 
 $('#add-account-image').addEventListener('change', async (e) => {
@@ -1461,6 +1465,10 @@ $('#add-account-confirm-btn').addEventListener('click', async () => {
   errorEl.style.display = 'none';
   if (!username) { errorEl.textContent = 'Enter a username.'; errorEl.style.display = 'block'; return; }
   if (!createdOn) { errorEl.textContent = 'Enter the date this account was created.'; errorEl.style.display = 'block'; return; }
+  const customPlatform = $('#add-account-custom-platform').value.trim();
+  if (pendingAccountPlatform === 'other' && !customPlatform) {
+    errorEl.textContent = 'Enter a platform name.'; errorEl.style.display = 'block'; return;
+  }
 
   const btn = $('#add-account-confirm-btn');
   btn.disabled = true;
@@ -1468,7 +1476,7 @@ $('#add-account-confirm-btn').addEventListener('click', async () => {
     await fetchJson('/api/accounts', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ username, createdOn, profileImageUrl: pendingAccountImageUrl, platform: pendingAccountPlatform })
+      body: JSON.stringify({ username, createdOn, profileImageUrl: pendingAccountImageUrl, platform: pendingAccountPlatform, customPlatform })
     });
     $('#add-account-modal').classList.add('hidden');
     await loadAccounts();

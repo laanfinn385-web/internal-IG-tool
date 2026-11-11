@@ -648,13 +648,22 @@ let pendingSendAccountResolve = null;
 async function promptForSendAccount(lead, stageLabel) {
   return new Promise(async (resolve) => {
     pendingSendAccountResolve = resolve;
-    const accounts = (await loadIgAccounts(true)).filter(a => (a.platform || 'instagram') === lead.platform);
+    // Same-platform accounts (the normal case) plus any custom-platform
+    // account regardless of this lead's own platform — a custom account has
+    // no matching lead platform of its own to equal (leads can only ever be
+    // instagram/linkedin/threads), so it would otherwise never be pickable
+    // here even when it's genuinely the account a custom stage's send came
+    // from.
+    const accounts = (await loadIgAccounts(true)).filter(a => {
+      const p = a.platform || 'instagram';
+      return p === lead.platform || !['instagram', 'linkedin', 'threads'].includes(p);
+    });
     $('#register-send-account-sub').textContent = `Moving this lead to "${stageLabel}" registers a send in Analytics — pick which account actually sent it.`;
     const select = $('#register-send-account-select');
     select.innerHTML = accounts.map(a => `<option value="${a.id}">@${escapeHtml(a.username)}</option>`).join('');
     const errorEl = $('#register-send-account-error');
     const noAccounts = accounts.length === 0;
-    errorEl.textContent = noAccounts ? `No ${lead.platform} accounts to attribute this to — add one in Settings first.` : '';
+    errorEl.textContent = noAccounts ? 'No accounts to attribute this to — add one in Settings first.' : '';
     errorEl.classList.toggle('hidden', !noAccounts);
     select.classList.toggle('hidden', noAccounts);
     $('#register-send-account-confirm-btn').disabled = noAccounts;

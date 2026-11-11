@@ -882,12 +882,13 @@ async function beginOrContinueDailyGoalIg(liRemaining, isHandoff) {
   const igRemaining = Math.max(0, homeDailyGoalData.instagram - homeDailyGoalData.todaySentInstagram);
   if (igRemaining <= 0) return false;
 
-  // Instagram-only — Threads accounts don't participate in the daily-goal
-  // auto-leg flow (startLegForAccount below always fetches Instagram leads),
-  // so one must never be offered here even though it'd otherwise pass
+  // Instagram-only — Threads accounts (and any custom-platform account)
+  // don't participate in the daily-goal auto-leg flow (startLegForAccount
+  // below always fetches Instagram leads), so only a real Instagram account
+  // must ever be offered here even though others would otherwise pass
   // accountCanSendToday.
   const accounts = await loadIgAccounts(true);
-  const usable = accounts.filter(a => a.platform !== 'threads' && accountCanSendToday(a));
+  const usable = accounts.filter(a => (a.platform || 'instagram') === 'instagram' && accountCanSendToday(a));
   if (usable.length === 0) {
     if (isHandoff) return false;
     alert(accounts.length === 0
