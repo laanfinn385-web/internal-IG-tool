@@ -361,9 +361,8 @@ function renderLeadsTable() {
   const stageChips = $('#leads-stage-chips');
   const total = leadsState.leads.length;
 
-  $('#leads-total-count').textContent = `${total} total lead${total === 1 ? '' : 's'}`;
-
   if (total === 0) {
+    $('#leads-total-count').textContent = '0 total leads';
     wrap.classList.add('hidden');
     searchRow.classList.add('hidden');
     stageChips.classList.add('hidden');
@@ -377,6 +376,17 @@ function renderLeadsTable() {
   wrap.classList.remove('hidden');
 
   const filtered = getFilteredLeads();
+  // Always reflects what's actually on screen — search, the platform tab,
+  // stage chips, and the country/followers filter can each narrow the
+  // list on their own or stacked together, so the stale "total leads"
+  // count (unconditionally the unfiltered total, regardless of any of
+  // that) no longer matched the table underneath it.
+  const anyFilterActive = leadsState.search.trim() !== '' || leadsState.platformFilter !== 'all' ||
+    leadsState.stageFilter.size > 0 || leadsState.countryFilter.size > 0 ||
+    leadsState.followersMin != null || leadsState.followersMax != null;
+  $('#leads-total-count').textContent = anyFilterActive
+    ? `${filtered.length} of ${total} lead${total === 1 ? '' : 's'}`
+    : `${total} total lead${total === 1 ? '' : 's'}`;
 
   // Only the current page is rendered into the DOM — with lead lists up to
   // ~20k rows, rendering everything at once makes the page sluggish.
