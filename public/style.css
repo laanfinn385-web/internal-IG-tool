@@ -1362,6 +1362,22 @@ kbd {
   cursor: pointer;
 }
 .leads-filter-country-option:hover { background: var(--card-bg-alt); }
+/* The global `input { width: 100%; margin-top: 5px; padding: 11px 16px;
+   border-radius: var(--r-pill); }` rule above applies to every <input>,
+   checkboxes included — left unchecked here it stretches each one into a
+   full-width pill, pushing its label text far to the right. */
+.leads-filter-country-option input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  margin: 0;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  flex: 0 0 auto;
+  accent-color: var(--text);
+  cursor: pointer;
+}
 
 /* Dropzone */
 .dropzone {
