@@ -1316,7 +1316,7 @@ kbd {
   gap: 10px;
 }
 .stage-edit-field { display: flex; flex-direction: column; gap: 4px; font-size: 0.8rem; font-weight: 500; color: var(--muted); }
-.stage-edit-field input[type="text"] { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); font-size: 0.9rem; color: var(--text); }
+.stage-edit-field input[type="text"], .stage-edit-field input[type="number"] { padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--r-md); font-size: 0.9rem; color: var(--text); }
 .stage-edit-field input[type="color"] { width: 100%; height: 32px; border: 1px solid var(--border); border-radius: var(--r-md); padding: 2px; cursor: pointer; }
 .stage-edit-flags { display: flex; flex-direction: column; gap: 2px; }
 .stage-edit-flags .radio-label { padding: 4px 2px; margin-bottom: 0; background: none; font-size: 0.82rem; }
@@ -1325,6 +1325,43 @@ kbd {
 .stage-edit-actions .btn-danger-outline { padding: 7px 12px; font-size: 0.85rem; border-radius: var(--r-pill); border: 1px solid var(--warn); }
 .btn-danger-outline { color: var(--warn); border-color: var(--warn); }
 .btn-danger-outline:hover { background: var(--warn); color: #fff; }
+
+#leads-filter-popover { width: 280px; }
+.leads-filter-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  margin-left: 6px;
+  border-radius: var(--r-pill);
+  background: var(--text);
+  color: var(--card-bg);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+.leads-filter-country-list {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  padding: 6px;
+}
+.leads-filter-country-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--text);
+  padding: 3px 4px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.leads-filter-country-option:hover { background: var(--card-bg-alt); }
 
 /* Dropzone */
 .dropzone {

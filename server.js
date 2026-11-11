@@ -9,6 +9,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const { neon } = require('@neondatabase/serverless');
 const sql = neon(process.env.DATABASE_URL);
 const { put: putBlob } = require('@vercel/blob');
+const { normalizeCountry, CANONICAL_COUNTRIES } = require('./lib/countries');
 
 // ---------- WORKSPACES (profiles) ----------
 // No login/auth exists in this app (single-user personal tool) — a
@@ -1202,6 +1203,7 @@ function mapLeadRow(r) {
     bio: r.bio,
     headline: r.headline,
     followers: r.followers,
+    country: r.country,
     stage: r.stage,
     notes: r.notes,
     phaseStep: r.phase_step,
@@ -1361,6 +1363,15 @@ app.delete('/api/lead-stages/:key', asyncRoute(async (req, res) => {
   res.json({ ok: true, reassignedCount: count });
 }));
 
+// The full recognized-country list, for the leads page's country filter —
+// every value normalizeCountry can produce, so every real country is always
+// offered there even before any lead actually uses it. The page merges
+// this with whatever (possibly unrecognized) country strings its own
+// leads already have.
+app.get('/api/countries', asyncRoute(async (req, res) => {
+  res.json({ countries: CANONICAL_COUNTRIES });
+}));
+
 app.get('/api/leads', asyncRoute(async (req, res) => {
   const workspaceId = await getWorkspaceId(req);
   const leads = await loadLeads(workspaceId);
@@ -1437,9 +1448,9 @@ app.post('/api/leads', asyncRoute(async (req, res) => {
   }
   const id = crypto.randomUUID();
   const rows = await sql`
-    INSERT INTO leads (id, workspace_id, platform, profile_url, username, full_name, bio, headline, followers, notes)
+    INSERT INTO leads (id, workspace_id, platform, profile_url, username, full_name, bio, headline, followers, country, notes)
     VALUES (${id}, ${workspaceId}, ${platform}, ${sanitizeUrl(b.profileUrl)}, ${b.username || ''}, ${b.fullName || ''}, ${b.bio || ''},
-      ${b.headline || ''}, ${toNullableInt(b.followers)}, ${b.notes || ''})
+      ${b.headline || ''}, ${toNullableInt(b.followers)}, ${normalizeCountry(b.country)}, ${b.notes || ''})
     ON CONFLICT (workspace_id, lower(username)) WHERE deleted_at IS NULL AND username <> '' DO NOTHING
     RETURNING id
   `;
@@ -1473,10 +1484,11 @@ app.post('/api/leads/bulk', asyncRoute(async (req, res) => {
   const bios = leads.map(l => l.bio || '');
   const headlines = leads.map(l => l.headline || '');
   const followersArr = leads.map(l => toNullableInt(l.followers));
+  const countriesArr = leads.map(l => normalizeCountry(l.country));
 
   const rows = await sql`
-    INSERT INTO leads (id, workspace_id, platform, profile_url, username, full_name, bio, headline, followers)
-    SELECT * FROM unnest(${ids}::uuid[], ${workspaceIds}::uuid[], ${platforms}::text[], ${profileUrls}::text[], ${usernames}::text[], ${fullNames}::text[], ${bios}::text[], ${headlines}::text[], ${followersArr}::integer[])
+    INSERT INTO leads (id, workspace_id, platform, profile_url, username, full_name, bio, headline, followers, country)
+    SELECT * FROM unnest(${ids}::uuid[], ${workspaceIds}::uuid[], ${platforms}::text[], ${profileUrls}::text[], ${usernames}::text[], ${fullNames}::text[], ${bios}::text[], ${headlines}::text[], ${followersArr}::integer[], ${countriesArr}::text[])
     ON CONFLICT (workspace_id, lower(username)) WHERE deleted_at IS NULL AND username <> '' DO NOTHING
     RETURNING id
   `;
@@ -1493,6 +1505,7 @@ const LEAD_PATCH_FIELDS = {
   bio: 'bio',
   headline: 'headline',
   followers: 'followers',
+  country: 'country',
   stage: 'stage',
   notes: 'notes',
   accountId: 'account_id',
@@ -1719,6 +1732,7 @@ app.patch('/api/leads/:id', asyncRoute(async (req, res) => {
     if (!Object.prototype.hasOwnProperty.call(b, key)) continue;
     let value = b[key];
     if (key === 'followers') value = toNullableInt(value);
+    if (key === 'country') value = normalizeCountry(value);
     if (key === 'profileUrl') value = sanitizeUrl(value);
     sets.push(`${column} = $${i++}`);
     params.push(value);

@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=56">
+<link rel="stylesheet" href="style.css?v=57">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -744,8 +744,26 @@
           <button type="button" class="range-tab active" data-platform="all">All</button>
         </div>
         <div class="leads-controls-spacer"></div>
+        <button type="button" id="leads-filter-btn" class="btn-secondary">Filter<span id="leads-filter-count" class="leads-filter-count hidden"></span></button>
         <div class="leads-search-row" id="leads-search-row">
           <input type="text" id="leads-search" class="leads-search-input" placeholder="Search name or username">
+        </div>
+      </div>
+
+      <div id="leads-filter-popover" class="stage-edit-popover hidden">
+        <label class="stage-edit-field">Country
+          <input type="text" id="leads-filter-country-search" placeholder="Search countries...">
+        </label>
+        <div id="leads-filter-country-list" class="leads-filter-country-list"></div>
+        <label class="stage-edit-field">Min followers
+          <input type="number" min="0" id="leads-filter-followers-min" placeholder="No minimum">
+        </label>
+        <label class="stage-edit-field">Max followers
+          <input type="number" min="0" id="leads-filter-followers-max" placeholder="No maximum">
+        </label>
+        <div class="stage-edit-actions">
+          <button type="button" id="leads-filter-clear-btn" class="btn-ghost">Clear filters</button>
+          <button type="button" id="leads-filter-apply-btn" class="btn-primary">Apply</button>
         </div>
       </div>
 
@@ -884,6 +902,9 @@
           </label>
           <label id="add-followers-row">Followers
             <input type="number" id="add-followers" min="0" placeholder="E.g. 3200">
+          </label>
+          <label>Country (optional)
+            <input type="text" id="add-country" placeholder="E.g. United States">
           </label>
           <label>Note (optional)
             <textarea id="add-notes" rows="2" placeholder="Anything worth remembering about this lead..."></textarea>
@@ -1473,7 +1494,7 @@
 
 <script src="templates.js?v=23"></script>
 <script src="app.js?v=57"></script>
-<script src="leads.js?v=37"></script>
+<script src="leads.js?v=38"></script>
 <script src="followups.js?v=41"></script>
 </body>
 </html>

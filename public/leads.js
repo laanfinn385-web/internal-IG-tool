@@ -9,6 +9,9 @@ const leadsState = {
   search: '',
   platformFilter: 'all', // 'instagram' | 'linkedin' | 'threads' | 'all'
   stageFilter: new Set(), // empty = no filter, show every stage
+  countryFilter: new Set(), // empty = no filter, show every country
+  followersMin: null,
+  followersMax: null,
   remindersByLead: {} // leadId -> reminder (soonest, if a lead somehow has more than one)
 };
 
@@ -23,6 +26,22 @@ function getFilteredLeads() {
   }
   if (q) {
     items = items.filter(({ lead }) => (lead.username || '').toLowerCase().includes(q) || (lead.fullName || '').toLowerCase().includes(q));
+  }
+
+  if (leadsState.countryFilter.size > 0) {
+    items = items.filter(({ lead }) => leadsState.countryFilter.has(lead.country || ''));
+  }
+  if (leadsState.followersMin != null || leadsState.followersMax != null) {
+    // A lead with no followers count on file can't be claimed to fall
+    // inside (or outside) a specific range, so it's excluded from both
+    // ends the moment either bound is active — rather than silently
+    // defaulting to 0 and passing every "at most" filter.
+    items = items.filter(({ lead }) => {
+      if (lead.followers == null) return false;
+      if (leadsState.followersMin != null && lead.followers < leadsState.followersMin) return false;
+      if (leadsState.followersMax != null && lead.followers > leadsState.followersMax) return false;
+      return true;
+    });
   }
 
   if (leadsState.stageFilter.size > 0) {
@@ -48,12 +67,14 @@ const LEAD_FIELDS_BY_PLATFORM = {
     { key: 'username', label: 'Username', required: true, patterns: [/username/i, /handle/i, /^user$/i] },
     { key: 'fullName', label: 'Full name', required: false, patterns: [/full.?name/i, /^name$/i] },
     { key: 'bio', label: 'Bio', required: false, patterns: [/bio/i, /about/i] },
-    { key: 'followers', label: 'Followers', required: false, patterns: [/follower/i] }
+    { key: 'followers', label: 'Followers', required: false, patterns: [/follower/i] },
+    { key: 'country', label: 'Country', required: false, patterns: [/country/i, /nation/i] }
   ],
   linkedin: [
     { key: 'profileUrl', label: 'Profile URL', required: true, patterns: [/profile.?url/i, /^url$/i, /link/i] },
     { key: 'fullName', label: 'Full name', required: true, patterns: [/full.?name/i, /^name$/i] },
     { key: 'headline', label: 'Headline', required: false, patterns: [/headline/i, /title/i] },
+    { key: 'country', label: 'Country', required: false, patterns: [/country/i, /nation/i] },
     { key: 'additionalInfo', label: 'Additional info', required: false, patterns: [/additional/i, /info/i, /note/i] }
   ],
   // Identical to Instagram's — Threads leads need exactly the same fields.
@@ -62,7 +83,8 @@ const LEAD_FIELDS_BY_PLATFORM = {
     { key: 'username', label: 'Username', required: true, patterns: [/username/i, /handle/i, /^user$/i] },
     { key: 'fullName', label: 'Full name', required: false, patterns: [/full.?name/i, /^name$/i] },
     { key: 'bio', label: 'Bio', required: false, patterns: [/bio/i, /about/i] },
-    { key: 'followers', label: 'Followers', required: false, patterns: [/follower/i] }
+    { key: 'followers', label: 'Followers', required: false, patterns: [/follower/i] },
+    { key: 'country', label: 'Country', required: false, patterns: [/country/i, /nation/i] }
   ]
 };
 
@@ -292,6 +314,9 @@ function leadRowHtml(lead, index) {
       <label class="lead-detail-full">Headline
         <input type="text" value="${escapeHtml(lead.headline)}" data-field="headline">
       </label>
+      <label class="lead-detail-full">Country
+        <input type="text" value="${escapeHtml(lead.country)}" data-field="country" placeholder="E.g. United States">
+      </label>
       <label class="lead-detail-full">Additional info
         <textarea rows="2" data-field="bio" class="auto-resize">${escapeHtml(lead.bio)}</textarea>
       </label>
@@ -307,6 +332,9 @@ function leadRowHtml(lead, index) {
       </label>
       <label>Followers
         <input type="number" min="0" value="${lead.followers ?? ''}" data-field="followers">
+      </label>
+      <label>Country
+        <input type="text" value="${escapeHtml(lead.country)}" data-field="country" placeholder="E.g. United States">
       </label>
       <label class="lead-detail-full">Bio
         <textarea rows="2" data-field="bio" class="auto-resize">${escapeHtml(lead.bio)}</textarea>
@@ -510,6 +538,130 @@ $('#leads-add-stage-btn').addEventListener('click', (e) => {
 document.addEventListener('click', (e) => {
   if (!e.target.closest('#stage-edit-popover') && !e.target.closest('.leads-stage-chip-kebab') && !e.target.closest('#leads-add-stage-btn')) {
     closeStageEditPopover();
+  }
+});
+
+// ---------- Leads filter popover (country + followers range) ----------
+// Mirrors the stage-edit popover's own trigger/position/toggle/outside-click
+// skeleton above. Country checkboxes are staged in a working-copy Set and
+// only committed to leadsState on "Apply" — so opening the popover, ticking
+// a few boxes, then clicking outside to dismiss it doesn't silently filter
+// the table.
+let canonicalCountriesCache = null;
+let pendingCountryFilter = new Set();
+
+async function getCanonicalCountries() {
+  if (canonicalCountriesCache) return canonicalCountriesCache;
+  try {
+    const data = await fetchJson('/api/countries');
+    canonicalCountriesCache = data.countries || [];
+  } catch (e) {
+    canonicalCountriesCache = [];
+  }
+  return canonicalCountriesCache;
+}
+
+// The recognized list plus whatever (possibly unrecognized) country values
+// this workspace's own leads already have — so a free-text country typed
+// before this list existed still shows up as a real filter option.
+function allKnownCountries(canonical) {
+  const fromLeads = leadsState.leads.map(l => l.country).filter(Boolean);
+  return Array.from(new Set([...canonical, ...fromLeads])).sort((a, b) => a.localeCompare(b));
+}
+
+function renderCountryFilterList(searchQuery, countries) {
+  const wrap = $('#leads-filter-country-list');
+  const q = searchQuery.trim().toLowerCase();
+  const filtered = q ? countries.filter(c => c.toLowerCase().includes(q)) : countries;
+  if (filtered.length === 0) {
+    wrap.innerHTML = '<p class="muted" style="font-size:0.8rem;margin:4px 2px;">No countries match.</p>';
+    return;
+  }
+  wrap.innerHTML = filtered.map(c => `
+    <label class="leads-filter-country-option">
+      <input type="checkbox" value="${escapeHtml(c)}" ${pendingCountryFilter.has(c) ? 'checked' : ''}>
+      ${escapeHtml(c)}
+    </label>
+  `).join('');
+}
+
+function positionLeadsFilterPopover(anchorEl) {
+  const box = anchorEl.getBoundingClientRect();
+  const popover = $('#leads-filter-popover');
+  popover.style.left = `${Math.max(8, box.left)}px`;
+  popover.style.top = `${box.bottom + 6}px`;
+}
+
+function closeLeadsFilterPopover() {
+  $('#leads-filter-popover').classList.add('hidden');
+}
+
+async function openLeadsFilterPopover(anchorEl) {
+  pendingCountryFilter = new Set(leadsState.countryFilter);
+  $('#leads-filter-country-search').value = '';
+  $('#leads-filter-followers-min').value = leadsState.followersMin ?? '';
+  $('#leads-filter-followers-max').value = leadsState.followersMax ?? '';
+  positionLeadsFilterPopover(anchorEl);
+  $('#leads-filter-popover').classList.remove('hidden');
+  const canonical = await getCanonicalCountries();
+  renderCountryFilterList('', allKnownCountries(canonical));
+}
+
+function updateLeadsFilterCountBadge() {
+  const count = (leadsState.countryFilter.size > 0 ? 1 : 0) + ((leadsState.followersMin != null || leadsState.followersMax != null) ? 1 : 0);
+  const badge = $('#leads-filter-count');
+  badge.textContent = String(count);
+  badge.classList.toggle('hidden', count === 0);
+}
+
+$('#leads-filter-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  if (!$('#leads-filter-popover').classList.contains('hidden')) { closeLeadsFilterPopover(); return; }
+  openLeadsFilterPopover(e.currentTarget);
+});
+
+$('#leads-filter-country-search').addEventListener('input', async (e) => {
+  const canonical = await getCanonicalCountries();
+  renderCountryFilterList(e.target.value, allKnownCountries(canonical));
+});
+
+$('#leads-filter-country-list').addEventListener('change', (e) => {
+  const cb = e.target.closest('input[type="checkbox"]');
+  if (!cb) return;
+  if (cb.checked) pendingCountryFilter.add(cb.value);
+  else pendingCountryFilter.delete(cb.value);
+});
+
+$('#leads-filter-apply-btn').addEventListener('click', () => {
+  leadsState.countryFilter = new Set(pendingCountryFilter);
+  const min = $('#leads-filter-followers-min').value;
+  const max = $('#leads-filter-followers-max').value;
+  leadsState.followersMin = min !== '' ? Number(min) : null;
+  leadsState.followersMax = max !== '' ? Number(max) : null;
+  updateLeadsFilterCountBadge();
+  closeLeadsFilterPopover();
+  leadsState.page = 0;
+  renderLeadsTable();
+});
+
+$('#leads-filter-clear-btn').addEventListener('click', () => {
+  pendingCountryFilter = new Set();
+  leadsState.countryFilter = new Set();
+  leadsState.followersMin = null;
+  leadsState.followersMax = null;
+  $('#leads-filter-followers-min').value = '';
+  $('#leads-filter-followers-max').value = '';
+  $('#leads-filter-country-search').value = '';
+  getCanonicalCountries().then(canonical => renderCountryFilterList('', allKnownCountries(canonical)));
+  updateLeadsFilterCountBadge();
+  closeLeadsFilterPopover();
+  leadsState.page = 0;
+  renderLeadsTable();
+});
+
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('#leads-filter-popover') && !e.target.closest('#leads-filter-btn')) {
+    closeLeadsFilterPopover();
   }
 });
 
@@ -1238,7 +1390,7 @@ $('#add-platform-row').addEventListener('change', (e) => {
 });
 
 $('#leads-add-btn').addEventListener('click', () => {
-  ['profileUrl', 'username', 'fullName', 'headline', 'bio', 'followers', 'notes'].forEach(f => {
+  ['profileUrl', 'username', 'fullName', 'headline', 'bio', 'followers', 'country', 'notes'].forEach(f => {
     const el = $(`#add-${f}`);
     if (el) el.value = '';
   });
@@ -1267,6 +1419,7 @@ $('#add-confirm-btn').addEventListener('click', async () => {
       fullName,
       headline: $('#add-headline').value.trim(),
       bio: $('#add-bio').value,
+      country: $('#add-country').value.trim(),
       notes: $('#add-notes').value
     };
   } else {
@@ -1284,6 +1437,7 @@ $('#add-confirm-btn').addEventListener('click', async () => {
       fullName: $('#add-fullName').value.trim(),
       bio: $('#add-bio').value,
       followers: $('#add-followers').value,
+      country: $('#add-country').value.trim(),
       notes: $('#add-notes').value
     };
   }
@@ -1451,6 +1605,7 @@ function buildLeadsFromMapping() {
       profileUrl: mapping.profileUrl >= 0 ? (row[mapping.profileUrl] || '').trim() : '',
       fullName: mapping.fullName >= 0 ? (row[mapping.fullName] || '').trim() : '',
       headline: mapping.headline >= 0 ? (row[mapping.headline] || '').trim() : '',
+      country: mapping.country >= 0 ? (row[mapping.country] || '').trim() : '',
       // "Additional info" is LinkedIn's equivalent of Instagram's bio field
       // (same underlying column server-side — see LEAD_PATCH_FIELDS).
       bio: mapping.additionalInfo >= 0 ? (row[mapping.additionalInfo] || '') : ''
@@ -1463,7 +1618,8 @@ function buildLeadsFromMapping() {
     username: mapping.username >= 0 ? (row[mapping.username] || '').trim().replace('@', '') : '',
     fullName: mapping.fullName >= 0 ? (row[mapping.fullName] || '').trim() : '',
     bio: mapping.bio >= 0 ? (row[mapping.bio] || '') : '',
-    followers: mapping.followers >= 0 ? normalizeFollowers(row[mapping.followers]) : ''
+    followers: mapping.followers >= 0 ? normalizeFollowers(row[mapping.followers]) : '',
+    country: mapping.country >= 0 ? (row[mapping.country] || '').trim() : ''
   })).filter(l => l.profileUrl || l.username);
 
   leads.forEach(l => {
