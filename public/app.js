@@ -4113,6 +4113,110 @@ async function loadAnalyticsAccounts() {
   }
 }
 
+// ---------- Analytics CSV export ----------
+// Exports everything the Analytics page tracks in one file — the current
+// Overview range/platform's summary + trend, plus Opener A/B test and
+// Account performance (both already all-time/cumulative, independent of
+// the range/platform tabs) — fetched fresh here rather than read from
+// whichever tab's cached render state happens to exist, since a client
+// export shouldn't silently omit a tab the user never happened to open.
+function csvCell(value) {
+  const str = String(value ?? '');
+  return /[",\r\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+function csvRow(cells) {
+  return cells.map(csvCell).join(',') + '\r\n';
+}
+function downloadTextFile(filename, content, mimeType) {
+  const blob = new Blob([content], { type: mimeType });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function exportAnalyticsCsv() {
+  const btn = $('#analytics-export-csv-btn');
+  const originalText = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Exporting…';
+  try {
+    const [overview, openersData, accountsData] = await Promise.all([
+      fetchJson(`/api/analytics?range=${currentRange}&platform=${analyticsPlatformFilter}`),
+      fetchJson('/api/analytics/openers'),
+      fetchJson('/api/analytics/accounts')
+    ]);
+
+    const rangeLabel = $('#range-tabs .range-tab.active')?.textContent.trim() || currentRange;
+    const platformLabel = $('#analytics-platform-tabs .range-tab.active')?.textContent.trim() || 'All';
+    const f = overview.funnel || {};
+
+    // A leading UTF-8 BOM so Excel (which otherwise guesses Windows-1252)
+    // opens this correctly rather than mangling any non-ASCII opener text.
+    let csv = '﻿';
+    csv += csvRow(['Analytics export']);
+    csv += csvRow(['Generated', new Date().toLocaleString()]);
+    csv += csvRow(['Range', rangeLabel]);
+    csv += csvRow(['Platform', platformLabel]);
+    csv += '\r\n';
+
+    csv += csvRow(['Overview']);
+    csv += csvRow(['Metric', 'Value']);
+    csv += csvRow(['Total sends', overview.total]);
+    csv += csvRow(['Change vs previous period', overview.pctChange != null ? `${overview.pctChange}%` : '—']);
+    csv += csvRow(['Follow-ups sent', f.followups]);
+    csv += csvRow(['Replies', f.replies]);
+    csv += csvRow(['Reply rate', pctText(f.replyRate)]);
+    csv += csvRow(['Positive replies', f.positiveReplies]);
+    csv += csvRow(['Positive reply rate', pctText(f.prr)]);
+    csv += csvRow(['Appointments set', f.appointmentsSet]);
+    csv += csvRow(['Appointment set rate', pctText(f.asr)]);
+    csv += csvRow(['Connections sent', f.connectionsSent]);
+    csv += csvRow(['Connections accepted', f.connectionsAccepted]);
+    csv += csvRow(['Connection accept rate', pctText(f.car)]);
+    csv += '\r\n';
+
+    csv += csvRow(['Sends trend']);
+    csv += csvRow(['Period', 'Sends']);
+    (overview.series || []).forEach(s => { csv += csvRow([s.label, s.count]); });
+    csv += '\r\n';
+
+    csv += csvRow(['Opener A/B test performance (all-time)']);
+    csv += csvRow(['Sequence', 'Variant', 'Opener text', 'Sends', 'Replies', 'Reply rate', 'Positive replies', 'Positive reply rate', 'Appointments set', 'Appointment set rate']);
+    (openersData.openers || []).forEach(o => {
+      const label = ANALYTICS_OPENER_LABELS[o.position] || `Variant ${o.position + 1}`;
+      csv += csvRow([
+        o.sequenceName, label, o.text || '', o.sends, o.replies, pctText(o.replyRate),
+        o.positiveReplies, pctText(o.prr), o.appointmentsSet, pctText(o.asr)
+      ]);
+    });
+    csv += '\r\n';
+
+    csv += csvRow(['Account performance (all-time)']);
+    csv += csvRow(['Platform', 'Username', 'Sends', 'Replies', 'Reply rate', 'Positive replies', 'Positive reply rate', 'Appointments set', 'Appointment set rate']);
+    (accountsData.leaderboard || []).forEach(a => {
+      const accountPlatformLabel = a.platform === 'threads' ? 'Threads' : (!a.platform || a.platform === 'instagram') ? 'Instagram' : a.platform;
+      csv += csvRow([
+        accountPlatformLabel, `@${a.username}`, a.sends, a.replies, pctText(a.replyRate),
+        a.positiveReplies, pctText(a.prr), a.appointmentsSet, pctText(a.asr)
+      ]);
+    });
+
+    downloadTextFile(`analytics-export-${new Date().toISOString().slice(0, 10)}.csv`, csv, 'text/csv;charset=utf-8;');
+  } catch (e) {
+    alert(`Could not export analytics: ${e.message}`);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+$('#analytics-export-csv-btn').addEventListener('click', exportAnalyticsCsv);
+
 async function loadAnalytics(range) {
   try {
     const data = await fetchJson(`/api/analytics?range=${range}&platform=${analyticsPlatformFilter}`);
