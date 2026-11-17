@@ -56,6 +56,13 @@
         <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg></span>
         <span class="navbtn-label">Saved Sessions</span>
       </button>
+      <!-- Only shown when the active profile was created as a client
+           account (see the New profile modal) — hidden otherwise, same
+           "the flag decides what's visible" rule the backend enforces. -->
+      <button class="navbtn hidden" data-nav="client-portal" id="client-portal-navbtn" title="Client Portal">
+        <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"></path></svg></span>
+        <span class="navbtn-label">Client Portal</span>
+      </button>
     </nav>
     <div class="sidebar-bottom">
       <div id="sidebar-fu-card" class="sidebar-fu-card hidden">
@@ -99,6 +106,15 @@
       <p class="muted hidden" id="new-profile-image-status"></p>
       <label class="radio-label"><input type="checkbox" id="new-profile-instagram" checked> Instagram</label>
       <label class="radio-label"><input type="checkbox" id="new-profile-linkedin" checked> LinkedIn</label>
+      <label class="radio-label" title="Can't be changed after the profile is created."><input type="checkbox" id="new-profile-is-client"> This is a client account</label>
+      <div id="new-profile-client-fields" class="hidden">
+        <label>Client's first name
+          <input type="text" id="new-profile-client-first-name" placeholder="e.g. Sanne">
+        </label>
+        <label>Client's last name
+          <input type="text" id="new-profile-client-last-name" placeholder="e.g. de Vries">
+        </label>
+      </div>
       <p class="hidden" id="new-profile-error" style="color: var(--red); font-size: 0.85rem;"></p>
       <div class="modal-actions">
         <button id="new-profile-cancel-btn" class="btn-secondary">Cancel</button>
@@ -1092,6 +1108,209 @@
       </div>
     </section>
 
+    <!-- CLIENT PORTAL (admin side) — only reachable when the active profile
+         is a client account. Ported from the Claude Design prototype
+         ("Outreach Tool redesign prototype/Client Portal Backend.dc.html")
+         — same copy, layout and colors (this app's --bg/--card-bg/--purple/
+         --r-xl/etc. are already that exact palette), just plain markup/JS
+         instead of the prototype's own template runtime. One structural
+         adaptation: the prototype's screens (Home/Scripting/Outreach/
+         Scripts) sit behind its own left sidebar; here they're a horizontal
+         tab row instead, matching how this app's own multi-tab pages
+         (Analytics) already work, since the profile switcher/main nav this
+         app already has would otherwise be duplicated. -->
+    <section id="view-client-portal" class="view hidden">
+      <div class="row-between leads-header" style="align-items:flex-end;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="eyebrow">Client Portal</div>
+          <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;" id="cp-client-name-heading">Client</h1>
+        </div>
+        <div class="range-tabs" id="cp-mode-tabs">
+          <button type="button" class="range-tab active" data-mode="home">Home</button>
+          <button type="button" class="range-tab" data-mode="outreach">Outreach</button>
+          <button type="button" class="range-tab" data-mode="scripts">Scripts</button>
+        </div>
+      </div>
+
+      <!-- Admin-only "you're editing their portal" banner + portal-link copy -->
+      <div class="cp-banner">
+        <span class="cp-banner-dot"></span>
+        <span class="cp-banner-text" id="cp-banner-text">You're editing this client's portal.</span>
+        <button type="button" class="cp-banner-btn" id="cp-copy-link-btn">Copy portal link</button>
+      </div>
+
+      <!-- HOME -->
+      <div id="cp-home-section">
+        <header class="cp-home-header">
+          <div class="cp-home-header-main">
+            <div class="cp-eyebrow"><span class="cp-dot"></span><span id="cp-home-date"></span></div>
+            <h1 class="cp-greeting" id="cp-greeting">Good morning.</h1>
+            <input class="cp-status-line" id="cp-status-line" title="Edit this line" placeholder="A line the client sees on their Home screen">
+          </div>
+          <button type="button" class="cp-health-btn" id="cp-health-btn" title="Click to change">
+            <span class="cp-health-dot" id="cp-health-dot"></span>
+            <span id="cp-health-label">On track</span>
+          </button>
+        </header>
+
+        <div class="cp-row">
+          <section class="cp-card cp-card-white cp-milestones-card">
+            <div class="cp-card-head">
+              <div>
+                <div class="cp-eyebrow"><span class="cp-dot"></span>Milestones</div>
+                <h2 class="cp-h2" id="cp-milestones-title">0 of 0 done this month</h2>
+              </div>
+            </div>
+            <div class="cp-ms-bar" id="cp-ms-bar"></div>
+            <div id="cp-milestones-list"></div>
+            <div class="cp-row-between">
+              <button type="button" class="cp-btn-outline" id="cp-add-milestone-btn">+ Add milestone</button>
+              <span class="cp-hint">Click a circle to switch between done, in progress and up next.</span>
+            </div>
+          </section>
+
+          <section class="cp-card cp-card-alt cp-mini-outreach-card">
+            <div class="cp-card-head">
+              <div>
+                <div class="cp-eyebrow"><span class="cp-dot"></span>Outreach</div>
+                <h2 class="cp-h2">How it's going</h2>
+              </div>
+              <div class="range-tabs" id="cp-home-period-tabs">
+                <button type="button" class="range-tab active" data-period="week">Week</button>
+                <button type="button" class="range-tab" data-period="month">Month</button>
+                <button type="button" class="range-tab" data-period="all">All time</button>
+              </div>
+            </div>
+            <div id="cp-mini-stats" class="cp-mini-stats"></div>
+            <button type="button" class="cp-btn-outline cp-align-start" id="cp-see-outreach-btn">See full statistics →</button>
+          </section>
+        </div>
+
+        <section class="cp-card cp-card-alt">
+          <div class="cp-eyebrow"><span class="cp-dot"></span>Portal links · only you see this</div>
+          <div class="cp-links-grid">
+            <label class="cp-link-field">
+              <span>Rella link</span>
+              <input id="cp-link-rella" placeholder="https://…">
+            </label>
+            <label class="cp-link-field">
+              <span>Landing page</span>
+              <input id="cp-link-landing" placeholder="coachname.nl">
+            </label>
+            <label class="cp-link-field">
+              <span>Google Drive folder</span>
+              <input id="cp-link-drive" placeholder="https://drive.google.com/…">
+            </label>
+          </div>
+        </section>
+      </div>
+
+      <!-- OUTREACH -->
+      <div id="cp-outreach-section" class="hidden">
+        <header style="display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;margin-bottom:24px;">
+          <div style="display:flex;flex-direction:column;gap:14px;">
+            <div class="cp-eyebrow"><span class="cp-dot"></span>Outreach</div>
+            <h1 class="cp-h1">How your outreach is going.</h1>
+            <p class="cp-lead">Every day we message people who match your ideal client. Here's what came of it.</p>
+          </div>
+          <div class="range-tabs" id="cp-outreach-period-tabs">
+            <button type="button" class="range-tab active" data-period="week">Week</button>
+            <button type="button" class="range-tab" data-period="month">Month</button>
+            <button type="button" class="range-tab" data-period="all">All time</button>
+          </div>
+        </header>
+
+        <div class="cp-outreach-core-row">
+          <div class="cp-outreach-core-video">
+            <span class="cp-play-circle">▶</span>
+            <span class="cp-h3">How your outreach works</span>
+            <span class="cp-hint">Walkthrough video — coming soon</span>
+          </div>
+          <div id="cp-outreach-core" class="cp-outreach-core-col"></div>
+        </div>
+
+        <section class="cp-card cp-card-white">
+          <div class="cp-eyebrow"><span class="cp-dot"></span>From message to call</div>
+          <h2 class="cp-h2" id="cp-funnel-title"></h2>
+          <div id="cp-funnel" class="cp-funnel-row"></div>
+        </section>
+
+        <section class="cp-card cp-card-white">
+          <div class="cp-card-head">
+            <div>
+              <div class="cp-eyebrow"><span class="cp-dot"></span>Who we reached out to</div>
+              <h2 class="cp-h2" id="cp-people-title"></h2>
+            </div>
+            <div class="cp-people-controls">
+              <input type="text" id="cp-people-search" class="cp-search" placeholder="Search handles">
+              <div class="range-tabs" id="cp-people-filter-tabs">
+                <button type="button" class="range-tab active" data-filter="all">Everyone</button>
+                <button type="button" class="range-tab" data-filter="sent">Messaged</button>
+                <button type="button" class="range-tab" data-filter="convo">In conversation</button>
+                <button type="button" class="range-tab" data-filter="call">Call booked</button>
+              </div>
+            </div>
+          </div>
+          <div id="cp-people-grid" class="cp-people-grid"></div>
+          <p class="cp-hint hidden" id="cp-people-empty">No handles match that.</p>
+          <button type="button" class="cp-btn-outline" id="cp-people-more-btn" style="align-self:center;">Show more</button>
+        </section>
+
+        <section class="cp-card cp-card-dark">
+          <div class="cp-row-between" style="align-items:flex-end;">
+            <div>
+              <div class="cp-eyebrow" style="color:#B9A3CC;"><span class="cp-dot" style="background:#B9A3CC;"></span>Total leads</div>
+              <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">
+                <input type="number" id="cp-total-leads-input" class="cp-total-leads-input" title="Edit total leads">
+                <span style="font-size:18px;color:#BDB6AE;">people on your list</span>
+              </div>
+            </div>
+            <span class="cp-hint" style="color:#BDB6AE;max-width:320px;" id="cp-pace-note"></span>
+          </div>
+          <div class="cp-progress-track">
+            <div class="cp-progress-fill" id="cp-progress-fill"></div>
+            <div class="cp-progress-rest" id="cp-progress-rest"></div>
+          </div>
+          <div class="cp-progress-legend">
+            <span><span class="cp-legend-dot" style="background:#8A5BB0;"></span>Reached out</span>
+            <span><span class="cp-legend-dot" style="background:#555451;"></span>Still to come</span>
+          </div>
+          <div class="cp-proj-card">
+            <span id="cp-proj-title" style="font-size:20px;line-height:1.3;letter-spacing:-0.3px;font-weight:500;"></span>
+            <div id="cp-proj-row" class="cp-proj-row"></div>
+            <span class="cp-hint" style="color:#BDB6AE;">Based on your all-time conversion rates. The more we learn, the sharper this gets.</span>
+          </div>
+        </section>
+      </div>
+
+      <!-- SCRIPTS (queue management) -->
+      <div id="cp-scripts-section" class="hidden">
+        <header style="margin-bottom:24px;">
+          <h1 class="cp-h1" id="cp-scripts-title">Script list</h1>
+          <p class="cp-lead" id="cp-scripts-meta"></p>
+        </header>
+        <section class="cp-card cp-card-white">
+          <h3 class="cp-h3" style="margin-bottom:16px;">Add a topic</h3>
+          <div class="cp-add-script-row">
+            <input type="text" id="cp-script-topic" placeholder="Topic">
+            <input type="text" id="cp-script-hook" placeholder="Hook">
+            <select id="cp-script-format"></select>
+            <button type="button" class="cp-btn-primary" id="cp-script-add-btn">Add</button>
+          </div>
+          <p class="cp-hint" id="cp-script-format-desc"></p>
+        </section>
+        <section class="cp-card cp-card-white">
+          <h3 class="cp-h3">Waiting to be scripted</h3>
+          <div id="cp-scripts-queue-list"></div>
+          <p class="cp-hint hidden" id="cp-scripts-queue-empty">All caught up.</p>
+        </section>
+        <section class="cp-card cp-card-white">
+          <h3 class="cp-h3">In progress / done</h3>
+          <div id="cp-scripts-pipeline-list"></div>
+        </section>
+      </div>
+    </section>
+
     <!-- FOLLOW-UP SESSION -->
     <section id="view-followup" class="view hidden">
       <div class="row-between" style="align-items:flex-start;">
@@ -1499,5 +1718,6 @@
 <script src="app.js?v=59"></script>
 <script src="leads.js?v=39"></script>
 <script src="followups.js?v=41"></script>
+<script src="client-portal-admin.js?v=1"></script>
 </body>
 </html>
