@@ -99,11 +99,10 @@ $('#cp-copy-link-btn').addEventListener('click', async () => {
   }
 });
 
-// The client-facing project's own domain isn't known yet (not built/
-// deployed as of this commit — see the client-portal plan's step 5) — this
-// is updated to the real deployed URL once it exists, same one-line change
-// as every other env-specific URL elsewhere in this app.
-const CLIENT_PORTAL_BASE_URL = 'https://client-portal.vercel.app';
+// The client-facing project's real deployed domain (its own Vercel
+// project, root directory client-portal — see the client-portal plan's
+// step 5).
+const CLIENT_PORTAL_BASE_URL = 'https://ap-media-client-portal.vercel.app';
 function slugify(name) {
   return String(name || 'client').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'client';
 }
