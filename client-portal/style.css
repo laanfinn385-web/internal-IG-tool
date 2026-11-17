@@ -29,8 +29,8 @@ button { font-family: inherit; color: inherit; }
 
 /* ===== Layout ===== */
 .cp-app { display: flex; min-height: 100vh; background: var(--bg); }
-.cp-main { flex: 1; min-width: 0; padding: 40px clamp(20px, 4vw, 56px) 120px; }
-.cp-main-inner { max-width: 1180px; margin: 0 auto; }
+.cp-main { flex: 1; min-width: 0; padding: 40px clamp(24px, 3vw, 64px) 120px; }
+.cp-main-inner { max-width: 100%; }
 .cp-screen { display: flex; flex-direction: column; gap: 28px; }
 
 /* ===== Sidebar ===== */
