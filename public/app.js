@@ -127,6 +127,11 @@ function renderSidebarProfileSwitcher() {
       ${workspacePhotoHtml(w)}
       <span>${escapeHtml(w.name)}</span>
     </button>`).join('');
+  // The Client Portal nav item only ever applies to a profile created as a
+  // client account (permanent, decided at creation — see the New profile
+  // modal) — hidden for every other profile, same as a Threads-only/
+  // LinkedIn-only toggle hides an irrelevant nav item elsewhere.
+  $('#client-portal-navbtn').classList.toggle('hidden', !(current && current.isClientAccount));
 }
 
 // Applied once, right after loadWorkspaces() resolves the active profile —
@@ -225,9 +230,17 @@ function resetNewProfileModal() {
   $('#new-profile-image-status').classList.add('hidden');
   $('#new-profile-instagram').checked = true;
   $('#new-profile-linkedin').checked = true;
+  $('#new-profile-is-client').checked = false;
+  $('#new-profile-client-first-name').value = '';
+  $('#new-profile-client-last-name').value = '';
+  $('#new-profile-client-fields').classList.add('hidden');
   $('#new-profile-error').classList.add('hidden');
   pendingNewProfileImageUrl = null;
 }
+
+$('#new-profile-is-client').addEventListener('change', (e) => {
+  $('#new-profile-client-fields').classList.toggle('hidden', !e.target.checked);
+});
 
 $('#profile-switcher-new-btn').addEventListener('click', () => {
   toggleProfileSwitcherDropdown(false);
@@ -278,13 +291,19 @@ $('#new-profile-create-btn').addEventListener('click', async () => {
     errorEl.classList.remove('hidden');
     return;
   }
+  const isClientAccount = $('#new-profile-is-client').checked;
   const btn = $('#new-profile-create-btn');
   btn.disabled = true;
   try {
     const data = await fetchJson('/api/workspaces', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, pictureUrl: pendingNewProfileImageUrl, instagramEnabled, linkedinEnabled })
+      body: JSON.stringify({
+        name, pictureUrl: pendingNewProfileImageUrl, instagramEnabled, linkedinEnabled,
+        isClientAccount,
+        clientFirstName: isClientAccount ? $('#new-profile-client-first-name').value.trim() : undefined,
+        clientLastName: isClientAccount ? $('#new-profile-client-last-name').value.trim() : undefined
+      })
     });
     setActiveWorkspaceId(data.id);
     location.reload();
@@ -520,6 +539,7 @@ function showView(name) {
   if (name === 'saved-sessions') loadSavedSessions();
   if (name === 'timing-sequences') loadTimingSequences();
   if (name === 'message-sequences') loadMessageSequences();
+  if (name === 'client-portal') loadClientPortalAdmin();
 }
 
 $('#settings-btn').addEventListener('click', () => showView('settings'));
