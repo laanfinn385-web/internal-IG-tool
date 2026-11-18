@@ -50,13 +50,6 @@ function renderSidebarFollowupCard(notifications) {
   // one notifications payload.
   const total = workItems.reduce((sum, n) => sum + (n.count || 0), 0);
   $('#home-followups-due-text').textContent = total === 0 ? 'No follow-ups due' : `${total} follow-up${total === 1 ? '' : 's'} due`;
-  // Same count, surfaced as a badge on the Backend sidebar's Follow-ups
-  // nav item (only present at all for a client-account profile).
-  const backendBadge = $('#backend-followups-badge');
-  if (backendBadge) {
-    backendBadge.textContent = total;
-    backendBadge.classList.toggle('hidden', total === 0);
-  }
 }
 
 function renderNotifications(notifications) {
@@ -282,15 +275,11 @@ $('#backend-notif-bell').addEventListener('click', (e) => {
   else $('#notif-dropdown').classList.add('hidden');
 });
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.notif-wrap') && !e.target.closest('#backend-followups-navbtn') && !e.target.closest('#backend-notif-bell')) $('#notif-dropdown').classList.add('hidden');
+  if (!e.target.closest('.notif-wrap') && !e.target.closest('#backend-notif-bell')) $('#notif-dropdown').classList.add('hidden');
 });
 $('#sidebar-fu-card-btn').addEventListener('click', (e) => {
   e.stopPropagation();
   openNotifDropdown();
-});
-$('#backend-followups-navbtn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  openNotifDropdown(e.currentTarget);
 });
 $('#home-followups-due-link').addEventListener('click', (e) => {
   e.preventDefault();
