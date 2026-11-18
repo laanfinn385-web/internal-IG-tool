@@ -218,6 +218,14 @@ h1, h2, h3 { font-family: var(--font-display); font-weight: 500; letter-spacing:
 .profile-switcher-item .account-photo, .profile-switcher-item .account-photo-placeholder { width: 28px; height: 28px; font-size: 0.8rem; border-radius: 50%; }
 .profile-switcher-item:hover { background: var(--bg); }
 .profile-switcher-item.active { background: var(--bg); color: var(--accent); }
+/* Richer two-line row (name + "Client since <month>") used by the
+   client-only switcher lists (Enter Studio, Backend sidebar's Switch
+   client) — the plain single-line row above still covers the full
+   all-profiles list. */
+.profile-switcher-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+.profile-switcher-item-text .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.profile-switcher-item-text .sub { font-size: 0.76rem; font-weight: 450; color: var(--muted); }
+.profile-switcher-item-check { flex: none; color: var(--accent); font-weight: 700; }
 .profile-switcher-new-btn {
   width: 100%;
   margin-top: 4px;

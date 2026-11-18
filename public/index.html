@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=62">
+<link rel="stylesheet" href="style.css?v=63">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -30,10 +30,6 @@
             <span class="brand-sub">Switch profile ▾</span>
           </span>
         </button>
-        <div id="profile-switcher-dropdown" class="profile-switcher-dropdown hidden">
-          <div id="profile-switcher-list" class="profile-switcher-list"></div>
-          <button type="button" id="profile-switcher-new-btn" class="profile-switcher-new-btn">+ New profile</button>
-        </div>
       </div>
       <button id="sidebar-toggle" class="sidebar-toggle-btn" title="Collapse sidebar">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>
@@ -84,12 +80,6 @@
           <span class="notif-bell-label">Notifications</span>
           <span class="notif-badge hidden" id="notif-badge">0</span>
         </button>
-        <div id="notif-dropdown" class="notif-dropdown hidden">
-          <div class="notif-dropdown-header">Notifications</div>
-          <div id="notif-list"></div>
-          <div class="notif-empty hidden" id="notif-empty">You're all caught up 🎉</div>
-          <button type="button" id="notif-add-reminder-btn" class="notif-add-reminder-btn">+ Add reminder</button>
-        </div>
       </div>
       <button id="settings-btn" class="navbtn" title="Settings" data-nav="settings">
         <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg></span>
@@ -189,6 +179,36 @@
       <span class="notif-badge hidden" id="backend-notif-badge">0</span>
     </button>
   </aside>
+
+  <!-- Floating dropdown panels, deliberately living OUTSIDE both <aside>
+       sidebars rather than nested inside either one: they're already
+       position:fixed (anchored to whichever trigger button opened them
+       via JS), and a display:none ancestor hides its whole subtree
+       regardless of a descendant's own classes — nesting these inside
+       #sidebar (hidden for a client-account profile) or #backend-sidebar
+       (hidden otherwise) silently broke them for exactly the shell they
+       weren't nested in. -->
+  <div id="profile-switcher-dropdown" class="profile-switcher-dropdown hidden">
+    <div id="profile-switcher-list" class="profile-switcher-list"></div>
+    <button type="button" id="profile-switcher-new-btn" class="profile-switcher-new-btn">+ New profile</button>
+  </div>
+
+  <!-- Backend sidebar's own "Switch client" — a client-only list (avatar,
+       name, "Client since <month>", a checkmark on the active one) plus a
+       "+ Make new client portal" action, ported from the design's own
+       client-switcher dropdown rather than reusing the generic
+       all-profiles list above. -->
+  <div id="client-switcher-dropdown" class="profile-switcher-dropdown hidden">
+    <div id="client-switcher-list" class="profile-switcher-list"></div>
+    <button type="button" id="client-switcher-new-btn" class="profile-switcher-new-btn">+ Make new client portal</button>
+  </div>
+
+  <div id="notif-dropdown" class="notif-dropdown hidden">
+    <div class="notif-dropdown-header">Notifications</div>
+    <div id="notif-list"></div>
+    <div class="notif-empty hidden" id="notif-empty">You're all caught up 🎉</div>
+    <button type="button" id="notif-add-reminder-btn" class="notif-add-reminder-btn">+ Add reminder</button>
+  </div>
 
   <!-- NEW PROFILE — creating a profile switches into it immediately, same
        "create and start using it" spirit as the rest of this app. -->
@@ -1863,9 +1883,9 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=61"></script>
+<script src="app.js?v=62"></script>
 <script src="leads.js?v=39"></script>
-<script src="followups.js?v=44"></script>
+<script src="followups.js?v=45"></script>
 <script src="client-portal-admin.js?v=4"></script>
 </body>
 </html>
