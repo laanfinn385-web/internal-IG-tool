@@ -182,6 +182,7 @@ function renderHome() {
   const firstName = p.clientFirstName || p.name;
   $('#cp-home-date').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
   $('#cp-greeting').textContent = `${greet}, ${firstName}.`;
+  $('#cp-status-line').textContent = p.clientStatusLine || "Everything is on track. Here's what we've been working on.";
 
   const health = CP_HEALTH[p.clientHealth || 0];
   $('#cp-health-dot').style.background = health.bg;
