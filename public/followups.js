@@ -50,6 +50,13 @@ function renderSidebarFollowupCard(notifications) {
   // one notifications payload.
   const total = workItems.reduce((sum, n) => sum + (n.count || 0), 0);
   $('#home-followups-due-text').textContent = total === 0 ? 'No follow-ups due' : `${total} follow-up${total === 1 ? '' : 's'} due`;
+  // Same count, surfaced as a badge on the Backend sidebar's Follow-ups
+  // nav item (only present at all for a client-account profile).
+  const backendBadge = $('#backend-followups-badge');
+  if (backendBadge) {
+    backendBadge.textContent = total;
+    backendBadge.classList.toggle('hidden', total === 0);
+  }
 }
 
 function renderNotifications(notifications) {
@@ -241,15 +248,20 @@ $('#notif-add-reminder-btn').addEventListener('click', () => {
 // coordinates — computed fresh on every open, same reasoning as
 // positionProfileSwitcherDropdown() in app.js (sidebar width/bell position
 // differ between expanded/collapsed).
-function positionNotifDropdown() {
-  const bellBox = $('#notif-bell').getBoundingClientRect();
+// anchorEl defaults to the standard sidebar's bell — the Backend
+// sidebar's own "Follow-ups" nav button (hidden entirely along with the
+// rest of #sidebar for a client-account profile) passes itself instead,
+// so the same dropdown/notification-driven follow-up picker works
+// unchanged from either shell.
+function positionNotifDropdown(anchorEl) {
+  const bellBox = (anchorEl || $('#notif-bell')).getBoundingClientRect();
   const dropdown = $('#notif-dropdown');
   dropdown.style.left = `${bellBox.right + 16}px`;
   dropdown.style.bottom = `${window.innerHeight - bellBox.bottom}px`;
 }
 
-function openNotifDropdown() {
-  positionNotifDropdown();
+function openNotifDropdown(anchorEl) {
+  positionNotifDropdown(anchorEl);
   $('#notif-dropdown').classList.remove('hidden');
 }
 
@@ -260,11 +272,15 @@ $('#notif-bell').addEventListener('click', (e) => {
   else $('#notif-dropdown').classList.add('hidden');
 });
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.notif-wrap')) $('#notif-dropdown').classList.add('hidden');
+  if (!e.target.closest('.notif-wrap') && !e.target.closest('#backend-followups-navbtn')) $('#notif-dropdown').classList.add('hidden');
 });
 $('#sidebar-fu-card-btn').addEventListener('click', (e) => {
   e.stopPropagation();
   openNotifDropdown();
+});
+$('#backend-followups-navbtn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  openNotifDropdown(e.currentTarget);
 });
 $('#home-followups-due-link').addEventListener('click', (e) => {
   e.preventDefault();

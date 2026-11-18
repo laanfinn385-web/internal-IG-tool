@@ -6,7 +6,6 @@
 // page script in this app already uses.
 
 const cpState = {
-  mode: 'home',
   homePeriod: 'week',
   outreachPeriod: 'week',
   profile: null,
@@ -16,7 +15,9 @@ const cpState = {
   outreach: null,
   peopleFilter: 'all',
   peopleQuery: '',
-  peopleShown: 24
+  peopleShown: 24,
+  bulkOn: false,
+  bulkCount: 3
 };
 
 const CP_HEALTH = [
@@ -34,9 +35,14 @@ const CP_SCRIPT_STATUS_COLOR = {
   posted: { bg: 'var(--bg)', fg: 'var(--muted)' }
 };
 
-async function loadClientPortalAdmin() {
+// Called from showView() on every entry into any of the four cp-* admin
+// screens (Home/Scripting/Outreach/Scripts) — each is now its own
+// top-level view (see the Backend-sidebar rework), not a sub-tab nested
+// inside one combined page, so there's no single "mode" to track anymore;
+// the view name itself is the mode. `view` picks which renderer runs
+// once the shared data has loaded.
+async function loadClientPortalAdmin(view) {
   const ws = activeWorkspace();
-  $('#cp-client-name-heading').textContent = ws ? ws.name : 'Client';
   try {
     const [profileData, milestonesData, formatsData, scriptsData] = await Promise.all([
       fetchJson('/api/client/profile'),
@@ -55,8 +61,15 @@ async function loadClientPortalAdmin() {
   }
   const firstName = cpState.profile.clientFirstName || cpState.profile.name;
   $('#cp-banner-text').textContent = `You're editing ${firstName}'s portal. Dashed fields are editable — ${firstName} sees changes right away.`;
-  await loadCpOutreach(); // needed by both Home's mini stats and the Outreach tab
-  renderCpAll();
+  $('#cp-banner').classList.remove('hidden');
+  const queuedCount = cpState.scripts.filter(s => s.status === 'queued').length;
+  $('#backend-scripts-badge').textContent = queuedCount;
+  $('#backend-scripts-badge').classList.toggle('hidden', queuedCount === 0);
+  await loadCpOutreach(); // needed by Home's mini stats and the Outreach screen alike
+  if (view === 'cp-home') renderCpHome();
+  else if (view === 'cp-scripting') renderCpScripting();
+  else if (view === 'cp-outreach') renderCpOutreach();
+  else if (view === 'cp-scripts') renderCpScripts();
 }
 
 async function loadCpOutreach() {
@@ -66,23 +79,6 @@ async function loadCpOutreach() {
     console.error('Could not load outreach stats', e);
   }
 }
-
-function renderCpAll() {
-  $all('#cp-mode-tabs .range-tab').forEach(b => b.classList.toggle('active', b.dataset.mode === cpState.mode));
-  $('#cp-home-section').classList.toggle('hidden', cpState.mode !== 'home');
-  $('#cp-outreach-section').classList.toggle('hidden', cpState.mode !== 'outreach');
-  $('#cp-scripts-section').classList.toggle('hidden', cpState.mode !== 'scripts');
-  if (cpState.mode === 'home') renderCpHome();
-  if (cpState.mode === 'outreach') renderCpOutreach();
-  if (cpState.mode === 'scripts') renderCpScripts();
-}
-
-$('#cp-mode-tabs').addEventListener('click', (e) => {
-  const btn = e.target.closest('.range-tab');
-  if (!btn) return;
-  cpState.mode = btn.dataset.mode;
-  renderCpAll();
-});
 
 $('#cp-copy-link-btn').addEventListener('click', async () => {
   const token = cpState.profile.clientPortalToken;
@@ -238,11 +234,7 @@ $('#cp-home-period-tabs').addEventListener('click', (e) => {
   $all('#cp-home-period-tabs .range-tab').forEach(b => b.classList.toggle('active', b === btn));
   renderCpMiniStats();
 });
-$('#cp-see-outreach-btn').addEventListener('click', () => {
-  cpState.mode = 'outreach';
-  $all('#cp-mode-tabs .range-tab').forEach(b => b.classList.toggle('active', b.dataset.mode === 'outreach'));
-  renderCpAll();
-});
+$('#cp-see-outreach-btn').addEventListener('click', () => showView('cp-outreach'));
 
 const CP_PERIOD_DELTA_LABEL = { week: 'vs last week', month: 'vs last month', all: 'since the start' };
 function renderCpMiniStats() {
@@ -270,6 +262,69 @@ function renderCpMiniStats() {
       </div>
     </div>`).join('');
 }
+
+// ---------- SCRIPTING (session-starting hub) ----------
+// The design's own "Scripting" screen — a bulk-session starter plus a
+// read-only "Recently written" list. Its one real action (start a
+// script-writing session) has nowhere to go yet: the 5-step wizard is
+// still deferred, same as before — so the button below shows a plain
+// "coming soon" notice instead of a broken link. Everything else here
+// (the queue count, the bulk-session toggle/count) is fully real.
+
+function renderCpScripting() {
+  const firstName = cpState.profile.clientFirstName || cpState.profile.name;
+  const queued = cpState.scripts.filter(s => s.status === 'queued');
+  const written = cpState.scripts.filter(s => s.status !== 'queued');
+  const left = queued.length;
+  const n = cpState.bulkOn ? Math.min(left, cpState.bulkCount) : 1;
+
+  $('#cp-scripting-eyebrow').textContent = left ? `${left} to go` : 'All done';
+  $('#cp-scripting-title').textContent = left
+    ? (n > 1 ? `Script ${n} topics` : (left === 1 ? 'One script left to write' : `${left} scripts left to write`))
+    : 'Every script is written';
+  $('#cp-scripting-sub').textContent = left
+    ? `Next up: ${queued[0].topic}`
+    : `${firstName} has nothing waiting right now.`;
+  $('#cp-scripting-time').textContent = left ? `About ${n * 10} minutes` : '';
+  $('#cp-scripting-start-btn').disabled = left === 0;
+
+  const rellaLink = $('#cp-scripting-rella-link');
+  if (cpState.profile.clientRellaUrl) { rellaLink.href = cpState.profile.clientRellaUrl; rellaLink.classList.remove('hidden'); }
+  else rellaLink.classList.add('hidden');
+
+  $('#cp-scripting-recent-list').innerHTML = written
+    .slice()
+    .sort((a, b) => new Date(b.statusChangedAt || b.scriptedAt || 0) - new Date(a.statusChangedAt || a.scriptedAt || 0))
+    .slice(0, 8)
+    .map(s => {
+      const date = s.scriptedAt || s.statusChangedAt;
+      return `
+      <div class="cp-scripting-recent-row">
+        <div class="main">
+          <span class="title">${escapeHtml(s.topic)}</span>
+          <span class="hook">"${escapeHtml(s.hook)}"</span>
+        </div>
+        <span class="date">${date ? new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</span>
+      </div>`;
+    }).join('');
+  $('#cp-scripting-recent-empty').classList.toggle('hidden', written.length > 0);
+
+  $('#cp-bulk-toggle').setAttribute('aria-pressed', String(cpState.bulkOn));
+  $('#cp-bulk-count-box').classList.toggle('hidden', !cpState.bulkOn);
+  $('#cp-bulk-count').value = cpState.bulkCount;
+}
+
+$('#cp-scripting-start-btn').addEventListener('click', () => {
+  if (cpState.scripts.filter(s => s.status === 'queued').length === 0) return;
+  alert("Script-writing sessions aren't built yet — coming soon.");
+});
+$('#cp-bulk-toggle').addEventListener('click', () => { cpState.bulkOn = !cpState.bulkOn; renderCpScripting(); });
+$('#cp-bulk-dec').addEventListener('click', () => { cpState.bulkCount = Math.max(2, cpState.bulkCount - 1); renderCpScripting(); });
+$('#cp-bulk-inc').addEventListener('click', () => { cpState.bulkCount = Math.min(12, cpState.bulkCount + 1); renderCpScripting(); });
+$('#cp-bulk-count').addEventListener('change', (e) => {
+  cpState.bulkCount = Math.max(2, Math.min(12, parseInt(e.target.value, 10) || 2));
+  renderCpScripting();
+});
 
 // ---------- OUTREACH ----------
 

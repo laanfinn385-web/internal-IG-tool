@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=59">
+<link rel="stylesheet" href="style.css?v=60">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -56,13 +56,6 @@
         <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path></svg></span>
         <span class="navbtn-label">Saved Sessions</span>
       </button>
-      <!-- Only shown when the active profile was created as a client
-           account (see the New profile modal) — hidden otherwise, same
-           "the flag decides what's visible" rule the backend enforces. -->
-      <button class="navbtn hidden" data-nav="client-portal" id="client-portal-navbtn" title="Client Portal">
-        <span class="navbtn-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"></path></svg></span>
-        <span class="navbtn-label">Client Portal</span>
-      </button>
     </nav>
     <div class="sidebar-bottom">
       <div id="sidebar-fu-card" class="sidebar-fu-card hidden">
@@ -90,6 +83,92 @@
         <span class="navbtn-label">Settings</span>
       </button>
     </div>
+  </aside>
+
+  <!-- BACKEND SIDEBAR — shown instead of the standard sidebar above
+       whenever the active profile is a client account (see
+       renderSidebarProfileSwitcher in app.js). Ported from
+       "Outreach Tool redesign prototype/Client Portal Backend.dc.html"'s
+       own sidebar: Home/Scripting/Outreach/Content in Rella/Landing page,
+       plus an "Only you" section folding in this app's own existing
+       Leads/Scripts/session-starting/Follow-ups/Settings pages — those
+       are the exact same pages used elsewhere in this app, just reachable
+       through this nav instead of the standard one, per the user's own
+       explicit confirmation. -->
+  <aside class="cp-sidebar hidden" id="backend-sidebar">
+    <div class="cp-sidebar-top">
+      <div class="cp-sidebar-brand">
+        <span class="cp-sidebar-logo-text">A&amp;P</span>
+        <span class="cp-sidebar-brand-label">Studio</span>
+        <span class="cp-sidebar-badge">Backend</span>
+      </div>
+      <button type="button" id="backend-sidebar-toggle" class="cp-icon-btn" title="Collapse">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" id="backend-sidebar-chev"><path d="m15 18-6-6 6-6"></path></svg>
+      </button>
+    </div>
+
+    <div class="profile-switcher">
+      <button type="button" id="backend-profile-switcher-btn" class="cp-sidebar-user">
+        <span class="cp-sidebar-avatar" id="backend-sidebar-initial"></span>
+        <span class="cp-sidebar-user-info">
+          <span class="name" id="backend-sidebar-name"></span>
+          <span class="sub">Switch client ▾</span>
+        </span>
+      </button>
+    </div>
+
+    <nav class="cp-sidebar-nav">
+      <button type="button" class="navbtn cp-nav-btn" data-nav="cp-home" title="Home">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"></path></svg>
+        <span class="label">Home</span>
+      </button>
+      <button type="button" class="navbtn cp-nav-btn" data-nav="cp-scripting" title="Scripting">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>
+        <span class="label">Scripting</span>
+      </button>
+      <button type="button" class="navbtn cp-nav-btn" data-nav="cp-outreach" title="Outreach">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18M7 15l4-4 3 3 5-6"></path></svg>
+        <span class="label">Outreach</span>
+      </button>
+      <a href="#" target="_blank" rel="noopener" class="cp-nav-btn hidden" id="backend-nav-rella">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg>
+        <span class="label">Content in Rella</span>
+        <span class="ext">↗</span>
+      </a>
+      <a href="#" target="_blank" rel="noopener" class="cp-nav-btn hidden" id="backend-nav-landing">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"></path></svg>
+        <span class="label">Landing page</span>
+        <span class="ext">↗</span>
+      </a>
+    </nav>
+
+    <div class="cp-sidebar-section-label">Only you</div>
+    <nav class="cp-sidebar-nav">
+      <button type="button" class="navbtn cp-nav-btn" data-nav="leads" title="Leads">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path></svg>
+        <span class="label">Leads</span>
+      </button>
+      <button type="button" class="navbtn cp-nav-btn" data-nav="cp-scripts" title="Scripts">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>
+        <span class="label">Scripts</span>
+        <span class="cp-nav-badge hidden" id="backend-scripts-badge">0</span>
+      </button>
+      <button type="button" class="navbtn cp-nav-btn" data-nav="home" title="Outreach session">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4z"></path></svg>
+        <span class="label">Outreach session</span>
+      </button>
+      <button type="button" class="cp-nav-btn" id="backend-followups-navbtn" title="Follow-ups">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"></path></svg>
+        <span class="label">Follow-ups</span>
+        <span class="cp-nav-badge hidden" id="backend-followups-badge">0</span>
+      </button>
+      <button type="button" class="navbtn cp-nav-btn" data-nav="settings" title="Settings">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6"></path></svg>
+        <span class="label">Settings</span>
+      </button>
+    </nav>
+
+    <div class="cp-sidebar-spacer"></div>
   </aside>
 
   <!-- NEW PROFILE — creating a profile switches into it immediately, same
@@ -142,6 +221,15 @@
   </div>
 
   <div class="main-wrap"><main class="main-content">
+
+    <!-- Shared "you're editing their portal" banner — only shown while a
+         cp-* view is active (toggled in showView(), not scoped to any one
+         view since all four cp-* screens share it). -->
+    <div class="cp-banner hidden" id="cp-banner">
+      <span class="cp-banner-dot"></span>
+      <span class="cp-banner-text" id="cp-banner-text">You're editing this client's portal.</span>
+      <button type="button" class="cp-banner-btn" id="cp-copy-link-btn">Copy portal link</button>
+    </div>
 
     <!-- HOME -->
     <section id="view-home" class="view">
@@ -1119,207 +1207,237 @@
          tab row instead, matching how this app's own multi-tab pages
          (Analytics) already work, since the profile switcher/main nav this
          app already has would otherwise be duplicated. -->
-    <section id="view-client-portal" class="view hidden">
-      <div class="row-between leads-header" style="align-items:flex-end;">
-        <div style="display:flex;flex-direction:column;gap:14px;">
-          <div class="eyebrow">Client Portal</div>
-          <h1 style="margin:0;font-size:2.6rem;line-height:1.05;letter-spacing:-0.02em;font-weight:500;" id="cp-client-name-heading">Client</h1>
+    <!-- CLIENT PORTAL ADMIN — HOME -->
+    <section id="view-cp-home" class="view hidden">
+      <header class="cp-home-header">
+        <div class="cp-home-header-main">
+          <div class="cp-eyebrow"><span class="cp-dot"></span><span id="cp-home-date"></span></div>
+          <h1 class="cp-greeting" id="cp-greeting">Good morning.</h1>
+          <input class="cp-status-line" id="cp-status-line" title="Edit this line" placeholder="A line the client sees on their Home screen">
         </div>
-        <div class="range-tabs" id="cp-mode-tabs">
-          <button type="button" class="range-tab active" data-mode="home">Home</button>
-          <button type="button" class="range-tab" data-mode="outreach">Outreach</button>
-          <button type="button" class="range-tab" data-mode="scripts">Scripts</button>
-        </div>
-      </div>
+        <button type="button" class="cp-health-btn" id="cp-health-btn" title="Click to change">
+          <span class="cp-health-dot" id="cp-health-dot"></span>
+          <span id="cp-health-label">On track</span>
+        </button>
+      </header>
 
-      <!-- Admin-only "you're editing their portal" banner + portal-link copy -->
-      <div class="cp-banner">
-        <span class="cp-banner-dot"></span>
-        <span class="cp-banner-text" id="cp-banner-text">You're editing this client's portal.</span>
-        <button type="button" class="cp-banner-btn" id="cp-copy-link-btn">Copy portal link</button>
-      </div>
-
-      <!-- HOME -->
-      <div id="cp-home-section">
-        <header class="cp-home-header">
-          <div class="cp-home-header-main">
-            <div class="cp-eyebrow"><span class="cp-dot"></span><span id="cp-home-date"></span></div>
-            <h1 class="cp-greeting" id="cp-greeting">Good morning.</h1>
-            <input class="cp-status-line" id="cp-status-line" title="Edit this line" placeholder="A line the client sees on their Home screen">
-          </div>
-          <button type="button" class="cp-health-btn" id="cp-health-btn" title="Click to change">
-            <span class="cp-health-dot" id="cp-health-dot"></span>
-            <span id="cp-health-label">On track</span>
-          </button>
-        </header>
-
-        <div class="cp-row">
-          <section class="cp-card cp-card-white cp-milestones-card">
-            <div class="cp-card-head">
-              <div>
-                <div class="cp-eyebrow"><span class="cp-dot"></span>Milestones</div>
-                <h2 class="cp-h2" id="cp-milestones-title">0 of 0 done this month</h2>
-              </div>
-            </div>
-            <div class="cp-ms-bar" id="cp-ms-bar"></div>
-            <div id="cp-milestones-list"></div>
-            <div class="cp-row-between">
-              <button type="button" class="cp-btn-outline" id="cp-add-milestone-btn">+ Add milestone</button>
-              <span class="cp-hint">Click a circle to switch between done, in progress and up next.</span>
-            </div>
-          </section>
-
-          <section class="cp-card cp-card-alt cp-mini-outreach-card">
-            <div class="cp-card-head">
-              <div>
-                <div class="cp-eyebrow"><span class="cp-dot"></span>Outreach</div>
-                <h2 class="cp-h2">How it's going</h2>
-              </div>
-              <div class="range-tabs" id="cp-home-period-tabs">
-                <button type="button" class="range-tab active" data-period="week">Week</button>
-                <button type="button" class="range-tab" data-period="month">Month</button>
-                <button type="button" class="range-tab" data-period="all">All time</button>
-              </div>
-            </div>
-            <div id="cp-mini-stats" class="cp-mini-stats"></div>
-            <button type="button" class="cp-btn-outline cp-align-start" id="cp-see-outreach-btn">See full statistics →</button>
-          </section>
-        </div>
-
-        <section class="cp-card cp-card-alt">
-          <div class="cp-eyebrow"><span class="cp-dot"></span>Portal links · only you see this</div>
-          <div class="cp-links-grid">
-            <label class="cp-link-field">
-              <span>Rella link</span>
-              <input id="cp-link-rella" placeholder="https://…">
-            </label>
-            <label class="cp-link-field">
-              <span>Landing page</span>
-              <input id="cp-link-landing" placeholder="coachname.nl">
-            </label>
-            <label class="cp-link-field">
-              <span>Google Drive folder</span>
-              <input id="cp-link-drive" placeholder="https://drive.google.com/…">
-            </label>
-          </div>
-        </section>
-      </div>
-
-      <!-- OUTREACH -->
-      <div id="cp-outreach-section" class="hidden">
-        <header style="display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;margin-bottom:24px;">
-          <div style="display:flex;flex-direction:column;gap:14px;">
-            <div class="cp-eyebrow"><span class="cp-dot"></span>Outreach</div>
-            <h1 class="cp-h1">How your outreach is going.</h1>
-            <p class="cp-lead">Every day we message people who match your ideal client. Here's what came of it.</p>
-          </div>
-          <div class="range-tabs" id="cp-outreach-period-tabs">
-            <button type="button" class="range-tab active" data-period="week">Week</button>
-            <button type="button" class="range-tab" data-period="month">Month</button>
-            <button type="button" class="range-tab" data-period="all">All time</button>
-          </div>
-        </header>
-
-        <div class="cp-outreach-core-row">
-          <div class="cp-outreach-core-video">
-            <span class="cp-play-circle">▶</span>
-            <span class="cp-h3">How your outreach works</span>
-            <span class="cp-hint">Walkthrough video — coming soon</span>
-          </div>
-          <div id="cp-outreach-core" class="cp-outreach-core-col"></div>
-        </div>
-
-        <section class="cp-card cp-card-white">
-          <div class="cp-eyebrow"><span class="cp-dot"></span>From message to call</div>
-          <h2 class="cp-h2" id="cp-funnel-title"></h2>
-          <div id="cp-funnel" class="cp-funnel-row"></div>
-        </section>
-
-        <section class="cp-card cp-card-white">
+      <div class="cp-row">
+        <section class="cp-card cp-card-white cp-milestones-card">
           <div class="cp-card-head">
             <div>
-              <div class="cp-eyebrow"><span class="cp-dot"></span>Who we reached out to</div>
-              <h2 class="cp-h2" id="cp-people-title"></h2>
-            </div>
-            <div class="cp-people-controls">
-              <input type="text" id="cp-people-search" class="cp-search" placeholder="Search handles">
-              <div class="range-tabs" id="cp-people-filter-tabs">
-                <button type="button" class="range-tab active" data-filter="all">Everyone</button>
-                <button type="button" class="range-tab" data-filter="sent">Messaged</button>
-                <button type="button" class="range-tab" data-filter="convo">In conversation</button>
-                <button type="button" class="range-tab" data-filter="call">Call booked</button>
-              </div>
+              <div class="cp-eyebrow"><span class="cp-dot"></span>Milestones</div>
+              <h2 class="cp-h2" id="cp-milestones-title">0 of 0 done this month</h2>
             </div>
           </div>
-          <div id="cp-people-grid" class="cp-people-grid"></div>
-          <p class="cp-hint hidden" id="cp-people-empty">No handles match that.</p>
-          <button type="button" class="cp-btn-outline" id="cp-people-more-btn" style="align-self:center;">Show more</button>
+          <div class="cp-ms-bar" id="cp-ms-bar"></div>
+          <div id="cp-milestones-list"></div>
+          <div class="cp-row-between">
+            <button type="button" class="cp-btn-outline" id="cp-add-milestone-btn">+ Add milestone</button>
+            <span class="cp-hint">Click a circle to switch between done, in progress and up next.</span>
+          </div>
         </section>
 
-        <section class="cp-card cp-card-dark">
-          <div class="cp-row-between" style="align-items:flex-end;">
+        <section class="cp-card cp-card-alt cp-mini-outreach-card">
+          <div class="cp-card-head">
             <div>
-              <div class="cp-eyebrow" style="color:#B9A3CC;"><span class="cp-dot" style="background:#B9A3CC;"></span>Total leads</div>
-              <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">
-                <input type="number" id="cp-total-leads-input" class="cp-total-leads-input" title="Edit total leads">
-                <span style="font-size:18px;color:#BDB6AE;">people on your list</span>
-              </div>
+              <div class="cp-eyebrow"><span class="cp-dot"></span>Outreach</div>
+              <h2 class="cp-h2">How it's going</h2>
             </div>
-            <span class="cp-hint" style="color:#BDB6AE;max-width:320px;" id="cp-pace-note"></span>
+            <div class="range-tabs" id="cp-home-period-tabs">
+              <button type="button" class="range-tab active" data-period="week">Week</button>
+              <button type="button" class="range-tab" data-period="month">Month</button>
+              <button type="button" class="range-tab" data-period="all">All time</button>
+            </div>
           </div>
-          <div class="cp-progress-track">
-            <div class="cp-progress-fill" id="cp-progress-fill"></div>
-            <div class="cp-progress-rest" id="cp-progress-rest"></div>
-          </div>
-          <div class="cp-progress-legend">
-            <span><span class="cp-legend-dot" style="background:#8A5BB0;"></span>Reached out</span>
-            <span><span class="cp-legend-dot" style="background:#555451;"></span>Still to come</span>
-          </div>
-          <div class="cp-proj-card">
-            <span id="cp-proj-title" style="font-size:20px;line-height:1.3;letter-spacing:-0.3px;font-weight:500;"></span>
-            <div id="cp-proj-row" class="cp-proj-row"></div>
-            <span class="cp-hint" style="color:#BDB6AE;">Based on your all-time conversion rates. The more we learn, the sharper this gets.</span>
-          </div>
+          <div id="cp-mini-stats" class="cp-mini-stats"></div>
+          <button type="button" class="cp-btn-outline cp-align-start" id="cp-see-outreach-btn">See full statistics →</button>
         </section>
       </div>
 
-      <!-- SCRIPTS (queue management) -->
-      <div id="cp-scripts-section" class="hidden">
-        <header style="margin-bottom:24px;">
-          <h1 class="cp-h1" id="cp-scripts-title">Script list</h1>
-          <p class="cp-lead" id="cp-scripts-meta"></p>
-        </header>
-        <section class="cp-card cp-card-dark">
-          <span class="cp-h3" style="font-size:1.375rem;">Add a script</span>
-          <div class="cp-add-script-grid">
-            <label class="cp-dark-field">
-              <span>Topic</span>
-              <input type="text" id="cp-script-topic" placeholder="e.g. Why rest days make you stronger">
-            </label>
-            <label class="cp-dark-field">
-              <span>Hook</span>
-              <input type="text" id="cp-script-hook" placeholder="e.g. Skipping rest is why you're stuck.">
-            </label>
-            <label class="cp-dark-field">
-              <span>Format</span>
-              <select id="cp-script-format"></select>
-            </label>
+      <section class="cp-card cp-card-alt">
+        <div class="cp-eyebrow"><span class="cp-dot"></span>Portal links · only you see this</div>
+        <div class="cp-links-grid">
+          <label class="cp-link-field">
+            <span>Rella link</span>
+            <input id="cp-link-rella" placeholder="https://…">
+          </label>
+          <label class="cp-link-field">
+            <span>Landing page</span>
+            <input id="cp-link-landing" placeholder="coachname.nl">
+          </label>
+          <label class="cp-link-field">
+            <span>Google Drive folder</span>
+            <input id="cp-link-drive" placeholder="https://drive.google.com/…">
+          </label>
+        </div>
+      </section>
+    </section>
+
+    <!-- CLIENT PORTAL ADMIN — SCRIPTING (session-starting hub) -->
+    <section id="view-cp-scripting" class="view hidden">
+      <header style="display:flex;flex-direction:column;gap:14px;margin-bottom:24px;">
+        <div class="cp-eyebrow"><span class="cp-dot"></span>Scripting</div>
+        <h1 class="cp-h1">Every good video starts here.</h1>
+        <p class="cp-lead">We walk you through it step by step — from idea to a script that's ready to film.</p>
+      </header>
+
+      <div class="cp-scripting-hero-row">
+        <button type="button" class="cp-scripting-start-card" id="cp-scripting-start-btn">
+          <div>
+            <div class="cp-eyebrow" style="color:#B9A3CC;"><span class="cp-dot" style="background:#B9A3CC;"></span><span id="cp-scripting-eyebrow"></span></div>
+            <span class="cp-scripting-title" id="cp-scripting-title"></span>
+            <span class="cp-scripting-sub" id="cp-scripting-sub"></span>
           </div>
-          <div class="cp-dark-foot">
-            <span id="cp-script-format-desc"></span>
-            <button type="button" class="cp-btn-primary" id="cp-script-add-btn">Add to list</button>
+          <div class="cp-scripting-start-foot">
+            <span id="cp-scripting-time"></span>
+            <span class="cp-scripting-arrow">→</span>
           </div>
-        </section>
-        <section class="cp-card cp-card-white">
-          <h3 class="cp-h3" id="cp-scripts-queue-title">To script</h3>
-          <div id="cp-scripts-queue-list"></div>
-          <p class="cp-hint hidden" id="cp-scripts-queue-empty">Nothing to script yet. Add the first one above.</p>
-        </section>
-        <section class="cp-card cp-card-alt">
-          <h3 class="cp-h3">In progress &amp; done</h3>
-          <div id="cp-scripts-pipeline-list"></div>
-        </section>
+        </button>
+        <div class="cp-scripting-side-card">
+          <div class="cp-row-between">
+            <span style="font-size:1.05rem;font-weight:500;">Make it a bulk session</span>
+            <button type="button" class="cp-toggle-switch" id="cp-bulk-toggle" aria-pressed="false"><span class="cp-toggle-knob"></span></button>
+          </div>
+          <p class="cp-hint" style="color:#BDB6AE;">Write several scripts back to back instead of just one.</p>
+          <div class="cp-bulk-count-box hidden" id="cp-bulk-count-box">
+            <span style="font-size:0.95rem;font-weight:500;">How many scripts?</span>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <button type="button" class="cp-round-btn" id="cp-bulk-dec">−</button>
+              <input type="number" min="2" max="12" id="cp-bulk-count" class="cp-bulk-count-input">
+              <button type="button" class="cp-round-btn" id="cp-bulk-inc">+</button>
+            </div>
+          </div>
+        </div>
       </div>
+
+      <a href="#" target="_blank" rel="noopener" class="cp-rella-pill hidden" id="cp-scripting-rella-link">
+        <span class="title">Open Rella</span>
+        <span class="desc">See where every script stands — from first draft to posted.</span>
+        <span class="arrow">↗</span>
+      </a>
+
+      <section class="cp-card cp-card-white">
+        <div class="cp-eyebrow"><span class="cp-dot"></span>Your scripts</div>
+        <h2 class="cp-h2" style="margin-bottom:8px;">Recently written</h2>
+        <div id="cp-scripting-recent-list"></div>
+        <p class="cp-hint hidden" id="cp-scripting-recent-empty">Nothing here yet.</p>
+      </section>
+    </section>
+
+    <!-- CLIENT PORTAL ADMIN — OUTREACH -->
+    <section id="view-cp-outreach" class="view hidden">
+      <header style="display:flex;justify-content:space-between;align-items:flex-end;gap:24px;flex-wrap:wrap;margin-bottom:24px;">
+        <div style="display:flex;flex-direction:column;gap:14px;">
+          <div class="cp-eyebrow"><span class="cp-dot"></span>Outreach</div>
+          <h1 class="cp-h1">How your outreach is going.</h1>
+          <p class="cp-lead">Every day we message people who match your ideal client. Here's what came of it.</p>
+        </div>
+        <div class="range-tabs" id="cp-outreach-period-tabs">
+          <button type="button" class="range-tab active" data-period="week">Week</button>
+          <button type="button" class="range-tab" data-period="month">Month</button>
+          <button type="button" class="range-tab" data-period="all">All time</button>
+        </div>
+      </header>
+
+      <div class="cp-outreach-core-row">
+        <div class="cp-outreach-core-video">
+          <span class="cp-play-circle">▶</span>
+          <span class="cp-h3">How your outreach works</span>
+          <span class="cp-hint">Walkthrough video — coming soon</span>
+        </div>
+        <div id="cp-outreach-core" class="cp-outreach-core-col"></div>
+      </div>
+
+      <section class="cp-card cp-card-white">
+        <div class="cp-eyebrow"><span class="cp-dot"></span>From message to call</div>
+        <h2 class="cp-h2" id="cp-funnel-title"></h2>
+        <div id="cp-funnel" class="cp-funnel-row"></div>
+      </section>
+
+      <section class="cp-card cp-card-white">
+        <div class="cp-card-head">
+          <div>
+            <div class="cp-eyebrow"><span class="cp-dot"></span>Who we reached out to</div>
+            <h2 class="cp-h2" id="cp-people-title"></h2>
+          </div>
+          <div class="cp-people-controls">
+            <input type="text" id="cp-people-search" class="cp-search" placeholder="Search handles">
+            <div class="range-tabs" id="cp-people-filter-tabs">
+              <button type="button" class="range-tab active" data-filter="all">Everyone</button>
+              <button type="button" class="range-tab" data-filter="sent">Messaged</button>
+              <button type="button" class="range-tab" data-filter="convo">In conversation</button>
+              <button type="button" class="range-tab" data-filter="call">Call booked</button>
+            </div>
+          </div>
+        </div>
+        <div id="cp-people-grid" class="cp-people-grid"></div>
+        <p class="cp-hint hidden" id="cp-people-empty">No handles match that.</p>
+        <button type="button" class="cp-btn-outline" id="cp-people-more-btn" style="align-self:center;">Show more</button>
+      </section>
+
+      <section class="cp-card cp-card-dark">
+        <div class="cp-row-between" style="align-items:flex-end;">
+          <div>
+            <div class="cp-eyebrow" style="color:#B9A3CC;"><span class="cp-dot" style="background:#B9A3CC;"></span>Total leads</div>
+            <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">
+              <input type="number" id="cp-total-leads-input" class="cp-total-leads-input" title="Edit total leads">
+              <span style="font-size:18px;color:#BDB6AE;">people on your list</span>
+            </div>
+          </div>
+          <span class="cp-hint" style="color:#BDB6AE;max-width:320px;" id="cp-pace-note"></span>
+        </div>
+        <div class="cp-progress-track">
+          <div class="cp-progress-fill" id="cp-progress-fill"></div>
+          <div class="cp-progress-rest" id="cp-progress-rest"></div>
+        </div>
+        <div class="cp-progress-legend">
+          <span><span class="cp-legend-dot" style="background:#8A5BB0;"></span>Reached out</span>
+          <span><span class="cp-legend-dot" style="background:#555451;"></span>Still to come</span>
+        </div>
+        <div class="cp-proj-card">
+          <span id="cp-proj-title" style="font-size:20px;line-height:1.3;letter-spacing:-0.3px;font-weight:500;"></span>
+          <div id="cp-proj-row" class="cp-proj-row"></div>
+          <span class="cp-hint" style="color:#BDB6AE;">Based on your all-time conversion rates. The more we learn, the sharper this gets.</span>
+        </div>
+      </section>
+    </section>
+
+    <!-- CLIENT PORTAL ADMIN — SCRIPTS (queue management) -->
+    <section id="view-cp-scripts" class="view hidden">
+      <header style="margin-bottom:24px;">
+        <h1 class="cp-h1" id="cp-scripts-title">Script list</h1>
+        <p class="cp-lead" id="cp-scripts-meta"></p>
+      </header>
+      <section class="cp-card cp-card-dark">
+        <span class="cp-h3" style="font-size:1.375rem;">Add a script</span>
+        <div class="cp-add-script-grid">
+          <label class="cp-dark-field">
+            <span>Topic</span>
+            <input type="text" id="cp-script-topic" placeholder="e.g. Why rest days make you stronger">
+          </label>
+          <label class="cp-dark-field">
+            <span>Hook</span>
+            <input type="text" id="cp-script-hook" placeholder="e.g. Skipping rest is why you're stuck.">
+          </label>
+          <label class="cp-dark-field">
+            <span>Format</span>
+            <select id="cp-script-format"></select>
+          </label>
+        </div>
+        <div class="cp-dark-foot">
+          <span id="cp-script-format-desc"></span>
+          <button type="button" class="cp-btn-primary" id="cp-script-add-btn">Add to list</button>
+        </div>
+      </section>
+      <section class="cp-card cp-card-white">
+        <h3 class="cp-h3" id="cp-scripts-queue-title">To script</h3>
+        <div id="cp-scripts-queue-list"></div>
+        <p class="cp-hint hidden" id="cp-scripts-queue-empty">Nothing to script yet. Add the first one above.</p>
+      </section>
+      <section class="cp-card cp-card-alt">
+        <h3 class="cp-h3">In progress &amp; done</h3>
+        <div id="cp-scripts-pipeline-list"></div>
+      </section>
     </section>
 
     <!-- FOLLOW-UP SESSION -->
@@ -1726,9 +1844,9 @@
 </div>
 
 <script src="templates.js?v=23"></script>
-<script src="app.js?v=59"></script>
+<script src="app.js?v=60"></script>
 <script src="leads.js?v=39"></script>
-<script src="followups.js?v=41"></script>
-<script src="client-portal-admin.js?v=3"></script>
+<script src="followups.js?v=42"></script>
+<script src="client-portal-admin.js?v=4"></script>
 </body>
 </html>
