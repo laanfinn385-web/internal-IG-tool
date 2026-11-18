@@ -274,8 +274,14 @@ $('#backend-notif-bell').addEventListener('click', (e) => {
   if (isHidden) openNotifDropdown(e.currentTarget);
   else $('#notif-dropdown').classList.add('hidden');
 });
+// #notif-dropdown itself lives outside both sidebars now (see
+// index.html — same display:none-ancestor reasoning as the profile/
+// client switcher dropdowns in app.js), so a click landing inside the
+// open panel needs its own explicit check here too.
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.notif-wrap') && !e.target.closest('#backend-notif-bell')) $('#notif-dropdown').classList.add('hidden');
+  if (!e.target.closest('.notif-wrap') && !e.target.closest('#backend-notif-bell') && !e.target.closest('#notif-dropdown')) {
+    $('#notif-dropdown').classList.add('hidden');
+  }
 });
 $('#sidebar-fu-card-btn').addEventListener('click', (e) => {
   e.stopPropagation();

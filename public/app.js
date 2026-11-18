@@ -155,14 +155,29 @@ function renderSidebarProfileSwitcher() {
   }
 
   // "Enter Studio" only makes sense once at least one client-account
-  // profile actually exists to jump into.
+  // profile actually exists to jump into. Both it and the Backend
+  // sidebar's own "Switch client" share the same richer row (avatar,
+  // name, "Client since <month>", a checkmark on the active one).
   const clientWorkspaces = workspacesCache.filter(w => w.isClientAccount);
   $('#enter-studio-wrap').classList.toggle('hidden', clientWorkspaces.length === 0);
-  $('#enter-studio-list').innerHTML = clientWorkspaces.map(w => `
-    <button type="button" class="profile-switcher-item${w.id === activeWorkspaceId ? ' active' : ''}" data-workspace-id="${w.id}">
+  const clientListHtml = clientWorkspaces.map(clientSwitcherItemHtml).join('');
+  $('#enter-studio-list').innerHTML = clientListHtml;
+  $('#client-switcher-list').innerHTML = clientListHtml;
+}
+
+function clientSwitcherItemHtml(w) {
+  const firstName = w.clientFirstName || w.name;
+  const since = w.clientSince ? new Date(w.clientSince).toLocaleDateString('en-GB', { month: 'long' }) : null;
+  const active = w.id === activeWorkspaceId;
+  return `
+    <button type="button" class="profile-switcher-item${active ? ' active' : ''}" data-workspace-id="${w.id}">
       ${workspacePhotoHtml(w)}
-      <span>${escapeHtml(w.name)}</span>
-    </button>`).join('');
+      <span class="profile-switcher-item-text">
+        <span class="name">${escapeHtml(firstName + (w.clientLastName ? ` ${w.clientLastName}` : ''))}</span>
+        ${since ? `<span class="sub">Client since ${since}</span>` : ''}
+      </span>
+      ${active ? '<span class="profile-switcher-item-check">✓</span>' : ''}
+    </button>`;
 }
 
 // Applied once, right after loadWorkspaces() resolves the active profile —
@@ -217,39 +232,57 @@ function applyPlatformVisibility() {
   }
 }
 
-// position: fixed on #profile-switcher-dropdown (style.css) needs explicit
-// px coordinates — computed fresh on every open since the sidebar's own
-// width (and so the button's position) differs between expanded/collapsed.
-function positionProfileSwitcherDropdown() {
-  const btnBox = $('#profile-switcher-btn').getBoundingClientRect();
-  const dropdown = $('#profile-switcher-dropdown');
+// Every dropdown panel below (#profile-switcher-dropdown,
+// #client-switcher-dropdown, #enter-studio-dropdown, #notif-dropdown in
+// followups.js) lives as a position:fixed element OUTSIDE both sidebars
+// (see index.html) — not nested inside #sidebar or #backend-sidebar —
+// because a display:none ancestor hides its entire subtree regardless
+// of a descendant's own classes, and exactly one of those two sidebars
+// is always display:none. Each panel is positioned fresh against
+// whichever trigger button opened it (their position differs between
+// expanded/collapsed, and between the standard/Backend sidebar).
+function positionDropdown(dropdown, anchorBtn) {
+  const btnBox = anchorBtn.getBoundingClientRect();
   dropdown.style.left = `${btnBox.left}px`;
   dropdown.style.top = `${btnBox.bottom + 6}px`;
 }
 
-function toggleProfileSwitcherDropdown(show) {
-  if (show) positionProfileSwitcherDropdown();
-  $('#profile-switcher-dropdown').classList.toggle('hidden', !show);
+function toggleProfileSwitcherDropdown(show, anchorBtn) {
+  const dropdown = $('#profile-switcher-dropdown');
+  if (show) positionDropdown(dropdown, anchorBtn || $('#profile-switcher-btn'));
+  dropdown.classList.toggle('hidden', !show);
+}
+
+function closeAllSwitcherDropdowns() {
+  toggleProfileSwitcherDropdown(false);
+  $('#client-switcher-dropdown').classList.add('hidden');
+  $('#enter-studio-dropdown').classList.add('hidden');
 }
 
 $('#profile-switcher-btn').addEventListener('click', (e) => {
   e.stopPropagation();
   const isHidden = $('#profile-switcher-dropdown').classList.contains('hidden');
-  toggleProfileSwitcherDropdown(isHidden);
+  closeAllSwitcherDropdowns();
+  if (isHidden) toggleProfileSwitcherDropdown(true, e.currentTarget);
 });
 
+// Since the panels no longer live inside .profile-switcher (see above),
+// a click landing inside one of them no longer passes
+// closest('.profile-switcher') either — checked directly by id instead.
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.profile-switcher')) {
-    toggleProfileSwitcherDropdown(false);
-    $('#enter-studio-dropdown').classList.add('hidden');
-  }
+  if (
+    !e.target.closest('.profile-switcher') &&
+    !e.target.closest('#profile-switcher-dropdown') &&
+    !e.target.closest('#client-switcher-dropdown') &&
+    !e.target.closest('#enter-studio-dropdown')
+  ) closeAllSwitcherDropdowns();
 });
 
 $('#profile-switcher-list').addEventListener('click', (e) => {
   const item = e.target.closest('.profile-switcher-item');
   if (!item) return;
   const id = item.dataset.workspaceId;
-  toggleProfileSwitcherDropdown(false);
+  closeAllSwitcherDropdowns();
   if (id === activeWorkspaceId) return;
   setActiveWorkspaceId(id);
   location.reload();
@@ -268,23 +301,49 @@ $('#enter-studio-btn').addEventListener('click', (e) => {
   e.stopPropagation();
   const dropdown = $('#enter-studio-dropdown');
   const isHidden = dropdown.classList.contains('hidden');
-  toggleProfileSwitcherDropdown(false);
+  closeAllSwitcherDropdowns();
   if (isHidden) {
-    const btnBox = e.currentTarget.getBoundingClientRect();
-    dropdown.style.left = `${btnBox.left}px`;
-    dropdown.style.top = `${btnBox.bottom + 6}px`;
+    positionDropdown(dropdown, e.currentTarget);
+    dropdown.classList.remove('hidden');
   }
-  dropdown.classList.toggle('hidden', !isHidden);
 });
 
-$('#enter-studio-list').addEventListener('click', (e) => {
+$('#enter-studio-list').addEventListener('click', (e) => switchFromStudioList(e, '#enter-studio-dropdown'));
+
+// Backend sidebar's own "Switch client" — opens a dedicated client-only
+// dropdown (see index.html) instead of the generic all-profiles one.
+$('#backend-profile-switcher-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const dropdown = $('#client-switcher-dropdown');
+  const isHidden = dropdown.classList.contains('hidden');
+  closeAllSwitcherDropdowns();
+  if (isHidden) {
+    positionDropdown(dropdown, e.currentTarget);
+    dropdown.classList.remove('hidden');
+  }
+});
+
+$('#client-switcher-list').addEventListener('click', (e) => switchFromStudioList(e, '#client-switcher-dropdown'));
+
+function switchFromStudioList(e, dropdownSel) {
   const item = e.target.closest('.profile-switcher-item');
   if (!item) return;
   const id = item.dataset.workspaceId;
-  $('#enter-studio-dropdown').classList.add('hidden');
+  $(dropdownSel).classList.add('hidden');
   if (id === activeWorkspaceId) return;
   setActiveWorkspaceId(id);
   location.reload();
+}
+
+// "+ Make new client portal" — same New profile modal used everywhere
+// else, just pre-set to a client account since that's clearly the
+// intent of clicking this specific row.
+$('#client-switcher-new-btn').addEventListener('click', () => {
+  $('#client-switcher-dropdown').classList.add('hidden');
+  resetNewProfileModal();
+  $('#new-profile-is-client').checked = true;
+  $('#new-profile-client-fields').classList.remove('hidden');
+  $('#new-profile-modal').classList.remove('hidden');
 });
 
 $('#exit-studio-btn').addEventListener('click', () => {
@@ -648,25 +707,6 @@ $('#backend-sidebar-toggle').addEventListener('click', () => {
   const collapsed = $('#backend-sidebar').classList.toggle('collapsed');
   localStorage.setItem(BACKEND_SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
   $('#backend-sidebar-chev').innerHTML = collapsed ? '<path d="m9 18 6-6-6-6"></path>' : '<path d="m15 18-6-6 6-6"></path>';
-});
-
-// The Backend sidebar's client-avatar button opens the exact same
-// profile-switcher dropdown as the standard sidebar's own trigger — just
-// anchored to itself. Wrapped in its own .profile-switcher div (see
-// index.html) so the existing outside-click-closes-it listener still
-// recognizes it.
-$('#backend-profile-switcher-btn').addEventListener('click', (e) => {
-  e.stopPropagation();
-  const isHidden = $('#profile-switcher-dropdown').classList.contains('hidden');
-  if (isHidden) {
-    const btnBox = e.currentTarget.getBoundingClientRect();
-    const dropdown = $('#profile-switcher-dropdown');
-    dropdown.style.left = `${btnBox.left}px`;
-    dropdown.style.top = `${btnBox.bottom + 6}px`;
-    dropdown.classList.remove('hidden');
-  } else {
-    $('#profile-switcher-dropdown').classList.add('hidden');
-  }
 });
 
 // ---------- HOME ----------
