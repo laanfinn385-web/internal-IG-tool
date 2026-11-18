@@ -147,7 +147,22 @@ function renderSidebarProfileSwitcher() {
       landing.href = /^https?:\/\//i.test(current.clientLandingUrl) ? current.clientLandingUrl : `https://${current.clientLandingUrl}`;
       landing.classList.remove('hidden');
     } else landing.classList.add('hidden');
+  } else if (current) {
+    // Remembered so "Exit Studio" (Backend sidebar) can return here
+    // specifically, rather than guessing at whichever non-client profile
+    // happens to come first.
+    localStorage.setItem(LAST_OWN_WORKSPACE_KEY, current.id);
   }
+
+  // "Enter Studio" only makes sense once at least one client-account
+  // profile actually exists to jump into.
+  const clientWorkspaces = workspacesCache.filter(w => w.isClientAccount);
+  $('#enter-studio-wrap').classList.toggle('hidden', clientWorkspaces.length === 0);
+  $('#enter-studio-list').innerHTML = clientWorkspaces.map(w => `
+    <button type="button" class="profile-switcher-item${w.id === activeWorkspaceId ? ' active' : ''}" data-workspace-id="${w.id}">
+      ${workspacePhotoHtml(w)}
+      <span>${escapeHtml(w.name)}</span>
+    </button>`).join('');
 }
 
 // Applied once, right after loadWorkspaces() resolves the active profile —
@@ -224,7 +239,10 @@ $('#profile-switcher-btn').addEventListener('click', (e) => {
 });
 
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.profile-switcher')) toggleProfileSwitcherDropdown(false);
+  if (!e.target.closest('.profile-switcher')) {
+    toggleProfileSwitcherDropdown(false);
+    $('#enter-studio-dropdown').classList.add('hidden');
+  }
 });
 
 $('#profile-switcher-list').addEventListener('click', (e) => {
@@ -234,6 +252,48 @@ $('#profile-switcher-list').addEventListener('click', (e) => {
   toggleProfileSwitcherDropdown(false);
   if (id === activeWorkspaceId) return;
   setActiveWorkspaceId(id);
+  location.reload();
+});
+
+// "Enter Studio" (standard sidebar) / "Exit Studio" (Backend sidebar) —
+// a clean, explicit pair of doors between a normal outreach profile and
+// a client's Backend shell, rather than relying on digging through the
+// full profile-switcher list each time. outreach_last_own_workspace_id
+// is kept up to date in renderSidebarProfileSwitcher() every time a
+// non-client profile is the active one, so Exit Studio always returns
+// to wherever the user actually came from.
+const LAST_OWN_WORKSPACE_KEY = 'outreach_last_own_workspace_id';
+
+$('#enter-studio-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const dropdown = $('#enter-studio-dropdown');
+  const isHidden = dropdown.classList.contains('hidden');
+  toggleProfileSwitcherDropdown(false);
+  if (isHidden) {
+    const btnBox = e.currentTarget.getBoundingClientRect();
+    dropdown.style.left = `${btnBox.left}px`;
+    dropdown.style.top = `${btnBox.bottom + 6}px`;
+  }
+  dropdown.classList.toggle('hidden', !isHidden);
+});
+
+$('#enter-studio-list').addEventListener('click', (e) => {
+  const item = e.target.closest('.profile-switcher-item');
+  if (!item) return;
+  const id = item.dataset.workspaceId;
+  $('#enter-studio-dropdown').classList.add('hidden');
+  if (id === activeWorkspaceId) return;
+  setActiveWorkspaceId(id);
+  location.reload();
+});
+
+$('#exit-studio-btn').addEventListener('click', () => {
+  const lastId = localStorage.getItem(LAST_OWN_WORKSPACE_KEY);
+  const lastStillValid = lastId && workspacesCache.some(w => w.id === lastId && !w.isClientAccount);
+  const target = lastStillValid ? lastId : (workspacesCache.find(w => !w.isClientAccount) || {}).id;
+  if (!target) { alert('No non-client profile to switch back to.'); return; }
+  if (target === activeWorkspaceId) return;
+  setActiveWorkspaceId(target);
   location.reload();
 });
 
@@ -566,7 +626,12 @@ function showView(name) {
 
 $('#settings-btn').addEventListener('click', () => showView('settings'));
 
+// Guarded on dataset.nav — #enter-studio-btn reuses .navbtn purely for
+// its look (it opens a dropdown, not a view) and deliberately carries no
+// data-nav; without this guard it would call showView(undefined), which
+// hides every view and then throws trying to unhide "view-undefined".
 $all('.navbtn').forEach(btn => {
+  if (!btn.dataset.nav) return;
   btn.addEventListener('click', () => showView(btn.dataset.nav));
 });
 

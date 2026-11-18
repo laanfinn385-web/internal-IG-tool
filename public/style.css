@@ -2806,6 +2806,10 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
    stretch to fill all remaining height, pushing the nav below it down
    by that same amount. Cancelled here, scoped to this sidebar only. */
 .cp-sidebar .profile-switcher { flex: none; }
+/* Same fix, same reason, for #enter-studio-wrap in the standard .sidebar
+   — it also reuses .profile-switcher (for the same outside-click-closes
+   reason) and sits directly in that column flex container too. */
+#enter-studio-wrap { flex: none; }
 
 /* ===== Scripting hub screen (session-starter) ===== */
 .cp-scripting-hero-row { position: relative; display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; background: var(--text); color: var(--bg); border-radius: var(--r-xl); padding: 12px; margin-bottom: 24px; }
