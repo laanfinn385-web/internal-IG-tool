@@ -2772,7 +2772,7 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 .cp-sidebar.collapsed .cp-sidebar-brand-label, .cp-sidebar.collapsed .cp-sidebar-badge,
 .cp-sidebar.collapsed .cp-sidebar-user-info, .cp-sidebar.collapsed .cp-nav-btn .label,
 .cp-sidebar.collapsed .cp-nav-btn .ext, .cp-sidebar.collapsed .cp-nav-badge,
-.cp-sidebar.collapsed .cp-sidebar-section-label { display: none; }
+.cp-sidebar.collapsed .cp-sidebar-section-label, .cp-sidebar.collapsed .notif-badge { display: none; }
 .cp-sidebar.collapsed .cp-nav-btn { justify-content: center; }
 
 .cp-sidebar-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 6px; min-height: 36px; }
@@ -2798,6 +2798,14 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 .cp-nav-badge { flex: none; font-size: 0.72rem; font-weight: 600; background: var(--purple); color: #fff; border-radius: var(--r-pill); padding: 1px 7px; }
 .cp-sidebar-section-label { font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--muted); padding: 10px 14px 0; }
 .cp-sidebar-spacer { flex: 1; }
+/* .profile-switcher is reused here (see index.html) purely so the
+   existing outside-click-closes-the-dropdown check (which matches on
+   that class) also recognizes this sidebar's own trigger — but that
+   class carries its own flex:1 for the standard sidebar's layout, which
+   inside this column flex container made the wrapper (not its button)
+   stretch to fill all remaining height, pushing the nav below it down
+   by that same amount. Cancelled here, scoped to this sidebar only. */
+.cp-sidebar .profile-switcher { flex: none; }
 
 /* ===== Scripting hub screen (session-starter) ===== */
 .cp-scripting-hero-row { position: relative; display: flex; flex-wrap: wrap; gap: 12px; align-items: stretch; background: var(--text); color: var(--bg); border-radius: var(--r-xl); padding: 12px; margin-bottom: 24px; }

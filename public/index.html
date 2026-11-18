@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=60">
+<link rel="stylesheet" href="style.css?v=61">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -169,6 +169,12 @@
     </nav>
 
     <div class="cp-sidebar-spacer"></div>
+
+    <button type="button" id="backend-notif-bell" class="cp-nav-btn" title="Notifications">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9M10.3 21a1.94 1.94 0 0 0 3.4 0"></path></svg>
+      <span class="label">Notifications</span>
+      <span class="notif-badge hidden" id="backend-notif-badge">0</span>
+    </button>
   </aside>
 
   <!-- NEW PROFILE — creating a profile switches into it immediately, same
@@ -1846,7 +1852,7 @@
 <script src="templates.js?v=23"></script>
 <script src="app.js?v=60"></script>
 <script src="leads.js?v=39"></script>
-<script src="followups.js?v=42"></script>
+<script src="followups.js?v=43"></script>
 <script src="client-portal-admin.js?v=4"></script>
 </body>
 </html>

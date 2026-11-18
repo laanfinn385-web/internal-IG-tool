@@ -61,12 +61,14 @@ function renderSidebarFollowupCard(notifications) {
 
 function renderNotifications(notifications) {
   const badge = $('#notif-badge');
+  const backendBadge = $('#backend-notif-badge');
   const list = $('#notif-list');
   const empty = $('#notif-empty');
   renderSidebarFollowupCard(notifications);
 
   if (notifications.length === 0) {
     badge.classList.add('hidden');
+    backendBadge.classList.add('hidden');
     list.innerHTML = '';
     empty.classList.remove('hidden');
     return;
@@ -74,6 +76,8 @@ function renderNotifications(notifications) {
 
   badge.classList.remove('hidden');
   badge.textContent = notifications.length;
+  backendBadge.classList.remove('hidden');
+  backendBadge.textContent = notifications.length;
   empty.classList.add('hidden');
   list.innerHTML = notifications.map(n => {
     // Grouped notifications (followup/connections) aren't real records —
@@ -271,8 +275,14 @@ $('#notif-bell').addEventListener('click', (e) => {
   if (isHidden) openNotifDropdown();
   else $('#notif-dropdown').classList.add('hidden');
 });
+$('#backend-notif-bell').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const isHidden = $('#notif-dropdown').classList.contains('hidden');
+  if (isHidden) openNotifDropdown(e.currentTarget);
+  else $('#notif-dropdown').classList.add('hidden');
+});
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.notif-wrap') && !e.target.closest('#backend-followups-navbtn')) $('#notif-dropdown').classList.add('hidden');
+  if (!e.target.closest('.notif-wrap') && !e.target.closest('#backend-followups-navbtn') && !e.target.closest('#backend-notif-bell')) $('#notif-dropdown').classList.add('hidden');
 });
 $('#sidebar-fu-card-btn').addEventListener('click', (e) => {
   e.stopPropagation();
