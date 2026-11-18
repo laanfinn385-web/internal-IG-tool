@@ -127,11 +127,27 @@ function renderSidebarProfileSwitcher() {
       ${workspacePhotoHtml(w)}
       <span>${escapeHtml(w.name)}</span>
     </button>`).join('');
-  // The Client Portal nav item only ever applies to a profile created as a
-  // client account (permanent, decided at creation — see the New profile
-  // modal) — hidden for every other profile, same as a Threads-only/
-  // LinkedIn-only toggle hides an irrelevant nav item elsewhere.
-  $('#client-portal-navbtn').classList.toggle('hidden', !(current && current.isClientAccount));
+
+  // A client-account profile (permanent, decided at creation — see the
+  // New profile modal) gets a completely different sidebar/nav shell —
+  // not just one extra nav item bolted onto the standard one — per the
+  // user's own explicit confirmation of the Backend design's full shell.
+  const isClient = !!(current && current.isClientAccount);
+  $('#sidebar').classList.toggle('hidden', isClient);
+  $('#backend-sidebar').classList.toggle('hidden', !isClient);
+  if (isClient) {
+    const firstName = current.clientFirstName || current.name;
+    $('#backend-sidebar-initial').textContent = (firstName[0] || '?').toUpperCase();
+    $('#backend-sidebar-name').textContent = firstName + (current.clientLastName ? ` ${current.clientLastName}` : '');
+    const rella = $('#backend-nav-rella');
+    if (current.clientRellaUrl) { rella.href = current.clientRellaUrl; rella.classList.remove('hidden'); }
+    else rella.classList.add('hidden');
+    const landing = $('#backend-nav-landing');
+    if (current.clientLandingUrl) {
+      landing.href = /^https?:\/\//i.test(current.clientLandingUrl) ? current.clientLandingUrl : `https://${current.clientLandingUrl}`;
+      landing.classList.remove('hidden');
+    } else landing.classList.add('hidden');
+  }
 }
 
 // Applied once, right after loadWorkspaces() resolves the active profile —
@@ -528,10 +544,16 @@ async function fetchJson(url, options, timeoutMs = 30000) {
   }
 }
 
+const CP_ADMIN_VIEWS = ['cp-home', 'cp-scripting', 'cp-outreach', 'cp-scripts'];
+
 function showView(name) {
   $all('.view').forEach(v => v.classList.add('hidden'));
   $(`#view-${name}`).classList.remove('hidden');
   $all('.navbtn').forEach(btn => btn.classList.toggle('active', btn.dataset.nav === name));
+  // Shared "you're editing their portal" banner — only exists once, above
+  // all four cp-* screens (see index.html), not nested inside any one of
+  // them, so it isn't covered by the .view hide/show loop above.
+  $('#cp-banner').classList.toggle('hidden', !CP_ADMIN_VIEWS.includes(name));
   if (name === 'home') { loadHome(); loadNotifications(); refreshHomeSessionAccountRow(); }
   if (name === 'leads') { loadLeads(); loadNotifications(); }
   if (name === 'analytics') loadAnalytics(currentRange);
@@ -539,7 +561,7 @@ function showView(name) {
   if (name === 'saved-sessions') loadSavedSessions();
   if (name === 'timing-sequences') loadTimingSequences();
   if (name === 'message-sequences') loadMessageSequences();
-  if (name === 'client-portal') loadClientPortalAdmin();
+  if (CP_ADMIN_VIEWS.includes(name)) loadClientPortalAdmin(name);
 }
 
 $('#settings-btn').addEventListener('click', () => showView('settings'));
@@ -553,6 +575,33 @@ if (localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1') $('#sidebar').classList
 $('#sidebar-toggle').addEventListener('click', () => {
   const collapsed = $('#sidebar').classList.toggle('collapsed');
   localStorage.setItem(SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+});
+
+const BACKEND_SIDEBAR_COLLAPSED_KEY = 'outreach_backend_sidebar_collapsed';
+if (localStorage.getItem(BACKEND_SIDEBAR_COLLAPSED_KEY) === '1') $('#backend-sidebar').classList.add('collapsed');
+$('#backend-sidebar-toggle').addEventListener('click', () => {
+  const collapsed = $('#backend-sidebar').classList.toggle('collapsed');
+  localStorage.setItem(BACKEND_SIDEBAR_COLLAPSED_KEY, collapsed ? '1' : '0');
+  $('#backend-sidebar-chev').innerHTML = collapsed ? '<path d="m9 18 6-6-6-6"></path>' : '<path d="m15 18-6-6 6-6"></path>';
+});
+
+// The Backend sidebar's client-avatar button opens the exact same
+// profile-switcher dropdown as the standard sidebar's own trigger — just
+// anchored to itself. Wrapped in its own .profile-switcher div (see
+// index.html) so the existing outside-click-closes-it listener still
+// recognizes it.
+$('#backend-profile-switcher-btn').addEventListener('click', (e) => {
+  e.stopPropagation();
+  const isHidden = $('#profile-switcher-dropdown').classList.contains('hidden');
+  if (isHidden) {
+    const btnBox = e.currentTarget.getBoundingClientRect();
+    const dropdown = $('#profile-switcher-dropdown');
+    dropdown.style.left = `${btnBox.left}px`;
+    dropdown.style.top = `${btnBox.bottom + 6}px`;
+    dropdown.classList.remove('hidden');
+  } else {
+    $('#profile-switcher-dropdown').classList.add('hidden');
+  }
 });
 
 // ---------- HOME ----------
@@ -4451,6 +4500,7 @@ async function loadViewsThreshold() {
       renderProfile();
     }
   } else {
-    showView('home');
+    const ws = activeWorkspace();
+    showView(ws && ws.isClientAccount ? 'cp-home' : 'home');
   }
 })();
