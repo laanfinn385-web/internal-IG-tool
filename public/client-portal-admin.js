@@ -397,8 +397,10 @@ function renderCpOutreachPeople() {
 function renderCpScripts() {
   const queued = cpState.scripts.filter(s => s.status === 'queued');
   const pipeline = cpState.scripts.filter(s => s.status !== 'queued');
-  $('#cp-scripts-title').textContent = `${cpState.profile.clientFirstName || cpState.profile.name}'s script list`;
-  $('#cp-scripts-meta').textContent = `${queued.length} waiting · ${pipeline.length} in progress or done`;
+  const firstName = cpState.profile.clientFirstName || cpState.profile.name;
+  $('#cp-scripts-title').textContent = `${firstName}'s script list`;
+  $('#cp-scripts-meta').textContent = `${pipeline.length} of ${cpState.scripts.length} scripted`;
+  $('#cp-scripts-queue-title').textContent = queued.length ? `${queued.length} waiting for ${firstName}` : 'All caught up';
 
   $('#cp-script-format').innerHTML = cpState.formats.map(f => `<option value="${f.id}">${escapeHtml(f.name)}</option>`).join('');
   updateCpFormatDesc();
@@ -407,9 +409,12 @@ function renderCpScripts() {
     <div class="cp-script-row" data-id="${s.id}">
       <span class="num">${String(i + 1).padStart(2, '0')}</span>
       <div class="cp-script-main">
-        <span class="topic">${escapeHtml(s.topic)}</span>
-        <span class="hook">${escapeHtml(s.hook)}</span>
+        <input class="cp-script-inline-input cp-script-topic-input cp-script-topic-edit" value="${escapeHtml(s.topic)}">
+        <div class="cp-script-hook-row"><span class="lbl">Hook:</span><input class="cp-script-inline-input cp-script-hook-input cp-script-hook-edit" value="${escapeHtml(s.hook)}"></div>
       </div>
+      <select class="cp-script-format-select cp-script-format-edit">
+        ${cpState.formats.map(f => `<option value="${f.id}" ${f.id === s.formatId ? 'selected' : ''}>${escapeHtml(f.name)}</option>`).join('')}
+      </select>
       <div class="cp-script-actions">
         <button type="button" class="cp-icon-btn cp-script-up" title="Move up" ${i === 0 ? 'style="visibility:hidden"' : ''}>↑</button>
         <button type="button" class="cp-icon-btn cp-script-down" title="Move down" ${i === queued.length - 1 ? 'style="visibility:hidden"' : ''}>↓</button>
@@ -420,13 +425,16 @@ function renderCpScripts() {
 
   $('#cp-scripts-pipeline-list').innerHTML = pipeline.map(s => {
     const c = CP_SCRIPT_STATUS_COLOR[s.status];
+    const date = s.statusChangedAt || s.scriptedAt;
     return `
     <div class="cp-script-row" data-id="${s.id}">
+      <span class="cp-script-status-icon" style="background:${c.bg};color:${c.fg};"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"></path></svg></span>
       <div class="cp-script-main">
         <span class="topic">${escapeHtml(s.topic)}</span>
         <span class="hook">${escapeHtml(s.hook)}</span>
       </div>
       <span class="cp-script-status-pill" style="background:${c.bg};color:${c.fg};">${escapeHtml(CP_SCRIPT_STATUS_LABEL[s.status])}</span>
+      <span class="cp-script-date">${date ? new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</span>
       <div class="cp-script-actions">
         <select class="cp-script-status-select">
           ${CLIENT_SCRIPT_STATUSES_ADMIN.map(st => `<option value="${st}" ${st === s.status ? 'selected' : ''}>${CP_SCRIPT_STATUS_LABEL[st]}</option>`).join('')}
@@ -476,6 +484,22 @@ $('#cp-scripts-queue-list').addEventListener('click', async (e) => {
       renderCpScripts();
     } catch (err) { alert(`Could not remove: ${err.message}`); }
   }
+});
+
+$('#cp-scripts-queue-list').addEventListener('change', async (e) => {
+  const row = e.target.closest('.cp-script-row');
+  if (!row) return;
+  const id = row.dataset.id;
+  const field = e.target.classList.contains('cp-script-topic-edit') ? 'topic'
+    : e.target.classList.contains('cp-script-hook-edit') ? 'hook'
+    : e.target.classList.contains('cp-script-format-edit') ? 'formatId' : null;
+  if (!field) return;
+  const value = e.target.value;
+  try {
+    await fetchJson(`/api/client/scripts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }) });
+    const s = cpState.scripts.find(x => x.id === id);
+    if (s) s[field] = value;
+  } catch (err) { alert(`Could not save: ${err.message}`); }
 });
 
 $('#cp-scripts-pipeline-list').addEventListener('change', async (e) => {

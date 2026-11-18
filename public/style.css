@@ -2727,14 +2727,32 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 .cp-proj-tile .value { font-size: 2.25rem; line-height: 1; letter-spacing: -0.02em; font-weight: 500; }
 .cp-proj-tile .label { font-size: 0.82rem; }
 
-.cp-add-script-row { display: flex; gap: 10px; flex-wrap: wrap; }
-.cp-add-script-row input[type="text"] { flex: 1 1 200px; height: 44px; border: 1px solid rgba(20, 20, 19, 0.12); border-radius: var(--r-sm); background: var(--card-bg-alt); padding: 0 16px; font-size: 0.92rem; font-family: inherit; outline: none; }
-.cp-add-script-row select { flex: 1 1 180px; height: 44px; border: 1px solid rgba(20, 20, 19, 0.12); border-radius: var(--r-sm); background: var(--card-bg-alt); padding: 0 16px; font-size: 0.92rem; font-family: inherit; }
-.cp-script-row { display: flex; align-items: center; gap: 16px; padding: 16px 0; border-top: 1px solid var(--bg); }
+/* "Add a script" — dark hero card, ported from the Backend design's own
+   dark add-script section (not the plain white row this used to be). */
+.cp-add-script-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; }
+.cp-dark-field { display: flex; flex-direction: column; gap: 8px; }
+.cp-dark-field span { font-size: 0.82rem; font-weight: 500; color: #BDB6AE; }
+.cp-dark-field input, .cp-dark-field select { height: 48px; border: 0; border-radius: var(--r-sm); background: #fff; color: var(--text); padding: 0 16px; font-size: 0.95rem; font-family: inherit; outline: none; cursor: pointer; }
+.cp-dark-field input { cursor: text; }
+.cp-dark-foot { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.cp-dark-foot span { font-size: 0.88rem; color: #BDB6AE; }
+
+.cp-script-row { display: flex; align-items: center; gap: 16px; padding: 16px 0; border-top: 1px solid var(--bg); flex-wrap: wrap; }
 .cp-script-row .num { flex: none; font-size: 0.82rem; color: var(--muted); width: 24px; }
-.cp-script-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.cp-script-main { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
 .cp-script-main .topic { font-size: 1.05rem; font-weight: 500; }
 .cp-script-main .hook { font-size: 0.88rem; color: var(--muted); }
+/* Queue rows: topic/hook are real editable inputs (dashed underline, per
+   the design), not static text — an admin can fix a typo without having
+   to remove and re-add. */
+.cp-script-inline-input { border: 0; border-bottom: 1.5px dashed var(--border); background: transparent; padding: 2px 0; font-family: inherit; outline: none; width: 100%; }
+.cp-script-topic-input { font-size: 1.05rem; font-weight: 500; color: var(--text); }
+.cp-script-hook-row { display: flex; align-items: center; gap: 6px; font-size: 0.88rem; color: var(--muted); }
+.cp-script-hook-row .lbl { flex: none; }
+.cp-script-hook-input { font-size: 0.88rem; color: var(--muted); }
+.cp-script-format-select { height: 40px; border: 1px solid rgba(20, 20, 19, 0.12); border-radius: var(--r-pill); background: var(--card-bg-alt); padding: 0 14px; font-size: 0.85rem; font-family: inherit; color: var(--text); outline: none; cursor: pointer; flex: none; }
 .cp-script-status-pill { flex: none; font-size: 0.76rem; font-weight: 600; padding: 5px 12px; border-radius: var(--r-pill); text-transform: capitalize; }
-.cp-script-actions { flex: none; display: flex; gap: 2px; align-items: center; }
-.cp-script-actions select { font-family: inherit; font-size: 0.82rem; border-radius: var(--r-pill); border: 1px solid var(--border); padding: 4px 10px; background: var(--card-bg); }
+.cp-script-actions { flex: none; display: flex; gap: 10px; align-items: center; }
+.cp-script-status-select { font-family: inherit; font-size: 0.82rem; border-radius: var(--r-pill); border: 1px solid var(--border); padding: 4px 10px; background: var(--card-bg); cursor: pointer; }
+.cp-script-status-icon { flex: none; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
+.cp-script-date { flex: none; font-size: 0.82rem; color: var(--muted); }
