@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Sofia+Sans:wght@400..700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="style.css?v=58">
+<link rel="stylesheet" href="style.css?v=59">
 </head>
 <body>
 <div id="ig-cooldown-banner" class="ig-cooldown-banner hidden">
@@ -1289,23 +1289,34 @@
           <h1 class="cp-h1" id="cp-scripts-title">Script list</h1>
           <p class="cp-lead" id="cp-scripts-meta"></p>
         </header>
-        <section class="cp-card cp-card-white">
-          <h3 class="cp-h3" style="margin-bottom:16px;">Add a topic</h3>
-          <div class="cp-add-script-row">
-            <input type="text" id="cp-script-topic" placeholder="Topic">
-            <input type="text" id="cp-script-hook" placeholder="Hook">
-            <select id="cp-script-format"></select>
-            <button type="button" class="cp-btn-primary" id="cp-script-add-btn">Add</button>
+        <section class="cp-card cp-card-dark">
+          <span class="cp-h3" style="font-size:1.375rem;">Add a script</span>
+          <div class="cp-add-script-grid">
+            <label class="cp-dark-field">
+              <span>Topic</span>
+              <input type="text" id="cp-script-topic" placeholder="e.g. Why rest days make you stronger">
+            </label>
+            <label class="cp-dark-field">
+              <span>Hook</span>
+              <input type="text" id="cp-script-hook" placeholder="e.g. Skipping rest is why you're stuck.">
+            </label>
+            <label class="cp-dark-field">
+              <span>Format</span>
+              <select id="cp-script-format"></select>
+            </label>
           </div>
-          <p class="cp-hint" id="cp-script-format-desc"></p>
+          <div class="cp-dark-foot">
+            <span id="cp-script-format-desc"></span>
+            <button type="button" class="cp-btn-primary" id="cp-script-add-btn">Add to list</button>
+          </div>
         </section>
         <section class="cp-card cp-card-white">
-          <h3 class="cp-h3">Waiting to be scripted</h3>
+          <h3 class="cp-h3" id="cp-scripts-queue-title">To script</h3>
           <div id="cp-scripts-queue-list"></div>
-          <p class="cp-hint hidden" id="cp-scripts-queue-empty">All caught up.</p>
+          <p class="cp-hint hidden" id="cp-scripts-queue-empty">Nothing to script yet. Add the first one above.</p>
         </section>
-        <section class="cp-card cp-card-white">
-          <h3 class="cp-h3">In progress / done</h3>
+        <section class="cp-card cp-card-alt">
+          <h3 class="cp-h3">In progress &amp; done</h3>
           <div id="cp-scripts-pipeline-list"></div>
         </section>
       </div>
@@ -1718,6 +1729,6 @@
 <script src="app.js?v=59"></script>
 <script src="leads.js?v=39"></script>
 <script src="followups.js?v=41"></script>
-<script src="client-portal-admin.js?v=2"></script>
+<script src="client-portal-admin.js?v=3"></script>
 </body>
 </html>
