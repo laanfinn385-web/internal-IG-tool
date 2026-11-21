@@ -58,7 +58,10 @@ const state = {
   peopleShown: 24,
   profile: null,
   milestones: [],
-  outreach: null
+  outreach: null,
+  // Set from profile.clientPortalLanguage once it loads (see init()); t()
+  // and dateLocale() (i18n.js) both read this directly.
+  lang: 'en'
 };
 
 const CP_HEALTH = [
@@ -86,6 +89,9 @@ async function init() {
   } catch (e) {
     return showNotFound();
   }
+  state.lang = state.profile.clientPortalLanguage === 'nl' ? 'nl' : 'en';
+  document.documentElement.lang = state.lang;
+  applyStaticI18n();
   $('#cp-app').classList.remove('hidden');
   setupSidebar();
   setupNav();
@@ -104,7 +110,7 @@ function setupSidebar() {
   $('#cp-sidebar-initial').textContent = (firstName[0] || '?').toUpperCase();
   $('#cp-sidebar-name').textContent = firstName + (p.clientLastName ? ` ${p.clientLastName}` : '');
   $('#cp-sidebar-since').textContent = p.clientSince
-    ? `Client since ${new Date(p.clientSince).toLocaleDateString('en-GB', { month: 'long' })}`
+    ? `${t('Client since')} ${new Date(p.clientSince).toLocaleDateString(dateLocale(), { month: 'long' })}`
     : '';
 
   if (p.clientRellaUrl) {
@@ -159,7 +165,7 @@ function renderAll() {
 }
 
 function renderOther() {
-  const labels = { scripting: 'Scripting' };
+  const labels = { scripting: t('Scripting') };
   $('#cp-other-label').textContent = labels[state.page] || state.page;
 }
 
@@ -178,20 +184,22 @@ function setupHomeControls() {
 function renderHome() {
   const p = state.profile;
   const h = new Date().getHours();
-  const greet = h < 5 ? 'Good evening' : h < 12 ? 'Good morning' : h < 18 ? 'Good afternoon' : 'Good evening';
+  const greet = h < 5 ? t('Good evening') : h < 12 ? t('Good morning') : h < 18 ? t('Good afternoon') : t('Good evening');
   const firstName = p.clientFirstName || p.name;
-  $('#cp-home-date').textContent = new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' });
+  $('#cp-home-date').textContent = new Date().toLocaleDateString(dateLocale(), { weekday: 'long', day: 'numeric', month: 'long' });
   $('#cp-greeting').textContent = `${greet}, ${firstName}.`;
-  $('#cp-status-line').textContent = p.clientStatusLine || "Everything is on track. Here's what we've been working on.";
+  $('#cp-status-line').textContent = p.clientStatusLine || t("Everything is on track. Here's what we've been working on.");
 
   const health = CP_HEALTH[p.clientHealth || 0];
   $('#cp-health-dot').style.background = health.bg;
   $('#cp-health-dot').innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="${health.icon}"></path></svg>`;
-  $('#cp-health-label').textContent = health.label;
+  $('#cp-health-label').textContent = t(health.label);
 
   const done = state.milestones.filter(m => m.status === 'done').length;
-  $('#cp-milestones-title').textContent = `${done} of ${state.milestones.length} done this month`;
-  $('#cp-milestones-month').textContent = new Date().toLocaleDateString('en-GB', { month: 'long' });
+  $('#cp-milestones-title').textContent = state.lang === 'nl'
+    ? `${done} van ${state.milestones.length} klaar deze maand`
+    : `${done} of ${state.milestones.length} done this month`;
+  $('#cp-milestones-month').textContent = new Date().toLocaleDateString(dateLocale(), { month: 'long' });
   $('#cp-ms-bar').innerHTML = state.milestones.map(m =>
     `<span style="background:${m.status === 'done' ? 'var(--purple)' : m.status === 'active' ? '#B9A3CC' : 'var(--border)'};"></span>`
   ).join('');
@@ -247,11 +255,13 @@ function renderMiniStats() {
   if (!state.outreach) { $('#cp-mini-stats').innerHTML = ''; return; }
   const periodData = state.outreach.periods[state.homePeriod];
   const f = periodData.funnel;
-  const d = CP_PERIOD_DELTA_LABEL[state.homePeriod];
+  const d = t(CP_PERIOD_DELTA_LABEL[state.homePeriod]);
+  const pctReplied = (pct) => state.lang === 'nl' ? `${pct}% reageerde` : `${pct}% replied`;
+  const pctBookedConvo = (pct) => state.lang === 'nl' ? `${pct}% van de gesprekken boekte een call` : `${pct}% of conversations booked a call`;
   const rows = [
-    { label: 'Reach-outs', desc: 'People we messaged for you', value: f.totalSends.toLocaleString('en'), showRate: false, bg: '#fff', fg: 'var(--text)' },
-    { label: 'Conversations', desc: 'People who replied and are talking', value: `${f.replies}`, showRate: true, rate: f.replyRate != null ? `${f.replyRate}% replied` : '—', bg: '#fff', fg: 'var(--text)' },
-    { label: 'Intakes booked', desc: 'Calls on your calendar', value: `${f.appointmentsSet}`, showRate: true, rate: f.asr != null ? `${f.asr}% of conversations booked a call` : '—', bg: 'var(--text)', fg: '#fff' }
+    { label: t('Reach-outs'), desc: t('People we messaged for you'), value: f.totalSends.toLocaleString(dateLocale()), showRate: false, bg: '#fff', fg: 'var(--text)' },
+    { label: t('Conversations'), desc: t('People who replied and are talking'), value: `${f.replies}`, showRate: true, rate: f.replyRate != null ? pctReplied(f.replyRate) : '—', bg: '#fff', fg: 'var(--text)' },
+    { label: t('Intakes booked'), desc: t('Calls on your calendar'), value: `${f.appointmentsSet}`, showRate: true, rate: f.asr != null ? pctBookedConvo(f.asr) : '—', bg: 'var(--text)', fg: '#fff' }
   ];
   $('#cp-mini-stats').innerHTML = rows.map(r => `
     <div>
@@ -305,13 +315,18 @@ function renderOutreach() {
   const o = state.outreach;
   const periodData = o.periods[state.outreachPeriod];
   const f = periodData.funnel;
-  const plabel = { week: 'This week', month: 'This month', all: 'Since the start' }[state.outreachPeriod];
+  const locale = dateLocale();
+  const plabelMap = { week: 'This week', month: 'This month', all: 'Since the start' };
+  const plabelLowerMap = { week: 'this week', month: 'this month', all: 'since the start' };
+  const plabel = t(plabelMap[state.outreachPeriod]);
   $('#cp-outreach-period-label').textContent = plabel;
+  const pctReachouts = (pct) => state.lang === 'nl' ? `${pct}% van de benaderingen` : `${pct}% of reach-outs`;
+  const pctReplied = (pct) => state.lang === 'nl' ? `${pct}% reageerde` : `${pct}% replied`;
 
   $('#cp-outreach-core').innerHTML = [
-    { label: 'Calls booked', value: f.appointmentsSet, note: f.asr != null ? `${f.asr}% of reach-outs` : '—', bg: 'var(--purple)', fg: '#fff', sub: '#E6DCEF' },
-    { label: 'Conversations', value: f.replies, note: f.replyRate != null ? `${f.replyRate}% replied` : '—', bg: '#fff', fg: 'var(--text)', sub: 'var(--muted)' },
-    { label: 'People reached out to', value: f.totalSends, note: plabel.toLowerCase(), bg: '#fff', fg: 'var(--text)', sub: 'var(--muted)' }
+    { label: t('Calls booked'), value: f.appointmentsSet, note: f.asr != null ? pctReachouts(f.asr) : '—', bg: 'var(--purple)', fg: '#fff', sub: '#E6DCEF' },
+    { label: t('Conversations'), value: f.replies, note: f.replyRate != null ? pctReplied(f.replyRate) : '—', bg: '#fff', fg: 'var(--text)', sub: 'var(--muted)' },
+    { label: t('People reached out to'), value: f.totalSends, note: t(plabelLowerMap[state.outreachPeriod]), bg: '#fff', fg: 'var(--text)', sub: 'var(--muted)' }
   ].map(k => `
     <div class="cp-outreach-core-tile" style="background:${k.bg};color:${k.fg};">
       <span class="label">${escapeHtml(k.label)}</span>
@@ -321,39 +336,47 @@ function renderOutreach() {
       </div>
     </div>`).join('');
 
-  $('#cp-funnel-title').textContent = f.prr != null ? `${f.prr}% of people we message book a call` : "We'll see conversion rates once sends start.";
+  $('#cp-funnel-title').textContent = f.prr != null
+    ? (state.lang === 'nl' ? `${f.prr}% van de mensen die we benaderen boekt een call` : `${f.prr}% of people we message book a call`)
+    : t("We’ll see conversion rates once sends start.");
   const funnelSteps = [
-    { label: 'Reached out', value: f.totalSends, desc: 'People we sent a first message to', w: '100%', bar: 'var(--text)', showRate: false },
-    { label: 'Started a conversation', value: f.replies, desc: 'Replied and are talking with us', w: `${f.totalSends > 0 ? (f.replies / f.totalSends * 100) : 0}%`, bar: '#8A5BB0', showRate: true, rate: f.replyRate, rateLabel: 'replied' },
-    { label: 'Booked a call', value: f.appointmentsSet, desc: 'Calls on your calendar', w: `${Math.max(2, f.totalSends > 0 ? (f.appointmentsSet / f.totalSends * 100) : 0)}%`, bar: 'var(--purple)', showRate: true, rate: f.asr, rateLabel: 'booked' }
+    { label: t('Reached out'), value: f.totalSends, desc: t('People we sent a first message to'), w: '100%', bar: 'var(--text)', showRate: false },
+    { label: t('Started a conversation'), value: f.replies, desc: t('Replied and are talking with us'), w: `${f.totalSends > 0 ? (f.replies / f.totalSends * 100) : 0}%`, bar: '#8A5BB0', showRate: true, rate: f.replyRate, rateLabel: t('replied') },
+    { label: t('Booked a call'), value: f.appointmentsSet, desc: t('Calls on your calendar'), w: `${Math.max(2, f.totalSends > 0 ? (f.appointmentsSet / f.totalSends * 100) : 0)}%`, bar: 'var(--purple)', showRate: true, rate: f.asr, rateLabel: t('booked') }
   ];
   $('#cp-funnel').innerHTML = funnelSteps.map(s => `
     <div class="cp-funnel-item">
       ${s.showRate ? `<div class="cp-funnel-rate"><span class="pct">${s.rate != null ? s.rate + '%' : '—'}</span><span class="lbl">${escapeHtml(s.rateLabel)}</span><span class="arrow">→</span></div>` : ''}
       <div class="cp-funnel-box">
         <span class="label">${escapeHtml(s.label)}</span>
-        <span class="value">${s.value.toLocaleString('en')}</span>
+        <span class="value">${s.value.toLocaleString(locale)}</span>
         <div class="bar-track"><div class="bar-fill" style="width:${s.w};background:${s.bar};"></div></div>
         <span class="desc">${escapeHtml(s.desc)}</span>
       </div>
     </div>`).join('');
 
-  $('#cp-people-title').textContent = `${o.people.length.toLocaleString('en')} most recent`;
+  $('#cp-people-title').textContent = state.lang === 'nl'
+    ? `${o.people.length.toLocaleString(locale)} meest recent`
+    : `${o.people.length.toLocaleString(locale)} most recent`;
   renderOutreachPeople();
 
-  $('#cp-total-leads-value').textContent = (o.totalLeadsTarget || 0).toLocaleString('en');
+  $('#cp-total-leads-value').textContent = (o.totalLeadsTarget || 0).toLocaleString(locale);
   const reachedPct = o.totalLeadsTarget > 0 ? Math.min(100, Math.max(8, o.reached / o.totalLeadsTarget * 100)) : 100;
   $('#cp-progress-fill').style.width = `${reachedPct}%`;
-  $('#cp-progress-fill').textContent = `${o.reached.toLocaleString('en')} reached`;
-  $('#cp-progress-rest').textContent = `${o.left.toLocaleString('en')} to go`;
+  $('#cp-progress-fill').textContent = state.lang === 'nl' ? `${o.reached.toLocaleString(locale)} benaderd` : `${o.reached.toLocaleString(locale)} reached`;
+  $('#cp-progress-rest').textContent = state.lang === 'nl' ? `Nog ${o.left.toLocaleString(locale)} te gaan` : `${o.left.toLocaleString(locale)} to go`;
   $('#cp-pace-note').textContent = o.perWeek > 0
-    ? `At around ${o.perWeek} a week, we'll reach everyone in about ${o.weeksRemaining} weeks.`
-    : 'Not enough sends yet to estimate a pace.';
-  $('#cp-proj-title').textContent = `With your current conversion rates, the ${o.left.toLocaleString('en')} leads still to come should bring in around ${o.expectedCalls.toLocaleString('en')} calls.`;
+    ? (state.lang === 'nl'
+        ? `Met zo’n ${o.perWeek} per week bereiken we iedereen in ongeveer ${o.weeksRemaining} weken.`
+        : `At around ${o.perWeek} a week, we'll reach everyone in about ${o.weeksRemaining} weeks.`)
+    : t('Not enough sends yet to estimate a pace.');
+  $('#cp-proj-title').textContent = state.lang === 'nl'
+    ? `Met je huidige conversie zouden de ${o.left.toLocaleString(locale)} leads die nog komen zo’n ${o.expectedCalls.toLocaleString(locale)} calls moeten opleveren.`
+    : `With your current conversion rates, the ${o.left.toLocaleString(locale)} leads still to come should bring in around ${o.expectedCalls.toLocaleString(locale)} calls.`;
   $('#cp-proj-row').innerHTML = [
-    { v: o.left.toLocaleString('en'), l: 'Leads still to come', bg: '#141413', fg: '#fff', sub: '#BDB6AE', arrow: false },
-    { v: `≈ ${o.expectedConversations.toLocaleString('en')}`, l: 'Expected conversations', bg: '#141413', fg: '#fff', sub: '#BDB6AE', arrow: true, rate: periodData.total > 0 ? Math.round(f.replies / Math.max(1, f.totalSends) * 1000) / 10 + '%' : '—' },
-    { v: `≈ ${o.expectedCalls.toLocaleString('en')}`, l: 'Expected calls', bg: 'var(--bg)', fg: 'var(--text)', sub: 'var(--muted)', arrow: true, rate: f.asr != null ? f.asr + '%' : '—' }
+    { v: o.left.toLocaleString(locale), l: t('Leads still to come'), bg: '#141413', fg: '#fff', sub: '#BDB6AE', arrow: false },
+    { v: `≈ ${o.expectedConversations.toLocaleString(locale)}`, l: t('Expected conversations'), bg: '#141413', fg: '#fff', sub: '#BDB6AE', arrow: true, rate: periodData.total > 0 ? Math.round(f.replies / Math.max(1, f.totalSends) * 1000) / 10 + '%' : '—' },
+    { v: `≈ ${o.expectedCalls.toLocaleString(locale)}`, l: t('Expected calls'), bg: 'var(--bg)', fg: 'var(--text)', sub: 'var(--muted)', arrow: true, rate: f.asr != null ? f.asr + '%' : '—' }
   ].map(p => `
     <div class="cp-proj-item">
       ${p.arrow ? `<div class="cp-proj-arrow"><span>${escapeHtml(p.rate)}</span><span class="big">→</span></div>` : ''}
@@ -377,13 +400,13 @@ function renderOutreachPeople() {
       <span class="cp-person-avatar" style="background:${CP_PERSON_TONES[i % CP_PERSON_TONES.length]};">${escapeHtml((p.handle[1] || p.handle[0] || '?').toUpperCase())}</span>
       <div class="cp-person-info">
         <span class="handle">${escapeHtml(p.handle)}</span>
-        <span class="date">${p.date ? new Date(p.date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</span>
+        <span class="date">${p.date ? new Date(p.date).toLocaleDateString(dateLocale(), { day: 'numeric', month: 'short' }) : ''}</span>
       </div>
-      <span class="cp-person-status" style="background:${c.bg};color:${c.fg};">${escapeHtml(CP_PERSON_STATUS_LABEL[p.status])}</span>
+      <span class="cp-person-status" style="background:${c.bg};color:${c.fg};">${escapeHtml(t(CP_PERSON_STATUS_LABEL[p.status]))}</span>
     </div>`;
   }).join('');
   $('#cp-people-empty').classList.toggle('hidden', filtered.length > 0);
   const more = filtered.length - shown.length;
   $('#cp-people-more-btn').classList.toggle('hidden', more <= 0);
-  $('#cp-people-more-btn').textContent = `Show more (${more} left)`;
+  $('#cp-people-more-btn').textContent = state.lang === 'nl' ? `Meer tonen (nog ${more})` : `Show more (${more} left)`;
 }
