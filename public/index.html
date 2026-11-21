@@ -1547,16 +1547,47 @@
         <div class="eyebrow">Settings</div>
         <h1 class="settings-nav-title" id="settings-nav-title">Settings</h1>
         <div class="settings-nav-links">
+          <a href="#settings-general-card" class="settings-nav-link">General</a>
           <a href="#settings-profile-card" class="settings-nav-link">Profile</a>
           <a href="#settings-sequences-grid" class="settings-nav-link">Sequences</a>
           <a href="#settings-accounts-card" class="settings-nav-link">Instagram &amp; Threads accounts</a>
           <a href="#settings-goal-card" class="settings-nav-link">Daily goal</a>
           <a href="#settings-reminders-card" class="settings-nav-link">Reminders</a>
-          <a href="#settings-general-card" class="settings-nav-link">General</a>
-          <a href="#settings-linkedin-followups-card" class="settings-nav-link">LinkedIn follow-ups</a>
+          <a href="#settings-linkedin-followups-card" class="settings-nav-link" id="settings-nav-linkedin-followups-link">LinkedIn follow-ups</a>
         </div>
       </nav>
       <div class="settings-content">
+
+      <div class="card" id="settings-general-card">
+        <h3>General</h3>
+        <div class="hidden" id="settings-client-language-field">
+          <label>Client portal language</label>
+          <p class="muted" style="margin-top:-8px;" id="settings-client-language-sub">Which language this client's portal shows to them.</p>
+          <div class="range-tabs" id="settings-client-language-tabs">
+            <button type="button" class="range-tab active" data-lang="en">English</button>
+            <button type="button" class="range-tab" data-lang="nl">Dutch</button>
+          </div>
+        </div>
+        <label>Booking link
+          <input type="text" id="settings-calendar-link" placeholder="https://cal.com/yourname">
+        </label>
+        <p class="muted" style="margin-top:-8px;">Used to fill in <code>{link}</code> in your Phase 3 follow-ups.</p>
+        <div id="settings-views-threshold-field">
+          <label>Views threshold for the "stuck under X views" template
+            <input type="number" id="settings-views-threshold" min="0" step="50">
+          </label>
+        </div>
+        <div id="settings-connection-delay-field">
+          <label>Days to wait after "Engaged" before the LinkedIn connection-request notification
+            <input type="number" id="settings-connection-delay" min="0" step="1">
+          </label>
+        </div>
+        <label>Hour of day follow-ups become due (Amsterdam time)
+          <input type="number" id="settings-followup-due-hour" min="0" max="23" step="1">
+        </label>
+        <p class="muted" style="margin-top:-8px;">Instead of tracking the exact hour of the original send, all follow-up/connection notifications become due at this hour each day — so a full day's follow-ups are all visible at once.</p>
+        <button id="settings-general-save" class="btn-secondary">Save</button>
+      </div>
 
       <div class="card" id="settings-profile-card">
         <h3>Profile</h3>
@@ -1575,7 +1606,7 @@
         </div>
         <div style="display:flex;gap:28px;flex-wrap:wrap;">
           <label class="toggle-row"><span class="toggle-switch"><input type="checkbox" id="profile-settings-instagram"><span class="toggle-switch-track"></span></span> Instagram</label>
-          <label class="toggle-row"><span class="toggle-switch"><input type="checkbox" id="profile-settings-linkedin"><span class="toggle-switch-track"></span></span> LinkedIn</label>
+          <label class="toggle-row" id="profile-settings-linkedin-field"><span class="toggle-switch"><input type="checkbox" id="profile-settings-linkedin"><span class="toggle-switch-track"></span></span> LinkedIn</label>
         </div>
         <p class="hidden" id="profile-settings-error" style="color: var(--red); font-size: 0.85rem;"></p>
         <div class="row-between">
@@ -1667,7 +1698,7 @@
           <label>Instagram
             <input type="number" id="settings-daily-goal-instagram" min="0" step="1">
           </label>
-          <label>LinkedIn
+          <label id="settings-daily-goal-linkedin-field">LinkedIn
             <input type="number" id="settings-daily-goal-linkedin" min="0" step="1">
           </label>
         </div>
@@ -1721,24 +1752,6 @@
         </div>
       </div>
 
-      <div class="card" id="settings-general-card">
-        <h3>General</h3>
-        <label>Booking link
-          <input type="text" id="settings-calendar-link" placeholder="https://cal.com/yourname">
-        </label>
-        <p class="muted" style="margin-top:-8px;">Used to fill in <code>{link}</code> in your Phase 3 follow-ups.</p>
-        <label>Views threshold for the "stuck under X views" template
-          <input type="number" id="settings-views-threshold" min="0" step="50">
-        </label>
-        <label>Days to wait after "Engaged" before the LinkedIn connection-request notification
-          <input type="number" id="settings-connection-delay" min="0" step="1">
-        </label>
-        <label>Hour of day follow-ups become due (Amsterdam time)
-          <input type="number" id="settings-followup-due-hour" min="0" max="23" step="1">
-        </label>
-        <p class="muted" style="margin-top:-8px;">Instead of tracking the exact hour of the original send, all follow-up/connection notifications become due at this hour each day — so a full day's follow-ups are all visible at once.</p>
-        <button id="settings-general-save" class="btn-secondary">Save</button>
-      </div>
 
 
       <div class="card" id="settings-linkedin-opener-card">
@@ -1885,7 +1898,7 @@
 <script src="templates.js?v=23"></script>
 <script src="app.js?v=62"></script>
 <script src="leads.js?v=39"></script>
-<script src="followups.js?v=45"></script>
+<script src="followups.js?v=46"></script>
 <script src="client-portal-admin.js?v=4"></script>
 </body>
 </html>
