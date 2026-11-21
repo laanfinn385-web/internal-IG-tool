@@ -680,8 +680,57 @@ $('#followup-done-btn').addEventListener('click', () => showView('home'));
 // now lives per Messaging sequence (see loadMessageSequences() below).
 const settingsState = { followups: [], phase: 1, reminders: [], accounts: [] };
 
+// Client accounts only ever use Instagram (per the user's own explicit
+// confirmation — "client accounts never use LinkedIn") — hides every
+// LinkedIn-specific setting on this shared page for them (the LinkedIn
+// follow-up sequence/opener, the platform toggle, the daily-goal field,
+// views-threshold/connection-delay in General), while leaving every one
+// of them exactly as before on a regular (non-client) profile. Also
+// shows/hides the client-only portal-language switch, the mirror case.
+function applyClientAccountSettingsVisibility() {
+  const ws = activeWorkspace();
+  const isClient = !!(ws && ws.isClientAccount);
+  $('#settings-linkedin-opener-card').classList.toggle('hidden', isClient);
+  $('#settings-linkedin-followups-card').classList.toggle('hidden', isClient);
+  $('#settings-nav-linkedin-followups-link').classList.toggle('hidden', isClient);
+  $('#profile-settings-linkedin-field').classList.toggle('hidden', isClient);
+  $('#settings-daily-goal-linkedin-field').classList.toggle('hidden', isClient);
+  $('#settings-views-threshold-field').classList.toggle('hidden', isClient);
+  $('#settings-connection-delay-field').classList.toggle('hidden', isClient);
+  $('#settings-client-language-field').classList.toggle('hidden', !isClient);
+  if (isClient) {
+    const firstName = ws.clientFirstName || ws.name;
+    $('#settings-client-language-sub').textContent = `Which language ${firstName}'s portal shows to them.`;
+  }
+}
+
+async function loadClientPortalLanguageSetting() {
+  const ws = activeWorkspace();
+  if (!ws || !ws.isClientAccount) return;
+  try {
+    const { profile } = await fetchJson('/api/client/profile');
+    $all('#settings-client-language-tabs .range-tab').forEach(b => b.classList.toggle('active', b.dataset.lang === (profile.clientPortalLanguage || 'en')));
+  } catch (e) {
+    console.error('Could not load client portal language', e);
+  }
+}
+
+$('#settings-client-language-tabs').addEventListener('click', async (e) => {
+  const btn = e.target.closest('.range-tab');
+  if (!btn) return;
+  const lang = btn.dataset.lang;
+  $all('#settings-client-language-tabs .range-tab').forEach(b => b.classList.toggle('active', b === btn));
+  try {
+    await fetchJson('/api/client/profile', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientPortalLanguage: lang }) });
+  } catch (err) {
+    alert(`Could not save: ${err.message}`);
+  }
+});
+
 async function loadSettingsPage() {
   renderProfileSettingsCard();
+  applyClientAccountSettingsVisibility();
+  loadClientPortalLanguageSetting();
   try {
     const [fuData, appData, , , templatesData] = await Promise.all([
       fetchJson('/api/settings/followups?platform=linkedin'),
