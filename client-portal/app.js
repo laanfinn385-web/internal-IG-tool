@@ -109,9 +109,6 @@ function setupSidebar() {
   const firstName = p.clientFirstName || p.name;
   $('#cp-sidebar-initial').textContent = (firstName[0] || '?').toUpperCase();
   $('#cp-sidebar-name').textContent = firstName + (p.clientLastName ? ` ${p.clientLastName}` : '');
-  $('#cp-sidebar-since').textContent = p.clientSince
-    ? `${t('Client since')} ${new Date(p.clientSince).toLocaleDateString(dateLocale(), { month: 'long' })}`
-    : '';
 
   if (p.clientRellaUrl) {
     $('#cp-nav-rella').href = p.clientRellaUrl;

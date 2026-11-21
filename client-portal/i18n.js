@@ -10,7 +10,6 @@
 // directly here instead.
 const I18N_NL = {
   'Good morning': 'Goedemorgen', 'Good afternoon': 'Goedemiddag', 'Good evening': 'Goedenavond',
-  'Client since': 'Klant sinds',
   "Everything is on track. Here's what we've been working on.": 'Alles loopt volgens plan. Hier is waar we aan hebben gewerkt.',
 
   'Studio': 'Studio',
