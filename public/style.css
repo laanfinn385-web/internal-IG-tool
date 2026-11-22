@@ -2771,7 +2771,6 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 .cp-script-format-select { height: 40px; border: 1px solid rgba(20, 20, 19, 0.12); border-radius: var(--r-pill); background: var(--card-bg-alt); padding: 0 14px; font-size: 0.85rem; font-family: inherit; color: var(--text); outline: none; cursor: pointer; flex: none; }
 .cp-script-status-pill { flex: none; font-size: 0.76rem; font-weight: 600; padding: 5px 12px; border-radius: var(--r-pill); text-transform: capitalize; }
 .cp-script-actions { flex: none; display: flex; gap: 10px; align-items: center; }
-.cp-script-status-select { font-family: inherit; font-size: 0.82rem; border-radius: var(--r-pill); border: 1px solid var(--border); padding: 4px 10px; background: var(--card-bg); cursor: pointer; }
 .cp-script-status-icon { flex: none; width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; }
 .cp-script-date { flex: none; font-size: 0.82rem; color: var(--muted); }
 
