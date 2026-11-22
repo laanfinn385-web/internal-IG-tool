@@ -467,7 +467,7 @@ function scriptsDone() { return state.scripts.filter(s => s.status !== 'queued')
 
 function tpl(formatId) {
   const f = state.formats.find(x => x.id === formatId);
-  return (f && Array.isArray(f.structure)) ? f.structure.join('\n') : '';
+  return (f && Array.isArray(f.structure)) ? f.structure.map(line => t(line)).join('\n') : '';
 }
 function fmtClock(sec) {
   sec = Math.max(0, Math.round(sec));
@@ -837,7 +837,7 @@ function stepScriptHtml() {
           <h3 class="cp-h2">${escapeHtml(t('Your script'))}</h3>
           <span class="cp-hint">${escapeHtml(t('One beat per line. Replace the guide text with your own words.'))}</span>
         </div>
-        ${sel ? `<span class="cp-session-chip">${escapeHtml(sel.name)}</span>` : ''}
+        ${sel ? `<span class="cp-session-chip">${escapeHtml(t(sel.name))}</span>` : ''}
       </div>
       <textarea class="cp-session-textarea" id="cp-session-script-textarea" style="min-height:300px;">${escapeHtml(c.script)}</textarea>
     </div>
