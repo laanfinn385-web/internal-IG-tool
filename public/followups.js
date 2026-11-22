@@ -678,7 +678,7 @@ $('#followup-done-btn').addEventListener('click', () => showView('home'));
 
 // followups here are LinkedIn's only — Instagram's own follow-up sequence
 // now lives per Messaging sequence (see loadMessageSequences() below).
-const settingsState = { followups: [], phase: 1, reminders: [], accounts: [] };
+const settingsState = { followups: [], phase: 1, reminders: [], accounts: [], formats: [], formatEditingId: null };
 
 // Client accounts only ever use Instagram (per the user's own explicit
 // confirmation — "client accounts never use LinkedIn") — hides every
@@ -698,6 +698,8 @@ function applyClientAccountSettingsVisibility() {
   $('#settings-views-threshold-field').classList.toggle('hidden', isClient);
   $('#settings-connection-delay-field').classList.toggle('hidden', isClient);
   $('#settings-client-language-field').classList.toggle('hidden', !isClient);
+  $('#settings-formats-card').classList.toggle('hidden', !isClient);
+  $('#settings-nav-formats-link').classList.toggle('hidden', !isClient);
   if (isClient) {
     const firstName = ws.clientFirstName || ws.name;
     $('#settings-client-language-sub').textContent = `Which language ${firstName}'s portal shows to them.`;
@@ -727,10 +729,170 @@ $('#settings-client-language-tabs').addEventListener('click', async (e) => {
   }
 });
 
+// ---------- Script formats (client-account Settings only) ----------
+// Global data (shared across every client portal), not per-workspace, but
+// only editable from a client-account workspace's Settings — same gate as
+// everything else script/scripting-related in this file. Every save goes
+// through POST/PATCH /api/client/formats, which rejects anything missing a
+// complete, same-length Dutch translation (server.js) — this UI always
+// submits both languages together in one request so that's never a
+// surprise at save time.
+
+async function loadSettingsFormats() {
+  const ws = activeWorkspace();
+  if (!ws || !ws.isClientAccount) return;
+  try {
+    const { formats } = await fetchJson('/api/client/formats');
+    settingsState.formats = formats;
+    settingsState.formatEditingId = null;
+    renderSettingsFormats();
+  } catch (e) {
+    console.error('Could not load script formats', e);
+  }
+}
+
+function emptyFormatDraft() {
+  return { id: null, name: '', description: '', structure: [], nameNl: '', descriptionNl: '', structureNl: [] };
+}
+
+function renderSettingsFormats() {
+  const list = $('#settings-formats-list');
+  if (!list) return;
+  const editingId = settingsState.formatEditingId;
+  list.innerHTML = settingsState.formats.map(f => (editingId === f.id ? formatEditorHtml(f) : formatRowHtml(f))).join('')
+    + (editingId === 'new' ? formatEditorHtml(emptyFormatDraft()) : '');
+  $all('#settings-formats-list textarea.auto-resize').forEach(autoResizeTextarea);
+}
+
+function formatRowHtml(f) {
+  return `
+    <div class="settings-format-row" data-id="${f.id}">
+      <div class="settings-format-row-main">
+        <span class="settings-format-row-name">${escapeHtml(f.name)} <span class="muted">— ${escapeHtml(f.nameNl)}</span></span>
+        <span class="muted">${f.structure.length} beat${f.structure.length === 1 ? '' : 's'}</span>
+      </div>
+      <div class="settings-format-row-actions">
+        <button type="button" class="btn-secondary settings-format-edit-btn" data-id="${f.id}">Edit</button>
+        <button type="button" class="btn-danger-outline settings-format-delete-btn" data-id="${f.id}">Delete</button>
+      </div>
+    </div>`;
+}
+
+function formatEditorHtml(f) {
+  const idAttr = f.id || '';
+  return `
+    <div class="settings-format-editor" data-id="${idAttr}">
+      <div class="settings-format-editor-col">
+        <span class="settings-format-editor-lang">English</span>
+        <label>Name
+          <input type="text" class="settings-format-field" data-field="name" value="${escapeHtml(f.name)}">
+        </label>
+        <label>Description
+          <input type="text" class="settings-format-field" data-field="description" value="${escapeHtml(f.description)}">
+        </label>
+        <label>Beats (one per line, e.g. "HOOK — ...")
+          <textarea class="settings-format-field auto-resize" data-field="structure" rows="6">${escapeHtml(f.structure.join('\n'))}</textarea>
+        </label>
+      </div>
+      <div class="settings-format-editor-col">
+        <span class="settings-format-editor-lang">Dutch</span>
+        <label>Name
+          <input type="text" class="settings-format-field" data-field="nameNl" value="${escapeHtml(f.nameNl)}">
+        </label>
+        <label>Description
+          <input type="text" class="settings-format-field" data-field="descriptionNl" value="${escapeHtml(f.descriptionNl)}">
+        </label>
+        <label>Beats (same number of lines, same order as English)
+          <textarea class="settings-format-field auto-resize" data-field="structureNl" rows="6">${escapeHtml(f.structureNl.join('\n'))}</textarea>
+        </label>
+      </div>
+      <p class="muted settings-format-error hidden"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary settings-format-cancel-btn">Cancel</button>
+        <button type="button" class="btn-primary settings-format-save-btn" data-id="${idAttr}">Save</button>
+      </div>
+    </div>`;
+}
+
+function readFormatEditorFields(editorEl) {
+  const get = (field) => editorEl.querySelector(`[data-field="${field}"]`).value;
+  const beats = (text) => text.split('\n').map(l => l.trim()).filter(Boolean);
+  return {
+    name: get('name').trim(),
+    description: get('description').trim(),
+    structure: beats(get('structure')),
+    nameNl: get('nameNl').trim(),
+    descriptionNl: get('descriptionNl').trim(),
+    structureNl: beats(get('structureNl'))
+  };
+}
+
+$('#settings-add-format-btn').addEventListener('click', () => {
+  settingsState.formatEditingId = 'new';
+  renderSettingsFormats();
+  const editor = $('.settings-format-editor[data-id=""]');
+  if (editor) editor.scrollIntoView({ behavior: 'smooth', block: 'center' });
+});
+
+$('#settings-formats-list').addEventListener('click', async (e) => {
+  const editBtn = e.target.closest('.settings-format-edit-btn');
+  if (editBtn) { settingsState.formatEditingId = editBtn.dataset.id; renderSettingsFormats(); return; }
+
+  const cancelBtn = e.target.closest('.settings-format-cancel-btn');
+  if (cancelBtn) { settingsState.formatEditingId = null; renderSettingsFormats(); return; }
+
+  const deleteBtn = e.target.closest('.settings-format-delete-btn');
+  if (deleteBtn) {
+    const id = deleteBtn.dataset.id;
+    const f = settingsState.formats.find(x => x.id === id);
+    if (!confirm(`Delete "${f ? f.name : 'this format'}"? Clients will no longer be able to pick it.`)) return;
+    try {
+      await fetchJson(`/api/client/formats/${id}`, { method: 'DELETE' });
+      settingsState.formats = settingsState.formats.filter(x => x.id !== id);
+      renderSettingsFormats();
+    } catch (err) {
+      alert(`Could not delete: ${err.message}`);
+    }
+    return;
+  }
+
+  const saveBtn = e.target.closest('.settings-format-save-btn');
+  if (saveBtn) {
+    const editorEl = saveBtn.closest('.settings-format-editor');
+    const errorEl = editorEl.querySelector('.settings-format-error');
+    const fields = readFormatEditorFields(editorEl);
+    const isNew = !saveBtn.dataset.id;
+    errorEl.classList.add('hidden');
+    saveBtn.disabled = true;
+    try {
+      if (isNew) {
+        const { id } = await fetchJson('/api/client/formats', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields) });
+        settingsState.formats.push({ ...fields, id, position: settingsState.formats.length });
+      } else {
+        await fetchJson(`/api/client/formats/${saveBtn.dataset.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(fields) });
+        const row = settingsState.formats.find(x => x.id === saveBtn.dataset.id);
+        if (row) Object.assign(row, fields);
+      }
+      settingsState.formatEditingId = null;
+      renderSettingsFormats();
+    } catch (err) {
+      errorEl.textContent = err.message;
+      errorEl.classList.remove('hidden');
+      saveBtn.disabled = false;
+    }
+    return;
+  }
+});
+
+$('#settings-formats-list').addEventListener('input', (e) => {
+  if (e.target.classList.contains('auto-resize')) autoResizeTextarea(e.target);
+});
+
 async function loadSettingsPage() {
   renderProfileSettingsCard();
   applyClientAccountSettingsVisibility();
   loadClientPortalLanguageSetting();
+  loadSettingsFormats();
   try {
     const [fuData, appData, , , templatesData] = await Promise.all([
       fetchJson('/api/settings/followups?platform=linkedin'),
