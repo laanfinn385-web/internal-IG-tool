@@ -490,6 +490,9 @@ function renderCpScripts() {
       </div>
       <span class="cp-script-status-pill" style="background:${c.bg};color:${c.fg};">${escapeHtml(CP_SCRIPT_STATUS_LABEL[s.status])}</span>
       <span class="cp-script-date">${date ? new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</span>
+      <div class="cp-script-actions">
+        <button type="button" class="cp-icon-btn cp-script-remove" title="Delete">×</button>
+      </div>
     </div>`;
   }).join('') || '<p class="cp-hint">Nothing here yet.</p>';
 }
@@ -549,5 +552,23 @@ $('#cp-scripts-queue-list').addEventListener('change', async (e) => {
     const s = cpState.scripts.find(x => x.id === id);
     if (s) s[field] = value;
   } catch (err) { alert(`Could not save: ${err.message}`); }
+});
+
+// Done scripts (written/review/approved/filmed/posted) can be deleted
+// too, same as queued ones — Rella is the real source of truth for a
+// posted script's status, there's no reason to keep one lying around
+// here once it's served its purpose.
+$('#cp-scripts-pipeline-list').addEventListener('click', async (e) => {
+  const removeBtn = e.target.closest('.cp-script-remove');
+  if (!removeBtn) return;
+  const row = e.target.closest('.cp-script-row');
+  const id = row.dataset.id;
+  const s = cpState.scripts.find(x => x.id === id);
+  if (!confirm(`Delete "${s ? s.topic : 'this script'}"? This can't be undone.`)) return;
+  try {
+    await fetchJson(`/api/client/scripts/${id}`, { method: 'DELETE' });
+    cpState.scripts = cpState.scripts.filter(x => x.id !== id);
+    renderCpScripts();
+  } catch (err) { alert(`Could not delete: ${err.message}`); }
 });
 
