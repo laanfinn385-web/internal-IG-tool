@@ -67,6 +67,9 @@ const I18N_NL = {
   'Double-check the link you were sent, or ask your A&P Media contact to resend it.': 'Controleer de link die je hebt gekregen, of vraag je contactpersoon bij A&P Media om hem opnieuw te sturen.',
 
   // ---- Scripting hub ----
+  'Your scripts, lined up.': 'Je scripts, op een rij.',
+  'We’ve picked the topics and hooks. Work through them one by one — every script you finish gets ticked off.': 'We hebben de onderwerpen en hooks al voor je gekozen. Werk ze één voor één af — elk script dat je afrondt wordt afgevinkt.',
+  'To script': 'Te scripten',
   'Up next': 'Volgende', 'Select all': 'Alles selecteren', 'Clear selection': 'Selectie wissen',
   'About 10 minutes.': 'Ongeveer 10 minuten.',
   'Want to do several in one go? Tick them below.': 'Wil je er meteen meerdere doen? Vink ze hieronder aan.',
