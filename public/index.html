@@ -1554,6 +1554,7 @@
           <a href="#settings-goal-card" class="settings-nav-link">Daily goal</a>
           <a href="#settings-reminders-card" class="settings-nav-link">Reminders</a>
           <a href="#settings-linkedin-followups-card" class="settings-nav-link" id="settings-nav-linkedin-followups-link">LinkedIn follow-ups</a>
+          <a href="#settings-formats-card" class="settings-nav-link hidden" id="settings-nav-formats-link">Script formats</a>
         </div>
       </nav>
       <div class="settings-content">
@@ -1763,6 +1764,16 @@
         <p class="muted" id="settings-linkedin-opener-error" style="display:none; color: var(--red);"></p>
         <div class="modal-actions" style="justify-content:flex-end;">
           <button type="button" id="settings-linkedin-opener-save-btn" class="btn-primary">Save</button>
+        </div>
+      </div>
+
+      <div class="card hidden" id="settings-formats-card">
+        <h3>Script formats</h3>
+        <p class="muted" style="margin-top:-8px;">The formats your client can pick from when scripting (This vs that, Myth vs fact, etc.) — shared across every client portal. Each one needs a complete Dutch version before it can be saved, so the client portal never shows a half-translated format.</p>
+        <div id="settings-formats-list"></div>
+        <div class="row-between">
+          <span></span>
+          <button type="button" id="settings-add-format-btn" class="btn-secondary">+ Add format</button>
         </div>
       </div>
 

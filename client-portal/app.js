@@ -465,9 +465,19 @@ const SESSION_COPY = [null,
 function scriptsQueued() { return state.scripts.filter(s => s.status === 'queued'); }
 function scriptsDone() { return state.scripts.filter(s => s.status !== 'queued'); }
 
+// Dutch beats come straight from the format row's own structureNl
+// (server.js/the Settings formats editor), not a static dictionary — a
+// format added or edited through that editor is required to have a
+// complete Dutch version with the same number of beats, so this is
+// always safe to use whenever the language is Dutch.
 function tpl(formatId) {
   const f = state.formats.find(x => x.id === formatId);
-  return (f && Array.isArray(f.structure)) ? f.structure.map(line => t(line)).join('\n') : '';
+  if (!f) return '';
+  const structure = (state.lang === 'nl' && Array.isArray(f.structureNl) && f.structureNl.length) ? f.structureNl : f.structure;
+  return Array.isArray(structure) ? structure.join('\n') : '';
+}
+function formatName(f) {
+  return (state.lang === 'nl' && f.nameNl) ? f.nameNl : f.name;
 }
 function fmtClock(sec) {
   sec = Math.max(0, Math.round(sec));
@@ -837,7 +847,7 @@ function stepScriptHtml() {
           <h3 class="cp-h2">${escapeHtml(t('Your script'))}</h3>
           <span class="cp-hint">${escapeHtml(t('One beat per line. Replace the guide text with your own words.'))}</span>
         </div>
-        ${sel ? `<span class="cp-session-chip">${escapeHtml(t(sel.name))}</span>` : ''}
+        ${sel ? `<span class="cp-session-chip">${escapeHtml(formatName(sel))}</span>` : ''}
       </div>
       <textarea class="cp-session-textarea" id="cp-session-script-textarea" style="min-height:300px;">${escapeHtml(c.script)}</textarea>
     </div>

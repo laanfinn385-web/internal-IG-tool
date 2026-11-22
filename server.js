@@ -336,15 +336,98 @@ app.delete('/api/client/milestones/:id', asyncRoute(async (req, res) => {
 }));
 
 function mapFormatRow(r) {
-  return { id: r.id, name: r.name, description: r.description, structure: r.structure, position: r.position };
+  return {
+    id: r.id, name: r.name, description: r.description, structure: r.structure,
+    nameNl: r.name_nl, descriptionNl: r.description_nl, structureNl: r.structure_nl,
+    position: r.position
+  };
 }
 
-// Global, shared across every client workspace — no admin editor yet (see
-// the client-portal plan's explicit scope decisions), just the 12 seeded
-// formats from the design.
+// Global, shared across every client workspace. Editable from Settings
+// (client-account workspaces only) — see the three routes below. Every
+// write requires a complete, same-length Dutch version alongside the
+// English one, so a format can never be saved half-translated: the
+// client portal has no other way to pick a language per format, and an
+// admin editing just the English side (leaving stale or missing Dutch
+// in place) would silently break the Dutch portal experience.
 app.get('/api/client/formats', asyncRoute(async (req, res) => {
   const rows = await sql`SELECT * FROM script_formats ORDER BY position ASC`;
   res.json({ formats: rows.map(mapFormatRow) });
+}));
+
+function validateFormatFields(body) {
+  const name = String(body.name || '').trim();
+  const description = String(body.description || '').trim();
+  const structure = Array.isArray(body.structure) ? body.structure.map(s => String(s).trim()).filter(Boolean) : [];
+  const nameNl = String(body.nameNl || '').trim();
+  const descriptionNl = String(body.descriptionNl || '').trim();
+  const structureNl = Array.isArray(body.structureNl) ? body.structureNl.map(s => String(s).trim()).filter(Boolean) : [];
+  if (!name || !description || structure.length === 0) {
+    return { error: 'English name, description and at least one beat are required.' };
+  }
+  if (!nameNl || !descriptionNl || structureNl.length === 0) {
+    return { error: 'A Dutch name, description and beats are required too — every format needs a complete translation.' };
+  }
+  if (structureNl.length !== structure.length) {
+    return { error: `The Dutch version needs exactly one line per English beat (${structure.length} English, ${structureNl.length} Dutch).` };
+  }
+  return { name, description, structure, nameNl, descriptionNl, structureNl };
+}
+
+app.post('/api/client/formats', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  if (!await requireClientWorkspace(workspaceId)) return res.status(404).json({ error: 'Not a client account.' });
+  const fields = validateFormatFields(req.body);
+  if (fields.error) return res.status(400).json({ error: fields.error });
+  const id = crypto.randomUUID();
+  const [{ max }] = await sql`SELECT COALESCE(max(position), -1) AS max FROM script_formats`;
+  await sql`
+    INSERT INTO script_formats (id, name, description, structure, name_nl, description_nl, structure_nl, position)
+    VALUES (${id}, ${fields.name}, ${fields.description}, ${JSON.stringify(fields.structure)}, ${fields.nameNl}, ${fields.descriptionNl}, ${JSON.stringify(fields.structureNl)}, ${max + 1})
+  `;
+  res.json({ ok: true, id });
+}));
+
+app.patch('/api/client/formats/:id', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  if (!await requireClientWorkspace(workspaceId)) return res.status(404).json({ error: 'Not a client account.' });
+  const [current] = await sql`SELECT * FROM script_formats WHERE id = ${req.params.id}`;
+  if (!current) return res.status(404).json({ error: 'Format not found.' });
+  // Any field left out of the request keeps its current value — this still
+  // enforces the complete-Dutch-version rule below, since a format can
+  // only reach this row already fully translated.
+  const merged = {
+    name: req.body.name !== undefined ? req.body.name : current.name,
+    description: req.body.description !== undefined ? req.body.description : current.description,
+    structure: req.body.structure !== undefined ? req.body.structure : current.structure,
+    nameNl: req.body.nameNl !== undefined ? req.body.nameNl : current.name_nl,
+    descriptionNl: req.body.descriptionNl !== undefined ? req.body.descriptionNl : current.description_nl,
+    structureNl: req.body.structureNl !== undefined ? req.body.structureNl : current.structure_nl
+  };
+  const fields = validateFormatFields(merged);
+  if (fields.error) return res.status(400).json({ error: fields.error });
+  await sql`
+    UPDATE script_formats SET
+      name = ${fields.name}, description = ${fields.description}, structure = ${JSON.stringify(fields.structure)},
+      name_nl = ${fields.nameNl}, description_nl = ${fields.descriptionNl}, structure_nl = ${JSON.stringify(fields.structureNl)}
+    WHERE id = ${req.params.id}
+  `;
+  res.json({ ok: true });
+}));
+
+app.delete('/api/client/formats/:id', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  if (!await requireClientWorkspace(workspaceId)) return res.status(404).json({ error: 'Not a client account.' });
+  try {
+    await sql`DELETE FROM script_formats WHERE id = ${req.params.id}`;
+  } catch (e) {
+    // client_scripts.format_id references this table with the default
+    // RESTRICT behavior — a format still assigned to any queued/written
+    // script can't be silently orphaned.
+    if (e && e.code === '23503') return res.status(400).json({ error: 'This format is still used by one or more scripts and can’t be deleted.' });
+    throw e;
+  }
+  res.json({ ok: true });
 }));
 
 const CLIENT_SCRIPT_STATUSES = ['queued', 'written', 'review', 'approved', 'filmed', 'posted'];

@@ -2588,6 +2588,16 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 .settings-followup-type { width: 130px; margin-bottom: 0; }
 .settings-phase-tabs { display: flex; gap: 8px; margin: 14px 0; }
 
+.settings-format-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; background: var(--card-bg-alt); border-radius: var(--r-lg); padding: 14px 18px; margin-bottom: 10px; flex-wrap: wrap; }
+.settings-format-row-main { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.settings-format-row-name { font-size: 0.95rem; font-weight: 500; }
+.settings-format-row-actions { display: flex; gap: 8px; flex: none; }
+.settings-format-editor { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 0 20px; background: var(--card-bg-alt); border-radius: var(--r-lg); padding: 18px; margin-bottom: 10px; }
+.settings-format-editor-col { min-width: 0; }
+.settings-format-editor-lang { display: block; font-size: 0.8rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+.settings-format-editor .settings-format-error { grid-column: 1 / -1; color: var(--red); }
+.settings-format-editor .modal-actions { grid-column: 1 / -1; }
+
 /* ===== Analytics: Opener A/B test (card rows) ===== */
 .an-openers-card { background: var(--card-bg-alt); border-radius: var(--r-xl); padding: 12px; display: flex; flex-direction: column; gap: 6px; }
 .an-opener-row { background: var(--card-bg); border-radius: var(--r-lg); padding: 22px 24px; display: flex; flex-wrap: wrap; gap: 20px; align-items: center; }
