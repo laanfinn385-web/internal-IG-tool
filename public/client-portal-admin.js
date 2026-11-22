@@ -490,15 +490,9 @@ function renderCpScripts() {
       </div>
       <span class="cp-script-status-pill" style="background:${c.bg};color:${c.fg};">${escapeHtml(CP_SCRIPT_STATUS_LABEL[s.status])}</span>
       <span class="cp-script-date">${date ? new Date(date).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}</span>
-      <div class="cp-script-actions">
-        <select class="cp-script-status-select">
-          ${CLIENT_SCRIPT_STATUSES_ADMIN.map(st => `<option value="${st}" ${st === s.status ? 'selected' : ''}>${CP_SCRIPT_STATUS_LABEL[st]}</option>`).join('')}
-        </select>
-      </div>
     </div>`;
   }).join('') || '<p class="cp-hint">Nothing here yet.</p>';
 }
-const CLIENT_SCRIPT_STATUSES_ADMIN = ['written', 'review', 'approved', 'filmed', 'posted'];
 
 function updateCpFormatDesc() {
   const f = cpState.formats.find(x => x.id === $('#cp-script-format').value) || cpState.formats[0];
@@ -557,20 +551,3 @@ $('#cp-scripts-queue-list').addEventListener('change', async (e) => {
   } catch (err) { alert(`Could not save: ${err.message}`); }
 });
 
-$('#cp-scripts-pipeline-list').addEventListener('change', async (e) => {
-  const select = e.target.closest('.cp-script-status-select');
-  if (!select) return;
-  const row = e.target.closest('.cp-script-row');
-  const id = row.dataset.id;
-  const status = select.value;
-  select.disabled = true;
-  try {
-    await fetchJson(`/api/client/scripts/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
-    const s = cpState.scripts.find(x => x.id === id);
-    if (s) s.status = status;
-    renderCpScripts();
-  } catch (err) {
-    alert(`Could not update status: ${err.message}`);
-    select.disabled = false;
-  }
-});

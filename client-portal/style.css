@@ -195,6 +195,10 @@ button { font-family: inherit; color: inherit; }
 
 .cp-outreach-core-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: stretch; }
 .cp-outreach-core-video { flex: 7 1 520px; min-width: 0; aspect-ratio: 16/9; background: var(--border); border-radius: var(--r-xl); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; }
+/* Used standalone (not inside .cp-outreach-core-row's row-flex) — e.g. the
+   Scripting page's video placeholder — so the row-specific flex-basis
+   above would apply along the wrong (column) axis instead of sizing width. */
+.cp-outreach-core-video.cp-video-standalone { flex: none; width: 100%; }
 .cp-play-circle { width: 80px; height: 80px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow-lift); }
 .cp-outreach-core-col { flex: 3 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
 .cp-outreach-core-tile { flex: 1; border-radius: var(--r-lg); padding: 24px 26px; display: flex; flex-direction: column; justify-content: space-between; gap: 12px; }

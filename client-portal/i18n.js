@@ -40,6 +40,7 @@ const I18N_NL = {
   'How your outreach is going.': 'Hoe je outreach gaat.',
   'Every day we message people who match your ideal client. Here’s what came of it.': 'Elke dag sturen we berichten naar mensen die passen bij je ideale klant. Dit is wat het opleverde.',
   'How your outreach works': 'Hoe je outreach werkt',
+  'How scripting works': 'Hoe scripten werkt',
   'Walkthrough video — coming soon': 'Uitlegvideo — binnenkort',
   'From message to call': 'Van bericht naar call',
   'We’ll see conversion rates once sends start.': 'Zodra we berichten versturen, zie je hier de conversie.',
