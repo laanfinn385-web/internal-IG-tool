@@ -69,6 +69,48 @@ button { font-family: inherit; color: inherit; }
 .cp-questions-text .title { font-size: 0.95rem; font-weight: 500; }
 .cp-questions-text .desc { font-size: 0.82rem; color: var(--muted); line-height: 1.35; }
 
+/* ===== Mobile header + bottom tab bar =====
+   Hidden by default (desktop uses the sidebar above); swapped in under
+   the mobile breakpoint below. Reuses the sidebar's .cp-nav-btn[data-page]
+   markup contract so app.js's single click handler (setupNav()) drives
+   both navs with no extra wiring. */
+.cp-mobile-header {
+  display: none;
+  position: sticky; top: 0; z-index: 25;
+  align-items: center; justify-content: space-between; gap: 12px;
+  padding: 12px 16px;
+  background: rgba(243, 240, 238, 0.92);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+}
+.cp-mobile-brand { display: flex; align-items: center; gap: 8px; }
+.cp-mobile-logo { height: 20px; width: auto; display: block; }
+.cp-mobile-brand-label { font-size: 1.0625rem; font-weight: 500; letter-spacing: -0.02em; }
+.cp-mobile-actions { display: flex; align-items: center; gap: 8px; }
+.cp-mobile-icon-btn { width: 40px; height: 40px; border-radius: 50%; border: 0; background: #fff; color: var(--text); display: flex; align-items: center; justify-content: center; box-shadow: var(--shadow); }
+.cp-mobile-avatar { flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--text); color: var(--bg); display: flex; align-items: center; justify-content: center; font-size: 0.85rem; font-weight: 700; }
+
+.cp-mobile-tabbar {
+  display: none;
+  position: fixed; bottom: 0; left: 0; right: 0; z-index: 40;
+  gap: 2px;
+  padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+  background: rgba(252, 251, 250, 0.95);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--border);
+}
+.cp-mobile-tabbar .cp-nav-btn {
+  flex: 1; min-width: 0; min-height: 56px;
+  flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  padding: 4px 0; border-radius: 0;
+  font-size: 0.72rem; color: var(--muted);
+}
+.cp-mobile-tabbar .cp-nav-btn:hover { background: transparent; }
+.cp-mobile-tabbar .cp-nav-btn.active { background: transparent; box-shadow: none; color: var(--text); font-weight: 700; }
+.cp-mobile-tabbar .cp-nav-btn .label { flex: none; white-space: nowrap; }
+.cp-mobile-tabbar .cp-nav-btn .ext { display: none; }
+.cp-mobile-tab-icon { width: 48px; height: 30px; border-radius: var(--r-pill); display: flex; align-items: center; justify-content: center; transition: background 240ms cubic-bezier(0.4, 0, 0.2, 1); }
+.cp-mobile-tabbar .cp-nav-btn.active .cp-mobile-tab-icon { background: var(--border); }
+
 /* ===== Not-found state ===== */
 .cp-not-found { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .cp-not-found-card { max-width: 420px; text-align: center; display: flex; flex-direction: column; gap: 10px; }
@@ -201,6 +243,38 @@ button { font-family: inherit; color: inherit; }
 .cp-icon-btn:hover { background: var(--bg); color: var(--text); }
 
 @media (max-width: 760px) {
-  .cp-sidebar { position: fixed; z-index: 30; }
-  .cp-main { padding: 24px 16px 100px; }
+  /* Swap the desktop sidebar for the sticky header + fixed bottom tab bar. */
+  .cp-app { flex-direction: column; }
+  .cp-sidebar { display: none; }
+  .cp-mobile-header { display: flex; }
+  .cp-mobile-tabbar { display: flex; }
+
+  .cp-main { padding: 20px 16px calc(88px + env(safe-area-inset-bottom)); }
+  .cp-screen { gap: 20px; }
+
+  .cp-h1 { font-size: 2.125rem; }
+  .cp-lead { font-size: 1.05rem; }
+  .cp-home-header { gap: 16px; }
+
+  .cp-row, .cp-home-links-grid, .cp-outreach-core-row, .cp-funnel-row { gap: 16px; }
+  .cp-card, .cp-link-card { padding: 20px; border-radius: var(--r-lg); }
+  .cp-link-card { min-height: 0; gap: 20px; }
+  .cp-link-card-main { gap: 10px; }
+  .cp-link-card .cp-h2 { font-size: 2rem !important; }
+
+  .cp-mini-stat-row { padding: 14px 16px; }
+  .cp-mini-stat-num .value { font-size: 1.8rem; }
+
+  .cp-outreach-core-tile { padding: 18px 20px; }
+  .cp-outreach-core-tile .value { font-size: 2.4rem; }
+
+  .cp-funnel-box { padding: 16px; }
+  .cp-funnel-box .value { font-size: 2.1rem; }
+
+  .cp-people-controls { width: 100%; }
+  .cp-search { width: 100%; }
+
+  .cp-progress-track { height: 48px; }
+  .cp-proj-card { padding: 20px; }
+  .cp-proj-tile { padding: 14px 18px; min-width: 130px; }
 }
