@@ -107,17 +107,23 @@ function showNotFound() {
 function setupSidebar() {
   const p = state.profile;
   const firstName = p.clientFirstName || p.name;
-  $('#cp-sidebar-initial').textContent = (firstName[0] || '?').toUpperCase();
+  const initial = (firstName[0] || '?').toUpperCase();
+  $('#cp-sidebar-initial').textContent = initial;
+  $('#cp-mobile-avatar').textContent = initial;
   $('#cp-sidebar-name').textContent = firstName + (p.clientLastName ? ` ${p.clientLastName}` : '');
 
   if (p.clientRellaUrl) {
     $('#cp-nav-rella').href = p.clientRellaUrl;
     $('#cp-nav-rella').classList.remove('hidden');
+    $('#cp-nav-rella-mobile').href = p.clientRellaUrl;
+    $('#cp-nav-rella-mobile').classList.remove('hidden');
   }
   if (p.clientLandingUrl) {
     const url = /^https?:\/\//i.test(p.clientLandingUrl) ? p.clientLandingUrl : `https://${p.clientLandingUrl}`;
     $('#cp-nav-landing').href = url;
     $('#cp-nav-landing').classList.remove('hidden');
+    $('#cp-nav-landing-mobile').href = url;
+    $('#cp-nav-landing-mobile').classList.remove('hidden');
   }
 
   let collapsed = false;
@@ -137,7 +143,10 @@ function applySidebarCollapsed(collapsed) {
 }
 
 function setupNav() {
-  $('#cp-nav').addEventListener('click', (e) => {
+  // Delegated on body (not scoped to #cp-nav) so the same handler drives
+  // both the desktop sidebar nav and the mobile bottom tab bar — they
+  // share the .cp-nav-btn[data-page] markup contract.
+  document.body.addEventListener('click', (e) => {
     const btn = e.target.closest('.cp-nav-btn[data-page]');
     if (!btn) return;
     goTo(btn.dataset.page);
@@ -152,7 +161,7 @@ function goTo(page) {
 }
 
 function renderAll() {
-  $all('#cp-nav .cp-nav-btn[data-page]').forEach(b => b.classList.toggle('active', b.dataset.page === state.page));
+  $all('.cp-nav-btn[data-page]').forEach(b => b.classList.toggle('active', b.dataset.page === state.page));
   $('#cp-view-home').classList.toggle('hidden', state.page !== 'home');
   $('#cp-view-outreach').classList.toggle('hidden', state.page !== 'outreach');
   $('#cp-view-other').classList.toggle('hidden', state.page === 'home' || state.page === 'outreach');

@@ -21,6 +21,19 @@
 
 <div id="cp-app" class="cp-app hidden">
 
+  <header class="cp-mobile-header" id="cp-mobile-header">
+    <div class="cp-mobile-brand">
+      <img src="/assets/ap-logo.png" alt="A&amp;P" class="cp-mobile-logo">
+      <span class="cp-mobile-brand-label" data-i18n="Studio">Studio</span>
+    </div>
+    <div class="cp-mobile-actions">
+      <a href="https://wa.me/316857609723" target="_blank" rel="noopener" class="cp-mobile-icon-btn" title="Send a message">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
+      </a>
+      <span class="cp-mobile-avatar" id="cp-mobile-avatar"></span>
+    </div>
+  </header>
+
   <aside class="cp-sidebar" id="cp-sidebar">
     <div class="cp-sidebar-top">
       <div class="cp-sidebar-brand">
@@ -244,6 +257,29 @@
 
     </div>
   </main>
+
+  <nav class="cp-mobile-tabbar" id="cp-mobile-tabbar">
+    <button type="button" class="cp-nav-btn active" data-page="home">
+      <span class="cp-mobile-tab-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5V21h-6v-6H9v6H3z"></path></svg></span>
+      <span class="label">Home</span>
+    </button>
+    <button type="button" class="cp-nav-btn" data-page="scripting">
+      <span class="cp-mobile-tab-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg></span>
+      <span class="label">Scripts</span>
+    </button>
+    <button type="button" class="cp-nav-btn" data-page="outreach">
+      <span class="cp-mobile-tab-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18M7 15l4-4 3 3 5-6"></path></svg></span>
+      <span class="label">Outreach</span>
+    </button>
+    <a href="#" target="_blank" rel="noopener" class="cp-nav-btn hidden" id="cp-nav-rella-mobile">
+      <span class="cp-mobile-tab-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h6v6M10 14 21 3M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path></svg></span>
+      <span class="label">Rella</span>
+    </a>
+    <a href="#" target="_blank" rel="noopener" class="cp-nav-btn hidden" id="cp-nav-landing-mobile">
+      <span class="cp-mobile-tab-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20"></path></svg></span>
+      <span class="label">Landing</span>
+    </a>
+  </nav>
 </div>
 
 <script src="/i18n.js"></script>
