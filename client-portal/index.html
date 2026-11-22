@@ -252,14 +252,23 @@
       <section id="cp-view-scripting" class="cp-screen hidden">
         <header class="cp-home-header">
           <div class="cp-home-header-main">
-            <div class="cp-eyebrow"><span class="cp-dot"></span><span id="cp-scripting-eyebrow"></span></div>
-            <h1 class="cp-h1" id="cp-scripting-title"></h1>
+            <div class="cp-eyebrow"><span class="cp-dot"></span><span data-i18n="Scripting">Scripting</span></div>
+            <h1 class="cp-h1" data-i18n="Your scripts, lined up.">Your scripts, lined up.</h1>
+            <p class="cp-lead" data-i18n="We’ve picked the topics and hooks. Work through them one by one — every script you finish gets ticked off.">We've picked the topics and hooks. Work through them one by one — every script you finish gets ticked off.</p>
           </div>
         </header>
 
         <section class="cp-card cp-card-dark cp-scripting-hero">
-          <div class="cp-scripting-seg-bar" id="cp-scripting-seg-bar"></div>
-          <span class="cp-hint" style="color:#BDB6AE;" id="cp-scripting-progress-text"></span>
+          <svg class="cp-scripting-hero-curve" viewBox="0 0 400 260" preserveAspectRatio="none">
+            <path d="M 30 290 C 80 110, 250 10, 420 70" fill="none" stroke="#B9A3CC" stroke-opacity="0.5" stroke-width="1.25" stroke-linecap="round"></path>
+            <circle cx="318" cy="38" r="3.5" fill="#B9A3CC"></circle>
+          </svg>
+          <div class="cp-scripting-hero-main">
+            <div class="cp-eyebrow" style="color:#B9A3CC;"><span class="cp-dot" style="background:#B9A3CC;"></span><span id="cp-scripting-eyebrow"></span></div>
+            <span class="cp-scripting-hero-title" id="cp-scripting-title"></span>
+            <div class="cp-scripting-seg-bar" id="cp-scripting-seg-bar"></div>
+            <span class="cp-hint" style="color:#BDB6AE;" id="cp-scripting-progress-text"></span>
+          </div>
           <div class="cp-scripting-start-wrap hidden" id="cp-scripting-start-wrap">
             <button type="button" class="cp-scripting-start-btn" id="cp-scripting-start-btn">
               <span id="cp-scripting-start-label"></span>
@@ -272,7 +281,7 @@
         <section class="cp-card cp-card-white">
           <div class="cp-card-head">
             <div style="display:flex;flex-direction:column;gap:8px;">
-              <div class="cp-eyebrow"><span class="cp-dot"></span><span data-i18n="Scripting">Scripting</span></div>
+              <div class="cp-eyebrow"><span class="cp-dot"></span><span data-i18n="To script">To script</span></div>
               <h2 class="cp-h2" data-i18n="Up next">Up next</h2>
             </div>
             <button type="button" class="cp-link-btn hidden" id="cp-scripting-select-all-btn"></button>
