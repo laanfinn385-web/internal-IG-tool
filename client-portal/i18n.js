@@ -80,11 +80,9 @@ const I18N_NL = {
 
   // ---- Script session wizard ----
   'Quit session': 'Sessie afsluiten', 'Sound on': 'Geluid aan', 'Sound off': 'Geluid uit',
-  'Brain dump': 'Brainstorm', 'Format': 'Format', 'Script': 'Script', 'Trim': 'Bijschaven', 'Read aloud': 'Hardop lezen',
+  'Brain dump': 'Brainstorm', 'Script': 'Script', 'Trim': 'Bijschaven', 'Read aloud': 'Hardop lezen',
   'Get it all out.': 'Gooi het er allemaal uit.',
   'Write everything that comes to mind when you read your topic. Don’t edit — just dump. You have three minutes.': 'Schrijf alles op wat in je opkomt bij dit onderwerp. Niet bewerken — gewoon eruit gooien. Je hebt drie minuten.',
-  'Pick your format.': 'Kies je format.',
-  'Choose how you’ll tell it. Start typing to find a format faster.': 'Kies hoe je het vertelt. Begin te typen om sneller een format te vinden.',
   'Shape it into a script.': 'Maak er een script van.',
   'We’ve picked the format for this one — its structure is filled in below. Rewrite it line by line, using your brain dump above.': 'We hebben het format al voor je gekozen — de structuur staat hieronder al ingevuld. Herschrijf het regel voor regel, met je brainstorm hierboven als basis.',
   'Trim it down.': 'Schaaf het bij.',
@@ -95,8 +93,6 @@ const I18N_NL = {
   'Time’s up. Keep going if there’s more — or move on.': 'Tijd is om. Ga door als er meer is — of ga verder.',
   'Keep writing. Don’t stop to edit.': 'Blijf schrijven. Stop niet om te bewerken.',
   'Start timer': 'Timer starten', 'Reset timer': 'Timer resetten',
-  'Search formats — e.g. “this vs that”': 'Zoek formats — bv. “dit vs dat”',
-  'No format matches that.': 'Geen format gevonden.',
   'Your brain dump': 'Jouw brainstorm', 'Your script': 'Jouw script',
   'One beat per line. Replace the guide text with your own words.': 'Eén onderdeel per regel. Vervang de voorbeeldtekst door je eigen woorden.',
   'Marking with': 'Markeren met', 'Yellow': 'Geel', 'Red': 'Rood', 'Erase': 'Wissen',
