@@ -457,7 +457,6 @@ function renderOutreachPeople() {
 const MARK_COLORS = { y: ['#F6E7A8', '#5C4A00'], r: ['#F4D5CD', '#9A3A0A'] };
 const SESSION_COPY = [null,
   { title: 'Get it all out.', instr: 'Write everything that comes to mind when you read your topic. Don’t edit — just dump. You have three minutes.' },
-  { title: 'Pick your format.', instr: 'Choose how you’ll tell it. Start typing to find a format faster.' },
   { title: 'Shape it into a script.', instr: 'We’ve picked the format for this one — its structure is filled in below. Rewrite it line by line, using your brain dump above.' },
   { title: 'Trim it down.', instr: 'Anything you don’t mark stays. Mark words yellow if they could go, red if they add nothing. Click a line number to mark the whole line at once.' },
   { title: 'Read it aloud.', instr: 'Read your script out loud, start to finish, and time yourself. If something sounds off, it is.' }
@@ -469,13 +468,6 @@ function scriptsDone() { return state.scripts.filter(s => s.status !== 'queued')
 function tpl(formatId) {
   const f = state.formats.find(x => x.id === formatId);
   return (f && Array.isArray(f.structure)) ? f.structure.join('\n') : '';
-}
-function formatBeats(f) {
-  if (!f || !Array.isArray(f.structure)) return [];
-  return f.structure.map(l => {
-    const parts = String(l).split(' — ');
-    return parts.length > 1 ? { label: parts[0], text: parts.slice(1).join(' — ') } : { label: '', text: l };
-  });
 }
 function fmtClock(sec) {
   sec = Math.max(0, Math.round(sec));
@@ -604,7 +596,6 @@ function startSession(ids) {
     step: 1,
     phase: 'step',
     brush: 'y',
-    fq: '', fopen: false, fhi: 0,
     cur: curFor(items[0])
   };
   goTo('session');
@@ -626,22 +617,45 @@ function curFor(item) {
 
 function goStep(n) {
   const ses = state.session;
-  if (n === 4 && ses.cur.markedFor !== ses.cur.script) { ses.cur.marks = {}; ses.cur.markedFor = ses.cur.script; }
+  if (n === 3 && ses.cur.markedFor !== ses.cur.script) { ses.cur.marks = {}; ses.cur.markedFor = ses.cur.script; }
   ses.step = n;
   try { window.scrollTo({ top: 0 }); } catch (e) {}
   renderSession();
 }
 
+function stepCanNext(ses) {
+  const c = ses.cur;
+  return [!!c.dump.trim(), !!c.script.trim(), true, true][ses.step - 1];
+}
+
 function stepNext() {
-  const ses = state.session, c = ses.cur;
-  const canNext = [!!c.dump.trim(), !!c.format, !!c.script.trim(), true, true][ses.step - 1];
-  if (!canNext) return;
-  if (ses.step < 5) {
+  const ses = state.session;
+  if (!stepCanNext(ses)) return;
+  if (ses.step < 4) {
     celebrate(state.lang === 'nl' ? `Stap ${ses.step} klaar` : `Step ${ses.step} done`);
     goStep(ses.step + 1);
     return;
   }
   finishCurrentScript();
+}
+
+// Surgical update of the footer's Next button, called from the dump/script
+// textarea input handlers — those deliberately skip a full
+// renderSessionStepBody() to avoid stealing focus mid-keystroke (see
+// below), so without this the button's enabled look never changed as you
+// typed and looked like it was gated on the brain-dump timer finishing,
+// which it never was.
+function updateNextButtonLiveState() {
+  const ses = state.session;
+  if (!ses) return;
+  const btn = document.getElementById('cp-session-next-btn');
+  if (!btn) return;
+  const canNext = stepCanNext(ses);
+  const isLast = ses.step === 4;
+  const bg = !canNext ? 'var(--border)' : (isLast ? 'var(--purple)' : 'var(--text)');
+  btn.style.background = bg;
+  btn.style.borderColor = bg;
+  btn.style.cursor = canNext ? 'pointer' : 'not-allowed';
 }
 
 function setupSessionControls() {
@@ -661,14 +675,6 @@ function setupSessionControls() {
       renderSessionStepBody();
       return;
     }
-    if (e.target.closest('[data-action="format-toggle"]')) {
-      state.session.fopen = !state.session.fopen; state.session.fq = '';
-      renderSessionStepBody();
-      return;
-    }
-    const fmtPick = e.target.closest('[data-action="format-pick"]');
-    if (fmtPick) { pickFormat(fmtPick.dataset.id); return; }
-
     const trimWord = e.target.closest('[data-action="trim-word"]');
     if (trimWord) { paintKeys([`${trimWord.dataset.li}-${trimWord.dataset.wi}`]); return; }
     const trimLine = e.target.closest('[data-action="trim-line"]');
@@ -703,34 +709,12 @@ function setupSessionControls() {
         const wrap = document.getElementById('cp-session-timer-btns');
         if (wrap) wrap.innerHTML = dumpTimerButtonHtml(c);
       }
+      updateNextButtonLiveState();
     } else if (el.id === 'cp-session-script-textarea') {
       state.session.cur.script = el.value;
       scheduleDraftSave();
-    } else if (el.id === 'cp-format-search-input') {
-      state.session.fq = el.value; state.session.fopen = true; state.session.fhi = 0;
-      const wrap = document.getElementById('cp-format-dropdown-wrap');
-      if (wrap) wrap.innerHTML = renderFormatDropdown();
+      updateNextButtonLiveState();
     }
-  });
-
-  $('#cp-view-session').addEventListener('keydown', (e) => {
-    if (e.target.id !== 'cp-format-search-input') return;
-    const ses = state.session;
-    const list = formatSearchList();
-    if (e.key === 'ArrowDown') { e.preventDefault(); ses.fhi = Math.min((ses.fhi || 0) + 1, list.length - 1); refreshFormatDropdown(); }
-    else if (e.key === 'ArrowUp') { e.preventDefault(); ses.fhi = Math.max((ses.fhi || 0) - 1, 0); refreshFormatDropdown(); }
-    else if (e.key === 'Enter') { e.preventDefault(); const f = list[ses.fhi || 0]; if (f) pickFormat(f.id); }
-    else if (e.key === 'Escape') { ses.fopen = false; renderSessionStepBody(); }
-  });
-
-  $('#cp-view-session').addEventListener('focusin', (e) => {
-    if (e.target.id === 'cp-format-search-input') state.session.fopen = true;
-  });
-  $('#cp-view-session').addEventListener('focusout', (e) => {
-    if (e.target.id !== 'cp-format-search-input') return;
-    // Deferred so a mousedown-then-click on a dropdown option (handled
-    // above as an ordinary delegated click) runs before this closes it.
-    setTimeout(() => { if (state.session) { state.session.fopen = false; renderSessionStepBody(); } }, 120);
   });
 }
 
@@ -755,7 +739,7 @@ function renderSession() {
 
 function renderStepper() {
   const ses = state.session;
-  const labels = [t('Brain dump'), t('Format'), t('Script'), t('Trim'), t('Read aloud')];
+  const labels = [t('Brain dump'), t('Script'), t('Trim'), t('Read aloud')];
   $('#cp-stepper').innerHTML = labels.map((label, i) => {
     const n = i + 1;
     const done = ses.phase === 'done' || n < ses.step;
@@ -776,9 +760,9 @@ function renderStepper() {
 }
 
 function stepHeaderHtml(n) {
-  const labels = [t('Brain dump'), t('Format'), t('Script'), t('Trim'), t('Read aloud')];
+  const labels = [t('Brain dump'), t('Script'), t('Trim'), t('Read aloud')];
   const copy = SESSION_COPY[n];
-  const eyebrow = state.lang === 'nl' ? `Stap ${n} van 5 · ${labels[n - 1]}` : `Step ${n} of 5 · ${labels[n - 1]}`;
+  const eyebrow = state.lang === 'nl' ? `Stap ${n} van 4 · ${labels[n - 1]}` : `Step ${n} of 4 · ${labels[n - 1]}`;
   return `
     <header style="display:flex;flex-direction:column;gap:14px;">
       <div class="cp-eyebrow"><span class="cp-dot"></span><span>${escapeHtml(eyebrow)}</span></div>
@@ -791,13 +775,13 @@ function stepFooterHtml(n, canNext) {
   const back = n > 1
     ? `<button type="button" class="cp-link-btn" data-action="step-back">${escapeHtml(state.lang === 'nl' ? `← Terug naar stap ${n - 1}` : `← Back to step ${n - 1}`)}</button>`
     : '<span></span>';
-  const isLast = n === 5;
+  const isLast = n === 4;
   const nextLabel = isLast ? t('Finish') : (state.lang === 'nl' ? `Door naar stap ${n + 1} →` : `Move on to step ${n + 1} →`);
   const nextBg = !canNext ? 'var(--border)' : (isLast ? 'var(--purple)' : 'var(--text)');
   return `
     <div class="cp-session-footer">
       ${back}
-      <button type="button" class="cp-btn-primary" data-action="step-next" style="background:${nextBg};border-color:${nextBg};cursor:${canNext ? 'pointer' : 'not-allowed'};">${escapeHtml(nextLabel)}</button>
+      <button type="button" class="cp-btn-primary" id="cp-session-next-btn" data-action="step-next" style="background:${nextBg};border-color:${nextBg};cursor:${canNext ? 'pointer' : 'not-allowed'};">${escapeHtml(nextLabel)}</button>
     </div>`;
 }
 
@@ -805,9 +789,8 @@ function renderSessionStepBody() {
   const ses = state.session;
   const body = $('#cp-session-step-body');
   if (ses.step === 1) body.innerHTML = stepDumpHtml();
-  else if (ses.step === 2) body.innerHTML = stepFormatHtml();
-  else if (ses.step === 3) body.innerHTML = stepScriptHtml();
-  else if (ses.step === 4) body.innerHTML = stepTrimHtml();
+  else if (ses.step === 2) body.innerHTML = stepScriptHtml();
+  else if (ses.step === 3) body.innerHTML = stepTrimHtml();
   else body.innerHTML = stepReadHtml();
 }
 
@@ -840,69 +823,10 @@ function stepDumpHtml() {
   ` + stepFooterHtml(1, !!c.dump.trim());
 }
 
-function formatSearchList() {
-  const q = ((state.session.fq || '')).toLowerCase();
-  return state.formats.filter(f => !q || (f.name + ' ' + f.description).toLowerCase().includes(q));
-}
-function refreshFormatDropdown() {
-  const wrap = document.getElementById('cp-format-dropdown-wrap');
-  if (wrap) wrap.innerHTML = renderFormatDropdown();
-}
-function renderFormatDropdown() {
-  const ses = state.session;
-  const list = formatSearchList();
-  const hi = Math.max(0, Math.min(ses.fhi || 0, list.length - 1));
-  if (!list.length) return `<div class="cp-format-dropdown"><span style="padding:12px 16px;font-size:0.95rem;color:var(--muted);">${escapeHtml(t('No format matches that.'))}</span></div>`;
-  return `<div class="cp-format-dropdown">${list.map((f, i) => `
-    <div class="cp-format-option ${i === hi ? 'active' : ''}" data-action="format-pick" data-id="${f.id}">
-      <div style="flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;">
-        <span class="name">${escapeHtml(f.name)}</span>
-        <span class="desc">${escapeHtml(f.description)}</span>
-      </div>
-      <span>${ses.cur.format === f.id ? '✓' : ''}</span>
-    </div>`).join('')}</div>`;
-}
-
-function pickFormat(formatId) {
-  const ses = state.session, c = ses.cur;
-  const prevTpl = c.format ? tpl(c.format) : '';
-  if (!c.script.trim() || c.script === prevTpl) c.script = tpl(formatId);
-  c.format = formatId;
-  ses.fopen = false; ses.fq = ''; ses.fhi = 0;
-  scheduleDraftSave();
-  renderSessionStepBody();
-}
-
-function stepFormatHtml() {
-  const ses = state.session, c = ses.cur;
-  const sel = state.formats.find(f => f.id === c.format);
-  const fopen = !!ses.fopen;
-  const inputValue = fopen ? (ses.fq || '') : (sel ? sel.name : '');
-  return stepHeaderHtml(2) + `
-    <div class="cp-card cp-card-white">
-      <h3 class="cp-h2" style="margin:0 0 4px;">${escapeHtml(state.lang === 'nl' ? 'Kies een format' : 'Select a format')}</h3>
-      <div class="cp-format-combo">
-        <div class="cp-format-combo-input-row">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--muted)" stroke-width="1.5" stroke-linecap="round"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg>
-          <input type="text" id="cp-format-search-input" value="${escapeHtml(inputValue)}" placeholder="${escapeHtml(t('Search formats — e.g. “this vs that”'))}" autocomplete="off">
-          <button type="button" class="cp-format-combo-toggle" data-action="format-toggle">▾</button>
-        </div>
-        <div id="cp-format-dropdown-wrap">${fopen ? renderFormatDropdown() : ''}</div>
-      </div>
-      ${sel ? `
-      <div class="cp-format-preview">
-        <span class="name">${escapeHtml(sel.name)}</span>
-        <span class="desc">${escapeHtml(sel.description)}</span>
-        ${formatBeats(sel).map(b => `<div class="cp-format-beat"><span class="label">${escapeHtml(b.label)}</span><span class="text">${escapeHtml(b.text)}</span></div>`).join('')}
-      </div>` : ''}
-    </div>
-  ` + stepFooterHtml(2, !!c.format);
-}
-
 function stepScriptHtml() {
   const ses = state.session, c = ses.cur;
   const sel = state.formats.find(f => f.id === c.format);
-  return stepHeaderHtml(3) + `
+  return stepHeaderHtml(2) + `
     <div class="cp-card cp-card-alt">
       <div class="cp-eyebrow"><span class="cp-dot"></span><span>${escapeHtml(t('Your brain dump'))}</span></div>
       <p class="cp-session-dump-preview">${c.dump.trim() ? escapeHtml(c.dump) : '<span style="color:var(--muted);">—</span>'}</p>
@@ -917,7 +841,7 @@ function stepScriptHtml() {
       </div>
       <textarea class="cp-session-textarea" id="cp-session-script-textarea" style="min-height:300px;">${escapeHtml(c.script)}</textarea>
     </div>
-  ` + stepFooterHtml(3, !!c.script.trim());
+  ` + stepFooterHtml(2, !!c.script.trim());
 }
 
 function computeTrim(cur) {
@@ -982,7 +906,7 @@ function stepTrimHtml() {
     </div>`;
   }).join('');
   const brushNames = { y: t('Yellow'), r: t('Red'), x: t('Erase') };
-  return stepHeaderHtml(4) + `
+  return stepHeaderHtml(3) + `
     <div class="cp-trim-legend">
       <div class="cp-trim-legend-item">
         <span class="cp-trim-legend-tag" style="background:${MARK_COLORS.y[0]};color:${MARK_COLORS.y[1]};">${escapeHtml(t('Yellow'))}</span>
@@ -1004,7 +928,7 @@ function stepTrimHtml() {
       <div style="display:flex;flex-direction:column;gap:6px;">${linesHtml}</div>
     </div>
     <div class="cp-trim-note">${escapeHtml(t('Anything marked red is deleted automatically when you move on.'))}</div>
-  ` + stepFooterHtml(4, true);
+  ` + stepFooterHtml(3, true);
 }
 
 function readToggle() {
@@ -1036,7 +960,7 @@ function stepReadHtml() {
   const ses = state.session, c = ses.cur;
   const trim = computeTrim(c);
   const readEl = c.readAcc + (c.readStart ? Date.now() - c.readStart : 0);
-  return stepHeaderHtml(5) + `
+  return stepHeaderHtml(4) + `
     <div class="cp-final-script">
       ${trim.finalLines.map(ln => `<p class="cp-final-line">${ln.words.map(w => `<span class="cp-final-word" style="background:${w.bg};">${escapeHtml(w.w)}</span>`).join(' ')}</p>`).join('') || `<p class="cp-final-line" style="color:var(--muted);">—</p>`}
       <span class="cp-hint">${trim.finalWords.length} ${state.lang === 'nl' ? 'woorden · gele markeringen staan er nog, zodat jij ze hardop kunt beoordelen' : 'words · yellow marks are still there for you to judge out loud'}</span>
@@ -1073,7 +997,7 @@ function stepReadHtml() {
         <a href="${escapeHtml(driveUrl())}" target="_blank" rel="noopener" class="cp-btn-outline cp-align-start">${escapeHtml(t('Open our Drive folder ↗'))}</a>
       </div>
     </div>
-  ` + stepFooterHtml(5, true);
+  ` + stepFooterHtml(4, true);
 }
 
 // ---------- Draft persistence ----------
@@ -1139,7 +1063,6 @@ function finishScriptAndAdvance() {
     ses.idx += 1;
     ses.step = 1;
     ses.phase = 'step';
-    ses.fq = ''; ses.fopen = false; ses.fhi = 0;
     ses.cur = curFor(state.scripts.find(s => s.id === ses.ids[ses.idx]));
     renderSession();
   } else {
@@ -1243,7 +1166,7 @@ function tickDumpTimer() {
 }
 function tickReadTimer() {
   const ses = state.session;
-  if (!ses || ses.step !== 5 || ses.phase === 'done' || !ses.cur.readStart) return;
+  if (!ses || ses.step !== 4 || ses.phase === 'done' || !ses.cur.readStart) return;
   const timerEl = document.getElementById('cp-session-timer');
   if (!timerEl) return;
   timerEl.textContent = fmtClock((ses.cur.readAcc + (Date.now() - ses.cur.readStart)) / 1000);

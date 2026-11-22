@@ -301,23 +301,6 @@ button { font-family: inherit; color: inherit; }
 .cp-session-textarea { min-height: 260px; border: 1px solid rgba(20, 20, 19, 0.12); background: var(--card-bg-alt); border-radius: var(--r-md); padding: 20px 24px; font-size: 1.05rem; line-height: 1.6; font-family: inherit; resize: vertical; outline: none; width: 100%; }
 .cp-session-dump-preview { margin: 0; max-height: 200px; overflow: auto; font-size: 1rem; line-height: 1.6; color: #262627; white-space: pre-wrap; }
 
-.cp-format-combo { position: relative; max-width: 560px; }
-.cp-format-combo-input-row { display: flex; align-items: center; gap: 10px; height: 56px; border: 1px solid rgba(20, 20, 19, 0.2); border-radius: var(--r-sm); background: var(--card-bg-alt); padding: 0 8px 0 20px; }
-.cp-format-combo-input-row input { flex: 1; min-width: 0; height: 100%; border: 0; background: transparent; font-size: 1.05rem; font-family: inherit; outline: none; }
-.cp-format-combo-toggle { flex: none; width: 40px; height: 40px; border-radius: 50%; border: 0; background: transparent; cursor: pointer; font-size: 0.75rem; color: var(--muted); }
-.cp-format-combo-toggle:hover { background: var(--border); }
-.cp-format-dropdown { position: absolute; top: 64px; left: 0; right: 0; max-height: 360px; overflow: auto; background: #fff; border-radius: var(--r-md); box-shadow: var(--shadow-lift); padding: 8px; display: flex; flex-direction: column; gap: 2px; z-index: 30; }
-.cp-format-option { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-radius: 18px; cursor: pointer; }
-.cp-format-option.active { background: var(--card-bg-alt); }
-.cp-format-option .name { font-size: 1rem; font-weight: 500; }
-.cp-format-option .desc { font-size: 0.82rem; color: var(--muted); }
-.cp-format-preview { background: var(--bg); border-radius: var(--r-md); padding: 24px; display: flex; flex-direction: column; gap: 14px; margin-top: 4px; }
-.cp-format-preview .name { font-size: 1.125rem; font-weight: 500; }
-.cp-format-preview .desc { font-size: 0.88rem; color: var(--muted); }
-.cp-format-beat { display: flex; gap: 14px; align-items: baseline; }
-.cp-format-beat .label { flex: none; width: 84px; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.03em; text-transform: uppercase; color: var(--purple); }
-.cp-format-beat .text { font-size: 0.92rem; color: #262627; line-height: 1.4; }
-
 .cp-trim-legend { background: var(--card-bg-alt); border-radius: var(--r-xl); padding: 22px; display: flex; flex-direction: column; gap: 20px; }
 .cp-trim-legend-item { display: flex; flex-direction: column; gap: 8px; }
 .cp-trim-legend-tag { align-self: flex-start; font-size: 0.88rem; font-weight: 700; padding: 4px 14px; border-radius: var(--r-pill); }
@@ -405,7 +388,7 @@ button { font-family: inherit; color: inherit; }
   .cp-scripting-hero-title { font-size: 1.75rem; }
   .cp-scripting-hero-curve { display: none; }
   .cp-session-textarea { min-height: 200px; padding: 16px 18px; }
-  .cp-trim-legend, .cp-format-preview, .cp-handoff-card { padding: 16px; }
+  .cp-trim-legend, .cp-handoff-card { padding: 16px; }
   .cp-done-screen { padding: 36px 18px; }
   .cp-done-check { width: 72px; height: 72px; }
 }
