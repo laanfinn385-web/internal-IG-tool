@@ -1395,6 +1395,10 @@ function renderAccountsList() {
     ).join('');
     const hasOverride = a.dailyLimitOverride != null && a.dailyLimitOverrideUntil;
     const overrideNote = hasOverride ? ` · manual override through ${formatOverrideUntil(a.dailyLimitOverrideUntil)}` : '';
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const hasSchedule = Array.isArray(a.limitSchedule) && a.limitSchedule.length > 0;
+    const nextScheduled = hasSchedule ? a.limitSchedule.find(s => s.effectiveDate > todayStr) : null;
+    const scheduleNote = nextScheduled ? ` · ${nextScheduled.dailyLimit}/day from ${formatOverrideUntil(nextScheduled.effectiveDate)}` : '';
     const platformPrefix = a.platform && a.platform !== 'instagram' ? `${escapeHtml(a.platform === 'threads' ? 'Threads' : a.platform)} · ` : '';
     return `
       <div class="account-row${isWarming ? ' account-row-warming' : ''}" data-id="${a.id}">
@@ -1408,12 +1412,12 @@ function renderAccountsList() {
           ${accountPhotoHtml(a)}
           <div class="account-main">
             <div class="account-username">@${escapeHtml(a.username)}</div>
-            <div class="muted account-meta">${platformPrefix}${formatAccountAge(a.ageDays)} · recommended max ${a.tierCap}/day · sent ${a.todaySentCount} today · ${a.dailyLimit}/day limit${overrideNote}</div>
+            <div class="muted account-meta">${platformPrefix}${formatAccountAge(a.ageDays)} · recommended max ${a.tierCap}/day · sent ${a.todaySentCount} today · ${a.dailyLimit}/day limit${overrideNote}${scheduleNote}</div>
           </div>
           <label class="account-limit-label">Timing sequence
             <select class="account-timing-seq-select" data-id="${a.id}">${sequenceOptions}</select>
           </label>
-          <button type="button" class="account-override-btn${hasOverride ? ' active' : ''}" data-id="${a.id}" title="Override daily max for a set number of days">⋮</button>
+          <button type="button" class="account-override-btn${(hasOverride || hasSchedule) ? ' active' : ''}" data-id="${a.id}" title="Manage daily max — temporary override or scheduled increases">⋮</button>
           <label class="account-limit-label">Messaging sequence
             <select class="account-message-seq-select" data-id="${a.id}">${messageSequenceOptions}</select>
           </label>
@@ -1502,7 +1506,23 @@ function openLimitOverrideModal(id) {
     note.classList.add('hidden');
   }
   $('#limit-override-clear-btn').classList.toggle('hidden', !hasOverride);
+  $('#limit-schedule-error').style.display = 'none';
+  $('#limit-schedule-date').value = '';
+  $('#limit-schedule-value').value = '';
+  renderLimitScheduleList();
   $('#account-limit-override-modal').classList.remove('hidden');
+}
+
+function renderLimitScheduleList() {
+  const account = settingsState.accounts.find(a => a.id === limitOverrideAccountId);
+  const schedule = (account && account.limitSchedule) || [];
+  $('#limit-schedule-list').innerHTML = schedule.length
+    ? schedule.map(s => `
+      <div class="limit-schedule-row" data-id="${s.id}">
+        <span>From ${formatOverrideUntil(s.effectiveDate)}: <strong>${s.dailyLimit}/day</strong></span>
+        <button type="button" class="timing-ramp-day-delete-btn limit-schedule-delete-btn" data-id="${s.id}" title="Remove this scheduled change">🗑</button>
+      </div>`).join('')
+    : '<p class="muted">No scheduled changes yet.</p>';
 }
 
 function closeLimitOverrideModal() {
@@ -1553,6 +1573,51 @@ $('#limit-override-clear-btn').addEventListener('click', async () => {
     $('#limit-override-error').style.display = 'block';
   } finally {
     btn.disabled = false;
+  }
+});
+
+$('#limit-schedule-add-btn').addEventListener('click', async () => {
+  if (!limitOverrideAccountId) return;
+  const effectiveDate = $('#limit-schedule-date').value;
+  const dailyLimit = Number($('#limit-schedule-value').value);
+  const errorEl = $('#limit-schedule-error');
+  if (!effectiveDate || !Number.isFinite(dailyLimit) || dailyLimit < 0) {
+    errorEl.textContent = 'Pick a date and a daily max (0 or more).';
+    errorEl.style.display = 'block';
+    return;
+  }
+  errorEl.style.display = 'none';
+  const btn = $('#limit-schedule-add-btn');
+  btn.disabled = true;
+  try {
+    await fetchJson(`/api/accounts/${limitOverrideAccountId}/limit-schedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ effectiveDate, dailyLimit })
+    });
+    $('#limit-schedule-date').value = '';
+    $('#limit-schedule-value').value = '';
+    await loadAccounts();
+    renderLimitScheduleList();
+  } catch (err) {
+    errorEl.textContent = `Could not add: ${err.message}`;
+    errorEl.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+$('#limit-schedule-list').addEventListener('click', async (e) => {
+  const delBtn = e.target.closest('.limit-schedule-delete-btn');
+  if (!delBtn || !limitOverrideAccountId) return;
+  try {
+    await fetchJson(`/api/accounts/${limitOverrideAccountId}/limit-schedule/${delBtn.dataset.id}`, { method: 'DELETE' });
+    await loadAccounts();
+    renderLimitScheduleList();
+  } catch (err) {
+    const errorEl = $('#limit-schedule-error');
+    errorEl.textContent = `Could not remove: ${err.message}`;
+    errorEl.style.display = 'block';
   }
 });
 
