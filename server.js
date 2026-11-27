@@ -2465,7 +2465,7 @@ function curveBoundaries(rampDays) {
 // account's clock reference lands on, ticking over at the next 4am Amsterdam
 // (or whatever the follow-up due hour setting is), not at the exact
 // clock-time of that reference.
-function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount, rampDays) {
+function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount, rampDays, limitSchedule) {
   const ageDays = ageDaysFrom(r.created_on);
   const tierCap = tierCapForAge(ageDays);
   const { firstNonzeroDay, lastDay } = curveBoundaries(rampDays);
@@ -2516,7 +2516,8 @@ function mapAccountRow(r, todaySentCount, pendingPhase1FollowupCount, rampDays) 
     timingSequenceId: r.timing_sequence_id,
     messageSequenceId: r.message_sequence_id,
     dailyLimitOverride: r.daily_limit_override,
-    dailyLimitOverrideUntil: r.daily_limit_override_until
+    dailyLimitOverrideUntil: r.daily_limit_override_until,
+    limitSchedule: limitSchedule || []
   };
 }
 
@@ -2534,6 +2535,38 @@ async function getRampDaysBySequence(workspaceId) {
   return bySequence;
 }
 
+// An account that's been sitting at its curve's plateau for a while (the
+// common case this exists for) has no good way to be nudged higher without
+// either editing the shared Timing sequence itself (affecting every other
+// account on it) or knowing what "day number" it's currently on in that
+// sequence — which is never shown anywhere once it reaches plateau. This is
+// a plain list of {date, dailyLimit} per account: whichever row's
+// effective_date is the most recent one at-or-before today wins, holding
+// steady past it exactly like the ramp curve holds steady past its own last
+// row — no end date, no auto-revert (that's what the *other* mechanism,
+// daily_limit_override, is for). Takes priority over the curve, but not
+// over an active daily_limit_override (see the recompute loop below).
+async function getLimitScheduleByAccount(workspaceId) {
+  const rows = await sql`SELECT id, account_id, effective_date, daily_limit FROM account_limit_schedule WHERE workspace_id = ${workspaceId} ORDER BY account_id, effective_date ASC`;
+  const byAccount = {};
+  rows.forEach(r => {
+    if (!byAccount[r.account_id]) byAccount[r.account_id] = [];
+    byAccount[r.account_id].push({ id: r.id, effectiveDate: r.effective_date, dailyLimit: r.daily_limit });
+  });
+  return byAccount;
+}
+
+// The most recent scheduled entry whose date has arrived, or null if none
+// has (today's date compares fine lexicographically against 'YYYY-MM-DD').
+function dueScheduleEntry(schedule, today) {
+  let due = null;
+  for (const s of schedule) {
+    if (s.effectiveDate <= today) due = s;
+    else break;
+  }
+  return due;
+}
+
 app.get('/api/accounts', asyncRoute(async (req, res) => {
   const workspaceId = await getWorkspaceId(req);
   const today = todayStr();
@@ -2546,13 +2579,14 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
   // warmup from any phase without touching created_at, which still means
   // "when this row was added to the tool" for list ordering and everywhere
   // else.
-  const [accounts, rampDaysBySequence] = await Promise.all([
+  const [accounts, rampDaysBySequence, limitScheduleByAccount] = await Promise.all([
     sql`
       SELECT *,
         (amsterdam_day_index(now(), ${dueHour}) - amsterdam_day_index(COALESCE(warmup_restarted_at, created_at), ${dueHour})) AS days_since_clock_start
       FROM ig_accounts WHERE workspace_id = ${workspaceId} AND archived_at IS NULL ORDER BY created_at ASC
     `,
-    getRampDaysBySequence(workspaceId)
+    getRampDaysBySequence(workspaceId),
+    getLimitScheduleByAccount(workspaceId)
   ]);
   const sentRows = await sql`
     SELECT account_id, count(*) FROM outreaches
@@ -2642,6 +2676,20 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
       r.daily_limit_override = null;
       r.daily_limit_override_until = null;
     }
+    // A scheduled increase (see account_limit_schedule, added from the ⋮
+    // menu) takes priority over everything curve-related below — including
+    // an already-plateaued (rampup_skipped_at) account — since it's the
+    // most deliberate, date-pinned action a human can take. Unlike the
+    // override above it never expires on its own; it just holds until a
+    // later-dated entry's date arrives (or forever, if it's the last one).
+    const dueEntry = dueScheduleEntry(limitScheduleByAccount[r.id] || [], today);
+    if (dueEntry) {
+      if (r.daily_limit !== dueEntry.dailyLimit) {
+        await sql`UPDATE ig_accounts SET daily_limit = ${dueEntry.dailyLimit} WHERE id = ${r.id} AND workspace_id = ${workspaceId}`;
+        r.daily_limit = dueEntry.dailyLimit;
+      }
+      continue;
+    }
     if (r.rampup_skipped_at) continue; // parked at its curve's plateau already, nothing to recompute
     const rampDays = rampDaysBySequence[r.timing_sequence_id] || [];
     const { firstNonzeroDay } = curveBoundaries(rampDays);
@@ -2667,7 +2715,7 @@ app.get('/api/accounts', asyncRoute(async (req, res) => {
   }
 
   res.json({
-    accounts: accounts.map(r => mapAccountRow(r, sentByAccount[r.id], pendingByAccount[r.id], rampDaysBySequence[r.timing_sequence_id] || [])),
+    accounts: accounts.map(r => mapAccountRow(r, sentByAccount[r.id], pendingByAccount[r.id], rampDaysBySequence[r.timing_sequence_id] || [], limitScheduleByAccount[r.id] || [])),
     upgraded: warmupJustEnded
   });
 }));
@@ -2944,6 +2992,48 @@ app.delete('/api/accounts/:id/limit-override', asyncRoute(async (req, res) => {
     UPDATE ig_accounts SET daily_limit_override = NULL, daily_limit_override_until = NULL
     WHERE id = ${req.params.id} AND workspace_id = ${workspaceId}
   `;
+  res.json({ ok: true });
+}));
+
+// Scheduled (permanent, date-pinned) daily-limit changes — see
+// getLimitScheduleByAccount/dueScheduleEntry and the recompute loop above.
+// One row per {account, date}; adding a second entry for a date that
+// already has one replaces it rather than creating a duplicate, so there's
+// never ambiguity about which limit a given date means.
+app.post('/api/accounts/:id/limit-schedule', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  const { id } = req.params;
+  const [account] = await sql`SELECT id FROM ig_accounts WHERE id = ${id} AND workspace_id = ${workspaceId} AND archived_at IS NULL`;
+  if (!account) return res.status(404).json({ error: 'Account not found.' });
+  const effectiveDate = String(req.body.effectiveDate || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate)) return res.status(400).json({ error: 'Enter a valid date.' });
+  const dailyLimit = Math.max(0, Math.round(Number(req.body.dailyLimit)) || 0);
+
+  const [existing] = await sql`SELECT id FROM account_limit_schedule WHERE account_id = ${id} AND workspace_id = ${workspaceId} AND effective_date = ${effectiveDate}`;
+  if (existing) {
+    await sql`UPDATE account_limit_schedule SET daily_limit = ${dailyLimit} WHERE id = ${existing.id}`;
+  } else {
+    await sql`
+      INSERT INTO account_limit_schedule (id, workspace_id, account_id, effective_date, daily_limit)
+      VALUES (${crypto.randomUUID()}, ${workspaceId}, ${id}, ${effectiveDate}, ${dailyLimit})
+    `;
+  }
+
+  // Applied immediately if its date has already arrived (same promise the
+  // override makes) — found fresh here rather than reusing GET's bulk
+  // fetch, since this only ever touches the one account.
+  const today = todayStr();
+  if (effectiveDate <= today) {
+    const schedule = await sql`SELECT effective_date, daily_limit FROM account_limit_schedule WHERE account_id = ${id} AND workspace_id = ${workspaceId} ORDER BY effective_date ASC`;
+    const due = dueScheduleEntry(schedule.map(s => ({ effectiveDate: s.effective_date, dailyLimit: s.daily_limit })), today);
+    if (due) await sql`UPDATE ig_accounts SET daily_limit = ${due.dailyLimit} WHERE id = ${id} AND workspace_id = ${workspaceId}`;
+  }
+  res.json({ ok: true });
+}));
+
+app.delete('/api/accounts/:id/limit-schedule/:scheduleId', asyncRoute(async (req, res) => {
+  const workspaceId = await getWorkspaceId(req);
+  await sql`DELETE FROM account_limit_schedule WHERE id = ${req.params.scheduleId} AND account_id = ${req.params.id} AND workspace_id = ${workspaceId}`;
   res.json({ ok: true });
 }));
 

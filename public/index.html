@@ -1673,7 +1673,7 @@
            curve would otherwise compute, for a set number of days. -->
       <div id="account-limit-override-modal" class="modal-overlay hidden">
         <div class="modal">
-          <h3>Daily max override — <span id="limit-override-username"></span></h3>
+          <h3>Daily max — <span id="limit-override-username"></span></h3>
           <p class="muted" style="margin-top:-8px;">Overrides the Timing sequence's own ramp for a set number of days, then automatically reverts back to it.</p>
           <p class="muted hidden" id="limit-override-active-note"></p>
           <label>Daily max
@@ -1686,8 +1686,27 @@
           <div class="modal-actions" style="justify-content:space-between;">
             <button id="limit-override-clear-btn" class="btn-secondary hidden">Clear override</button>
             <span style="flex:1;"></span>
-            <button id="limit-override-cancel-btn" class="btn-secondary">Cancel</button>
-            <button id="limit-override-save-btn" class="btn-primary">Save</button>
+            <button id="limit-override-save-btn" class="btn-secondary">Save override</button>
+          </div>
+
+          <hr style="margin:22px 0 16px;border:none;border-top:1px solid rgba(20,20,19,0.1);">
+
+          <h3 style="margin-bottom:4px;">Scheduled increases</h3>
+          <p class="muted" style="margin-top:-8px;">Step the daily max up (or down) permanently from a future date, without resetting warmup — once an account's been steady at its plateau and you want to keep nudging it higher, this is for that. Each entry holds from its date until the next one, or forever if it's the last one.</p>
+          <div id="limit-schedule-list"></div>
+          <div class="limit-schedule-add-row">
+            <label style="margin-bottom:0;">From
+              <input type="date" id="limit-schedule-date">
+            </label>
+            <label style="margin-bottom:0;">Daily max
+              <input type="number" id="limit-schedule-value" min="0" placeholder="e.g. 25">
+            </label>
+            <button type="button" id="limit-schedule-add-btn" class="btn-secondary">+ Add</button>
+          </div>
+          <p class="muted" id="limit-schedule-error" style="display:none; color: var(--red);"></p>
+
+          <div class="modal-actions">
+            <button id="limit-override-cancel-btn" class="btn-secondary">Close</button>
           </div>
         </div>
       </div>

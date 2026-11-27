@@ -2325,6 +2325,12 @@ body.has-ig-cooldown-banner .main-wrap { margin-top: 42px; }
 .timing-ramp-day-row label { display: flex; align-items: center; gap: 6px; font-size: 0.78rem; color: var(--muted); font-weight: 600; margin-bottom: 0; }
 .timing-ramp-day-input { width: 72px; margin-bottom: 0; }
 .timing-ramp-day-delete-btn { margin-left: auto; flex-shrink: 0; background: none; border: none; cursor: pointer; font-size: 0.9rem; }
+
+#limit-schedule-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; }
+.limit-schedule-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 14px; background: var(--card-bg-alt); border-radius: var(--r-pill); font-size: 0.88rem; }
+.limit-schedule-add-row { display: flex; align-items: flex-end; gap: 10px; flex-wrap: wrap; }
+.limit-schedule-add-row label { margin-bottom: 0; }
+.limit-schedule-add-row input { width: auto; margin-top: 5px; }
 .message-seq-step-row { flex-wrap: wrap; }
 .message-seq-step-type-input { width: 90px; margin-bottom: 0; flex-shrink: 0; }
 .message-seq-step-message-input { flex: 1; min-width: 160px; margin-bottom: 0; }
